@@ -269,10 +269,10 @@ port = 19530
 
 首次启动时，BM25 模块会自动从 `backend/data/mysql_qa/qa_data.csv` 加载种子问答对到 MySQL 和 Redis 中。
 
-### 6. 构建并启动前端
+### 6. 构建前端
 
 ```bash
-# 构建前端（输出到 backend/dist/）
+# 构建前端（输出到 frontend/dist/）
 cd frontend
 npm run build
 ```

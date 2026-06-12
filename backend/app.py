@@ -64,11 +64,12 @@ def interceptor(func):
 system = IntegratedSystem()
 
 # 从文件中读入html主页
-with open(conf.index_file, "r", encoding="utf-8") as f:
+index_path = os.path.normpath(os.path.join(os.path.dirname(__file__), conf.index_file))
+with open(index_path, "r", encoding="utf-8") as f:
     html_content = f.read()
 
-# 定义静态文件目录路径，假设静态文件位于与当前文件同级的 dist 目录下
-dist_path = os.path.join(os.path.dirname(__file__), "dist")
+# 定义静态文件目录路径，指向前端构建产物
+dist_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 
 # 挂载 /assets 目录
 app.mount("/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")

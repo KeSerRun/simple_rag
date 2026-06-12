@@ -104,6 +104,15 @@ async def register(request: Request):
         logger.error(f"Error in register: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# 启动时根据配置文件中的超级管理员用户名和密码创建超级管理员账户
+def create_superusers():
+    for superuser_username, superuser_password in zip(conf.superuser_usernames, conf.superuser_passwords):
+        try:
+            system.mysql_client.insert_user(superuser_username, superuser_password, role="admin")
+            logger.info(f"Superuser '{superuser_username}' created successfully.")
+        except Exception as e:
+            logger.error(f"Error creating superuser '{superuser_username}': {str(e)}")
+
 @app.post("/api/login")
 async def login(request: Request):
     """处理用户登录"""
@@ -490,6 +499,8 @@ async def index():
     
 
 if __name__ == "__main__":
+    # 启动时根据配置文件中的超级管理员用户名和密码创建超级管理员账户
+    create_superusers()
     # 导入 uvicorn 异步服务器用于运行 FastAPI 应用
     import uvicorn
     # 启动 FastAPI 应用，监听在 11000 端口

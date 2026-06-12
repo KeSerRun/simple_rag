@@ -162,6 +162,12 @@ class Config:
         # jwt密钥
         self.jwt_secret_key = config.get('jwt', 'secret_key')
 
+        # superuser配置
+        # 超级管理员用户名
+        self.superuser_usernames = [username.strip() for username in config.get('superuser', 'users').split(',')]
+        # 超级管理员密码
+        self.superuser_passwords = [password.strip() for password in config.get('superuser', 'passwords').split(',')]
+
 # 创建全局配置实例，供其他模块使用
 conf = Config()   
 

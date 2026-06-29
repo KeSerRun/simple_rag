@@ -3,7 +3,7 @@ from base.logger import logger
 from .context_builder import ContextBuilder
 from .openai_client import OpenAIClient
 
-STRATEGIES = ["直接检索", "假设问题检索", "子查询检索", "回溯问题检索"]
+STRATEGIES = ["直接检索", "子查询检索"]
 
 
 class StrategySelector:
@@ -22,7 +22,7 @@ class StrategySelector:
         self.device = device
 
     def select_strategy(self, query: str) -> str:
-        messages = self.context_builder.build_messages("strategy_selector", query=query)
+        messages = self.context_builder.build_messages("strategy-selector", query=query)
         try:
             strategy = self.client.chat(
                 messages=messages,

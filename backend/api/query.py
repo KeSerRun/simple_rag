@@ -12,9 +12,10 @@ router = APIRouter(prefix="/api", tags=["query"])
 
 
 def _sse_wrapper(generator):
-    """把普通字符串生成器包装成 SSE `data: ...\\n\\n` 流"""
+    """把普通字符串生成器包装成 SSE `data: ...\\n\\n` 流。
+    token 内容用 JSON 编码，避免换行符等特殊字符破坏 SSE 帧结构。"""
     for item in generator:
-        yield f"data: {item}\n\n"
+        yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
 
 @router.post("/query")

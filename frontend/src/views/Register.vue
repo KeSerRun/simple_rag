@@ -164,8 +164,8 @@ const handleRegister = (e) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at top, rgba(204, 120, 92, 0.08), transparent 60%),
-    var(--n-body-color, #faf9f7);
+  background: radial-gradient(ellipse at top, rgba(212, 115, 78, 0.08), transparent 60%),
+    transparent;
   padding: 24px;
   box-sizing: border-box;
 }
@@ -186,7 +186,7 @@ const handleRegister = (e) => {
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
-  color: #cc785c;
+  color: #d4734e;
 }
 
 .brand-name {
@@ -208,7 +208,7 @@ const handleRegister = (e) => {
 }
 
 .auth-link {
-  color: #cc785c;
+  color: #d4734e;
   text-decoration: none;
   font-weight: 500;
 }

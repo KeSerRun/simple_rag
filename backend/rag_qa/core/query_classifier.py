@@ -28,12 +28,23 @@ class QueryClassifier:
         self.context_builder = context_builder
         self.device = device
 
-    def predict(self, query: str) -> str:
+    def predict(self, query: str, context=None) -> str:
+        # context 可以是 str 或 list[dict]（history 格式）
+        if context is None:
+            ctx = f"用户查询：{query}"
+        elif isinstance(context, list):
+            parts = [f"用户查询：{query}"]
+            for h in context:
+                if '<operation' in h.get('content', ''):
+                    parts.append(h['content'])
+            ctx = "\n".join(parts)
+        else:
+            ctx = str(context)
         messages = self.context_builder.build_messages(
-            "query_classifier",
+            "query-classifier",
             needed=self.label_list[0],
             generic=self.label_list[1],
-            query=query,
+            context=ctx,
         )
         try:
             resp = self.client.chat(

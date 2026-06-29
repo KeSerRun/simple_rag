@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from base.config import conf
-from base.logger import logger
+from base.logger import logger, log_http
 
 # 注册业务路由(各文件内含 APIRouter,前缀均为 /api)
 from api import auth, documents, history, query, sessions
@@ -25,6 +25,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# HTTP 请求日志中间件
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    response = await call_next(request)
+    username = "-"
+    if hasattr(request.state, "user") and request.state.user:
+        username = request.state.user.get("username", "-")
+    log_http(request.method, request.url.path, response.status_code, username)
+    return response
 
 # 注册业务路由
 app.include_router(auth.router)

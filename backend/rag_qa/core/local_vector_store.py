@@ -167,15 +167,18 @@ class VectorStore:
 
     def delete_documents_by_partition(self, partition: Optional[str] = None):
         with self._lock:
+            before = len(self.metadata)
             if partition:
                 keep_indices = [i for i, m in enumerate(self.metadata) if m["partition"] != partition]
             else:
                 keep_indices = []
             self._apply_keep_indices(keep_indices)
-        logger.info(f"成功删除分区 {partition} 中的所有文档数据")
+            removed = before - len(self.metadata)
+        logger.info(f"删除分区 {partition} 文档: 移除 {removed} 条向量, 剩余 {len(self.metadata)} 条")
 
     def delete_documents_by_sources(self, sources, partition: Optional[str] = None):
         with self._lock:
+            before = len(self.metadata)
             keep_indices = []
             for i, m in enumerate(self.metadata):
                 if m["source"] in sources:
@@ -184,7 +187,8 @@ class VectorStore:
                 else:
                     keep_indices.append(i)
             self._apply_keep_indices(keep_indices)
-        logger.info(f"成功删除来源 {sources} 中的所有文档数据")
+            removed = before - len(self.metadata)
+        logger.info(f"删除来源 {sources} 文档: 移除 {removed} 条向量, 剩余 {len(self.metadata)} 条")
 
     def _apply_keep_indices(self, keep_indices):
         keep_set = set(keep_indices)

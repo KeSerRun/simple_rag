@@ -1,10 +1,21 @@
 <template>
   <header class="chat-header">
     <div class="header-left">
+      <n-button
+        class="menu-btn"
+        quaternary
+        circle
+        size="small"
+        @click="$emit('toggle-sidebar')"
+      >
+        <template #icon>
+          <n-icon :component="MenuOutline" />
+        </template>
+      </n-button>
       <n-h3 class="title">{{ title }}</n-h3>
     </div>
 
-    <n-space :size="6" align="center">
+    <n-space :size="6" align="center" class="header-actions">
       <n-button quaternary @click="$emit('open-doc-manager')">
         <template #icon>
           <n-icon :component="LibraryOutline" />
@@ -20,17 +31,6 @@
           {{ documentCount }}
         </n-tag>
       </n-button>
-
-      <n-tooltip placement="bottom">
-        <template #trigger>
-          <n-button quaternary circle @click="themeStore.toggle">
-            <template #icon>
-              <n-icon :component="themeStore.isDark ? SunnyOutline : MoonOutline" />
-            </template>
-          </n-button>
-        </template>
-        {{ themeStore.isDark ? '切换到亮色' : '切换到暗色' }}
-      </n-tooltip>
 
       <n-tooltip placement="bottom">
         <template #trigger>
@@ -57,26 +57,22 @@ import {
 } from 'naive-ui'
 import {
   LibraryOutline,
-  MoonOutline,
-  SunnyOutline,
   LogOutOutline,
+  MenuOutline,
 } from '@vicons/ionicons5'
-import { useThemeStore } from '@/stores/theme'
-
-const themeStore = useThemeStore()
 
 defineProps({
   title: { type: String, default: '新会话' },
   documentCount: { type: Number, default: 0 },
 })
 
-defineEmits(['open-doc-manager', 'logout'])
+defineEmits(['open-doc-manager', 'logout', 'toggle-sidebar'])
 </script>
 
 <style scoped>
 .chat-header {
   padding: 14px 24px;
-  border-bottom: 1px solid var(--n-divider-color, #e8e6e2);
+  border-bottom: 1px solid var(--n-divider-color, #d4cfc8);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -89,6 +85,13 @@ defineEmits(['open-doc-manager', 'logout'])
   display: flex;
   align-items: center;
   min-width: 0;
+  flex: 1 1 auto;
+  gap: 6px;
+}
+
+/* 汉堡菜单按钮 */
+.menu-btn {
+  flex-shrink: 0;
 }
 
 .title {
@@ -98,6 +101,12 @@ defineEmits(['open-doc-manager', 'logout'])
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 60vw;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 右侧操作区保持固定宽度 */
+.header-actions {
+  flex-shrink: 0;
 }
 </style>

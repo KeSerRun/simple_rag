@@ -4,9 +4,11 @@
       :sessions="sessionList"
       :current-session-id="currentSessionId"
       :is-loading="isLoadingHistory"
+      :drawer-open="drawerOpen"
       @create="createNewSession"
       @switch="switchSession"
       @delete="confirmDeleteSession"
+      @close="drawerOpen = false"
     />
 
     <main class="chat-main">
@@ -15,6 +17,7 @@
         :document-count="documentList.length"
         @open-doc-manager="openDocManager"
         @logout="handleLogout"
+        @toggle-sidebar="drawerOpen = !drawerOpen"
       />
 
       <MessageList
@@ -43,9 +46,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 import { useMessage, useDialog, useLoadingBar } from 'naive-ui'
 
 import { useUserStore } from '@/stores/user'
@@ -81,8 +84,27 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024
 const documentList = ref([])
 const isDocModalOpen = ref(false)
 const isDeleting = ref(false)
+const drawerOpen = ref(true)
 
-marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false })
+// 格式化会话标题：首条消息摘要 + 相对时间
+const formatSessionTitle = (firstMsg, createdAt) => {
+  const msg = firstMsg ? (firstMsg.length > 20 ? firstMsg.slice(0, 20) + '...' : firstMsg) : ''
+  const time = createdAt ? relativeTime(createdAt) : ''
+  if (msg && time) return `${msg} · ${time}`
+  if (msg) return msg
+  return time ? `新会话 · ${time}` : '新会话'
+}
+
+const relativeTime = (isoStr) => {
+  const now = Date.now()
+  const then = new Date(isoStr).getTime()
+  const diff = Math.floor((now - then) / 1000)
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
+  if (diff < 172800) return '昨天'
+  return `${Math.floor(diff / 86400)}天前`
+}
 
 const currentSessionTitle = computed(() => {
   const session = sessionList.value.find((s) => s.id === currentSessionId.value)
@@ -167,8 +189,8 @@ const fetchUserSessions = async () => {
       const backendSessions = response.data.sessions || []
       if (backendSessions.length > 0) {
         sessionList.value = backendSessions.map((s) => ({
-          id: typeof s === 'string' ? s : s.id,
-          title: typeof s === 'string' ? '历史会话' : s.title || '历史会话',
+          id: s.id,
+          title: formatSessionTitle(s.first_msg, s.created_at),
         }))
         const latestId = sessionList.value[sessionList.value.length - 1].id
         if (
@@ -253,7 +275,7 @@ const loadHistoryMessages = async (sessionId) => {
           {
             role: 'ai',
             content: msg.assistant,
-            renderedContent: marked.parse(msg.assistant || ''),
+            renderedContent: renderMarkdown(msg.assistant || ''),
           }
         )
       }
@@ -277,6 +299,7 @@ const throttleScroll = () => {
 }
 
 let lastProcessedLength = 0
+let sseBuffer = ''
 
 const sendQuestion = async (text) => {
   if (!text || isLoading.value) return
@@ -285,13 +308,12 @@ const sendQuestion = async (text) => {
   isLoading.value = true
   throttleScroll()
 
-  const aiMessage = reactive({
-    role: 'ai',
-    content: '',
-    renderedContent: computed(() => marked.parse(aiMessage.content)),
-  })
-  messages.value.push(aiMessage)
-
+  // 立即推入占位 AI 消息，后续通过索引替换来更新（触发 Vue 数组响应式）
+  messages.value.push({ role: 'ai', content: '', renderedContent: '', _v: 0 })
+  const aiIndex = messages.value.length - 1
+  let aiContent = ''
+  let aiVersion = 0
+  sseBuffer = ''
   lastProcessedLength = 0
 
   try {
@@ -307,27 +329,60 @@ const sendQuestion = async (text) => {
           if (!newText) return
           lastProcessedLength = fullText.length
 
-          const lines = newText.split('\n')
-          let buffer = ''
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed.startsWith('data:')) continue
-            const content = trimmed.slice(5).trim()
-            if (content === '[DONE]') continue
-            if (content) buffer += content
+          // SSE buffer：只处理以 \n\n 结尾的完整事件，碎片留到下次
+          sseBuffer += newText
+          const events = sseBuffer.split('\n\n')
+          sseBuffer = events.pop() || ''
+
+          let chunk = ''
+          for (const event of events) {
+            const lines = event.split('\n')
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed.startsWith('data:')) continue
+              const raw = trimmed.slice(5)
+              if (!raw || raw === '[DONE]') continue
+              // 后端用 JSON 编码 token，这里解码（正确处理 \n、空格、特殊字符）
+              let content
+              try {
+                content = JSON.parse(raw)
+              } catch {
+                // 兼容旧格式（如 [DONE] 等非 JSON）
+                content = raw
+              }
+              if (!content) continue
+              chunk += content
+            }
           }
-          if (buffer) {
-            aiMessage.content += buffer
+
+          if (chunk) {
+            aiContent += chunk
+            aiVersion++
+            // 索引替换触发 Vue 数组响应式
+            messages.value[aiIndex] = {
+              role: 'ai',
+              content: aiContent,
+              renderedContent: renderMarkdown(aiContent),
+              _v: aiVersion,
+            }
             throttleScroll()
           }
         },
       }
     )
   } catch (error) {
-    aiMessage.content += '\n\n*[系统错误,请重试]*'
-    message.error('请求失败,请重试')
+    aiContent += '\n\n*[系统错误，请重试]*'
+    aiVersion++
+    messages.value[aiIndex] = {
+      role: 'ai',
+      content: aiContent,
+      renderedContent: renderMarkdown(aiContent),
+      _v: aiVersion,
+    }
+    message.error('请求失败，请重试')
   } finally {
     isLoading.value = false
+    sseBuffer = ''
     nextTick(() => messageListRef.value?.scrollToBottom())
   }
 }
@@ -398,7 +453,7 @@ onMounted(() => {
   height: 100vh;
   width: 100%;
   overflow: hidden;
-  background-color: var(--n-body-color, #faf9f7);
+  background-color: transparent;
 }
 
 .chat-main {
@@ -406,6 +461,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background-color: var(--n-body-color, #faf9f7);
+  background-color: transparent;
 }
 </style>

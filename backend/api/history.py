@@ -21,7 +21,7 @@ async def clear_history(request: Request):
         if not session_id:
             raise HTTPException(status_code=400, detail="No session_id provided")
         username = request.state.user["username"]
-        owned = system.data_store.fetch_sessions_by_username(username) or []
+        owned = [s['id'] for s in (system.data_store.fetch_sessions_by_username(username) or [])]
         if session_id not in owned:
             raise HTTPException(status_code=403, detail="Forbidden")
         system.data_store.delete_session_history(session_id)
@@ -42,7 +42,7 @@ async def get_history(request: Request, session_id: str):
     """获取会话历史记录(仅允许读取调用者自己的 session)"""
     try:
         username = request.state.user["username"]
-        owned = system.data_store.fetch_sessions_by_username(username) or []
+        owned = [s['id'] for s in (system.data_store.fetch_sessions_by_username(username) or [])]
         if session_id not in owned:
             raise HTTPException(status_code=403, detail="Forbidden")
         history = system.data_store.get_session_history(session_id)

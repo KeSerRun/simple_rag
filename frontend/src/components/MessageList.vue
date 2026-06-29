@@ -33,7 +33,7 @@
           v-else
           round
           size="small"
-          :style="{ backgroundColor: 'rgba(204, 120, 92, 0.15)', color: '#cc785c' }"
+          :style="{ backgroundColor: 'rgba(212, 115, 78, 0.15)', color: '#d4734e' }"
         >
           <n-icon :component="SparklesOutline" />
         </n-avatar>
@@ -44,18 +44,18 @@
         <div
           v-else
           class="ai-content"
-          v-html="msg.renderedContent || parseMarkdown(msg.content)"
+          v-html="parseMarkdown(msg.content)"
         ></div>
       </div>
     </div>
 
-    <!-- 思考中 -->
-    <div v-if="isLoading" class="message ai">
+    <!-- 思考中：等待后端首段响应（最后一条消息是用户消息，说明 AI 还没开始回复） -->
+    <div v-if="isLoading && (!messages.length || messages[messages.length - 1]?.role !== 'ai')" class="message ai">
       <div class="avatar-wrap">
         <n-avatar
           round
           size="small"
-          :style="{ backgroundColor: 'rgba(204, 120, 92, 0.15)', color: '#cc785c' }"
+          :style="{ backgroundColor: 'rgba(212, 115, 78, 0.15)', color: '#d4734e' }"
         >
           <n-icon :component="SparklesOutline" />
         </n-avatar>
@@ -71,7 +71,7 @@
 
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 import { NAvatar, NIcon, NH2, NText } from 'naive-ui'
 import { PersonOutline, SparklesOutline } from '@vicons/ionicons5'
 
@@ -87,7 +87,7 @@ const sessionIdDisplay = computed(() =>
   props.currentSessionId ? `${props.currentSessionId.substring(0, 8)}...` : ''
 )
 
-const parseMarkdown = (text) => (text ? marked.parse(text) : '')
+const parseMarkdown = (text) => renderMarkdown(text)
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -131,8 +131,8 @@ defineExpose({ scrollToBottom })
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, rgba(204, 120, 92, 0.2), rgba(204, 120, 92, 0.05));
-  color: #cc785c;
+  background: linear-gradient(135deg, rgba(212, 115, 78, 0.2), rgba(212, 115, 78, 0.05));
+  color: #d4734e;
   margin-bottom: 8px;
 }
 
@@ -187,19 +187,19 @@ defineExpose({ scrollToBottom })
 }
 
 .message.user .bubble {
-  background-color: rgba(204, 120, 92, 0.12);
+  background-color: rgba(212, 115, 78, 0.12);
   border-bottom-right-radius: 4px;
 }
 
 .message.ai .bubble {
   background-color: var(--n-card-color, #ffffff);
-  border: 1px solid var(--n-divider-color, #e8e6e2);
+  border: 1px solid var(--n-divider-color, #d4cfc8);
   border-bottom-left-radius: 4px;
 }
 
 .user-content {
   white-space: pre-wrap;
-  color: var(--n-text-color-1, #2c2825);
+  color: var(--n-text-color-1, #1a1714);
 }
 
 .bubble.thinking {
@@ -218,7 +218,7 @@ defineExpose({ scrollToBottom })
 .thinking-dots span {
   width: 6px;
   height: 6px;
-  background-color: #cc785c;
+  background-color: #d4734e;
   border-radius: 50%;
   display: inline-block;
   animation: thinkingBounce 1.4s infinite ease-in-out both;
@@ -248,7 +248,7 @@ defineExpose({ scrollToBottom })
 
 /* AI 内容的 markdown 样式 */
 .ai-content {
-  color: var(--n-text-color-1, #2c2825);
+  color: var(--n-text-color-1, #1a1714);
 }
 
 .ai-content :deep(h1),
@@ -307,17 +307,17 @@ defineExpose({ scrollToBottom })
 
 .ai-content :deep(:not(pre) > code) {
   background-color: rgba(120, 112, 104, 0.15);
-  color: #cc785c;
+  color: #d4734e;
   padding: 2px 6px;
   border-radius: 4px;
 }
 
 .ai-content :deep(blockquote) {
-  border-left: 3px solid #cc785c;
+  border-left: 3px solid #d4734e;
   padding: 4px 14px;
   margin: 12px 0;
-  color: var(--n-text-color-2, #5d5751);
-  background-color: rgba(204, 120, 92, 0.05);
+  color: var(--n-text-color-2, #4a4440);
+  background-color: rgba(212, 115, 78, 0.05);
   border-radius: 0 6px 6px 0;
 }
 
@@ -330,7 +330,7 @@ defineExpose({ scrollToBottom })
 
 .ai-content :deep(th),
 .ai-content :deep(td) {
-  border: 1px solid var(--n-divider-color, #e8e6e2);
+  border: 1px solid var(--n-divider-color, #d4cfc8);
   padding: 8px 12px;
   text-align: left;
 }
@@ -341,7 +341,7 @@ defineExpose({ scrollToBottom })
 }
 
 .ai-content :deep(a) {
-  color: #cc785c;
+  color: #d4734e;
   text-decoration: none;
 }
 
@@ -351,7 +351,7 @@ defineExpose({ scrollToBottom })
 
 .ai-content :deep(hr) {
   border: none;
-  border-top: 1px solid var(--n-divider-color, #e8e6e2);
+  border-top: 1px solid var(--n-divider-color, #d4cfc8);
   margin: 16px 0;
 }
 

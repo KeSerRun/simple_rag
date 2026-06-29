@@ -2,6 +2,7 @@
   <div class="input-area">
     <div class="input-row">
       <div class="left-actions">
+        <!-- 单文件上传 -->
         <n-upload
           :show-file-list="false"
           :custom-request="handleUpload"
@@ -22,6 +23,30 @@
               </n-button>
             </template>
             上传文件
+          </n-tooltip>
+        </n-upload>
+        <!-- 文件夹上传 -->
+        <n-upload
+          :show-file-list="false"
+          :custom-request="handleUpload"
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg"
+          :disabled="isUploading"
+          multiple
+          directory
+        >
+          <n-tooltip placement="top">
+            <template #trigger>
+              <n-button
+                circle
+                quaternary
+                :disabled="isUploading"
+              >
+                <template #icon>
+                  <n-icon :component="FolderOpenOutline" />
+                </template>
+              </n-button>
+            </template>
+            上传文件夹
           </n-tooltip>
         </n-upload>
       </div>
@@ -72,7 +97,7 @@ import {
   NTooltip,
   NText,
 } from 'naive-ui'
-import { AttachOutline, ArrowUpOutline } from '@vicons/ionicons5'
+import { AttachOutline, ArrowUpOutline, FolderOpenOutline } from '@vicons/ionicons5'
 
 const props = defineProps({
   isLoading: { type: Boolean, default: false },
@@ -107,7 +132,7 @@ const handleUpload = ({ file, onFinish, onError }) => {
 <style scoped>
 .input-area {
   padding: 16px 24px 20px;
-  border-top: 1px solid var(--n-divider-color, #e8e6e2);
+  border-top: 1px solid var(--n-divider-color, #d4cfc8);
   background-color: var(--n-card-color, #ffffff);
   flex-shrink: 0;
 }

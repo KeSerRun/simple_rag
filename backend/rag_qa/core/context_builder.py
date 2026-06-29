@@ -39,10 +39,10 @@ from base.logger import logger
 
 # 核心 skill:决定 RAG 主干行为,只允许从基线目录加载
 CORE_SKILLS = frozenset({
-    "answer_with_context",
+    "answer-with-context",
     "rerank",
-    "query_classifier",
-    "strategy_selector",
+    "query-classifier",
+    "strategy-selector",
 })
 
 

@@ -31,20 +31,44 @@ def setup_logger(log_file=conf.log_file):
 
 logger = setup_logger()  # 创建全局日志记录器实例，供其他模块使用
 
+# HTTP 请求日志专用
+_http_log_path = os.path.join(os.path.dirname(conf.log_file), 'http.log')
+_http_logger = logging.getLogger('HTTPLogger')
+_http_logger.setLevel(logging.INFO)
+_http_logger.propagate = False  # 不冒泡到 RAGLogger
+_http_handler = logging.FileHandler(_http_log_path, encoding='utf-8')
+_http_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+_http_logger.addHandler(_http_handler)
+
+# 用户 QA 问答日志专用
+_user_log_path = os.path.join(os.path.dirname(conf.log_file), 'user.log')
+_user_logger = logging.getLogger('UserLogger')
+_user_logger.setLevel(logging.INFO)
+_user_logger.propagate = False  # 不冒泡到 RAGLogger
+_user_handler = logging.FileHandler(_user_log_path, encoding='utf-8')
+_user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+_user_logger.addHandler(_user_handler)
+
+def log_http(method: str, path: str, status: int, username: str = '-'):
+    """记录 HTTP 请求"""
+    _http_logger.info(f'{method:6s} {status}  {username:12s}  {path}')
+
+def log_qa(username: str, session_id: str, question: str, answer: str):
+    """记录用户 QA 问答对"""
+    _user_logger.info(f'[{username}][{session_id}] Q: {question}')
+    _user_logger.info(f'[{username}][{session_id}] A: {answer}')
+
 def batch_configure_loggers(level=logging.WARNING,propagate=False):
     """
     批量配置所有已注册的 logger，设置 propagate=False，防止日志冒泡到根 logger。
     """
-    # 获取所有已注册的 logger
+    # 保护这些 logger 不被覆盖
+    _protected = {'RAGLogger', 'HTTPLogger', 'UserLogger'}
     manager = logging.Logger.manager # type: logging.Manager
-    # 遍历 loggerDict 中的所有 logger 对象
     for name, logger_obj in manager.loggerDict.items():
-        # logger_obj 可能是 Logger 实例，也可能是 PlaceHolder（占位符），需要检查类型
         if isinstance(logger_obj, logging.Logger):
-            if logger_obj.name != 'RAGLogger':  # 避免修改 RAGLogger 的配置
-                # 关闭 propagate 属性，防止日志冒泡到根 logger
+            if logger_obj.name not in _protected:
                 logger_obj.propagate = propagate
-                # 设置日志级别，过滤掉 DEBUG 和 INFO 日志
                 logger_obj.level = level  
 
 

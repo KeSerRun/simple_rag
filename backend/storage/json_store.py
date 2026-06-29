@@ -124,7 +124,19 @@ class JSONFileStore:
 
     def fetch_sessions_by_username(self, username):
         sessions = self._read_json(self._sessions_file)
-        result = [s['session_id'] for s in sessions if s['username'] == username]
+        result = []
+        for s in sessions:
+            if s['username'] == username:
+                # 取首条用户消息作为会话摘要
+                first_msg = ''
+                history = self.get_session_history(s['session_id'])
+                if history and len(history) > 0:
+                    first_msg = history[0].get('user', '')[:40]
+                result.append({
+                    'id': s['session_id'],
+                    'created_at': s.get('created_at', ''),
+                    'first_msg': first_msg,
+                })
         return result if result else None
 
     # --- 对话历史 ----------------------------------------------------------

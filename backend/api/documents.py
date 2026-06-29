@@ -87,6 +87,7 @@ async def upload_file(
             raise HTTPException(status_code=400, detail="缺少 session_id")
 
         results = []
+        filenames = []
         for file in files:
             content = await file.read()
             save_path = f"{conf.vector_store_dir}/tmp/{username}/{file.filename}"
@@ -98,6 +99,8 @@ async def upload_file(
                 "size": len(content),
                 "content_type": file.content_type,
             })
+            filenames.append(file.filename)
+        system.record_upload(session_id, filenames)
         return JSONResponse(content={"files": results})
     except HTTPException:
         raise
@@ -120,6 +123,7 @@ async def upload_embeddings(
         if not session_id:
             raise HTTPException(status_code=400, detail="缺少 session_id")
         results = []
+        filenames = []
         for file in files:
             content = await file.read()
             save_path = f"{conf.vector_store_dir}/tmp/{username}/{file.filename}"
@@ -131,7 +135,13 @@ async def upload_embeddings(
                 "size": len(content),
                 "content_type": file.content_type,
             })
+            filenames.append(file.filename)
+            # 同名文档先删旧向量，避免重复
+            logger.info(f"准备删除同名文档旧向量: {file.filename}, partition={username}")
+            system.vector_store.delete_documents_by_sources([file.filename], partition=username)
             system.vector_store.store_documents_from_dir(save_path, partition=username)
+        # 记录上传的文件名，供生成答案时注入上下文
+        system.record_upload(session_id, filenames)
         return JSONResponse(content={"files": results})
     except HTTPException:
         raise

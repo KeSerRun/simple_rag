@@ -124,7 +124,7 @@ class RAGSystem:
         logger.info(f"收到用户查询: {query}")
         if not force_retrieve:
             try:
-                query_category = self.query_classifier.predict(query)
+                query_category = self.query_classifier.predict(query, context=(history or []))
                 logger.info(f"查询分类结果: {query_category}")
                 if query_category == self.classifier_label_list[1]:
                     # 通用闲聊路径:直接走 LLMModel(带 identity + history)
@@ -141,7 +141,7 @@ class RAGSystem:
 
         # 用 ContextBuilder 构建带 identity 的 messages
         messages = self.context_builder.build_messages(
-            "answer_with_context",
+            "answer-with-context",
             context=context,
             query=query,
             history=history,
@@ -197,12 +197,8 @@ class RAGSystem:
     # ─── 检索策略 ───────────────────────────────
 
     def retrieve_and_merge(self, query, strategy, source_filter=None, partition: str = None):
-        if strategy == "假设问题检索":
-            ranked_chunks = self._retrieve_with_hyde_strategy(query, source_filter, partition=partition)
-        elif strategy == "子查询检索":
+        if strategy == "子查询检索":
             ranked_chunks = self._retrieve_with_subquery_strategy(query, source_filter, partition=partition)
-        elif strategy == "回溯问题检索":
-            ranked_chunks = self._retrieve_with_backtracking_strategy(query, source_filter, partition=partition)
         else:
             ranked_chunks = self._retrieve_with_direct_strategy(query, source_filter, partition=partition)
         logger.info(f"使用策略 {strategy} 检索到 {len(ranked_chunks)} 条相关信息")
@@ -235,11 +231,6 @@ class RAGSystem:
             logger.error(f"{skill} 改写失败,回退原 query: {e}")
             return query
 
-    def _retrieve_with_hyde_strategy(self, query, source_filter, partition: str = None):
-        rewritten = self._query_rewrite("hyde", query)
-        logger.info(f"生成的假设问题: {rewritten}")
-        return self._retrieve_with_direct_strategy(query=rewritten, source_filter=source_filter, partition=partition)
-
     def _retrieve_with_subquery_strategy(self, query, source_filter, partition: str = None):
         rewritten = self._query_rewrite("subquery", query)
         subqueries = [s for s in rewritten.split("\n") if s.strip()]
@@ -262,11 +253,6 @@ class RAGSystem:
                 seen.add(key)
                 unique.append(chunk)
         return unique
-
-    def _retrieve_with_backtracking_strategy(self, query, source_filter, partition: str = None):
-        rewritten = self._query_rewrite("backtracking", query)
-        logger.info(f"生成的回溯问题: {rewritten}")
-        return self._retrieve_with_direct_strategy(query=rewritten, source_filter=source_filter, partition=partition)
 
 
 if __name__ == "__main__":

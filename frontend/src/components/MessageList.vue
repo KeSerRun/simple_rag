@@ -1,39 +1,69 @@
 <template>
   <div class="messages-area" ref="messagesContainer">
-    <!-- 欢迎提示 -->
-    <div v-if="messages.length === 0" class="welcome-tip">
-      <p class="welcome-greeting">你好！我是你的智能助手。</p>
-      <p class="welcome-session">当前会话: <code>{{ sessionIdDisplay }}</code></p>
+    <!-- 欢迎屏 -->
+    <div v-if="messages.length === 0" class="welcome">
+      <div class="welcome-icon">
+        <n-icon :size="40" :component="SparklesOutline" />
+      </div>
+      <n-h2 class="welcome-title">你好,我能帮你做什么?</n-h2>
+      <n-text depth="3" class="welcome-sub">
+        基于你上传的知识库,我可以回答相关问题。先上传文档,或直接开始提问。
+      </n-text>
+      <n-text depth="3" class="welcome-session" v-if="sessionIdDisplay">
+        当前会话:&nbsp;<code>{{ sessionIdDisplay }}</code>
+      </n-text>
     </div>
 
-    <!-- 消息循环 -->
-    <div 
-      v-for="(msg, index) in messages" 
-      :key="index" 
+    <!-- 消息流 -->
+    <div
+      v-for="(msg, index) in messages"
+      :key="index"
       :class="['message', msg.role]"
     >
-      <div class="avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
-      
-      <div class="content">
-        <p v-if="msg.role === 'user'">{{ msg.content }}</p>
-        <div 
-          v-else 
-          class="ai-content" 
+      <div class="avatar-wrap">
+        <n-avatar
+          v-if="msg.role === 'user'"
+          round
+          size="small"
+          :style="{ backgroundColor: '#dbeafe', color: '#1d4ed8' }"
+        >
+          <n-icon :component="PersonOutline" />
+        </n-avatar>
+        <n-avatar
+          v-else
+          round
+          size="small"
+          :style="{ backgroundColor: 'rgba(204, 120, 92, 0.15)', color: '#cc785c' }"
+        >
+          <n-icon :component="SparklesOutline" />
+        </n-avatar>
+      </div>
+
+      <div class="bubble">
+        <div v-if="msg.role === 'user'" class="user-content">{{ msg.content }}</div>
+        <div
+          v-else
+          class="ai-content"
           v-html="msg.renderedContent || parseMarkdown(msg.content)"
         ></div>
       </div>
     </div>
-    
-    <!-- 思考中消息框 -->
-    <div v-if="isLoading" class="message ai loading">
-      <div class="avatar">🤖</div>
-      <div class="content thinking">
-        <div class="thinking-indicator">
-          <div class="thinking-dot"></div>
-          <div class="thinking-dot"></div>
-          <div class="thinking-dot"></div>
+
+    <!-- 思考中 -->
+    <div v-if="isLoading" class="message ai">
+      <div class="avatar-wrap">
+        <n-avatar
+          round
+          size="small"
+          :style="{ backgroundColor: 'rgba(204, 120, 92, 0.15)', color: '#cc785c' }"
+        >
+          <n-icon :component="SparklesOutline" />
+        </n-avatar>
+      </div>
+      <div class="bubble thinking">
+        <div class="thinking-dots">
+          <span></span><span></span><span></span>
         </div>
-        <span class="cursor">|</span>
       </div>
     </div>
   </div>
@@ -42,32 +72,22 @@
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
 import { marked } from 'marked'
+import { NAvatar, NIcon, NH2, NText } from 'naive-ui'
+import { PersonOutline, SparklesOutline } from '@vicons/ionicons5'
 
 const props = defineProps({
-  messages: {
-    type: Array,
-    required: true
-  },
-  isLoading: {
-    type: Boolean,
-    default: false
-  },
-  currentSessionId: {
-    type: String,
-    default: ''
-  }
+  messages: { type: Array, required: true },
+  isLoading: { type: Boolean, default: false },
+  currentSessionId: { type: String, default: '' },
 })
 
 const messagesContainer = ref(null)
 
-const sessionIdDisplay = computed(() => {
-  return props.currentSessionId ? `${props.currentSessionId.substring(0, 8)}...` : '...'
-})
+const sessionIdDisplay = computed(() =>
+  props.currentSessionId ? `${props.currentSessionId.substring(0, 8)}...` : ''
+)
 
-const parseMarkdown = (text) => {
-  if (!text) return ''
-  return marked.parse(text)
-}
+const parseMarkdown = (text) => (text ? marked.parse(text) : '')
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -76,253 +96,271 @@ const scrollToBottom = async () => {
   }
 }
 
-// 监听消息变化自动滚动
-watch(() => props.messages.length, () => {
-  scrollToBottom()
-}, { immediate: true })
+watch(() => props.messages.length, scrollToBottom, { immediate: true })
+watch(() => props.isLoading, scrollToBottom)
 
-watch(() => props.isLoading, () => {
-  scrollToBottom()
-})
-
-defineExpose({
-  scrollToBottom
-})
+defineExpose({ scrollToBottom })
 </script>
 
 <style scoped>
 .messages-area {
   flex: 1;
-  padding: 24px;
+  padding: 32px 24px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   scroll-behavior: smooth;
 }
 
-.welcome-tip {
+.welcome {
+  margin: 80px auto 0;
+  max-width: 520px;
   text-align: center;
-  color: #9ca3af;
-  margin-top: 80px;
-  animation: fadeIn 0.5s ease-out;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  animation: fadeIn 0.4s ease-out;
 }
 
-.welcome-greeting {
-  font-size: 24px;
+.welcome-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(204, 120, 92, 0.2), rgba(204, 120, 92, 0.05));
+  color: #cc785c;
+  margin-bottom: 8px;
+}
+
+.welcome-title {
+  margin: 0;
+  font-size: 22px;
   font-weight: 600;
-  color: #1f2937;
-  margin: 0 0 12px 0;
+}
+
+.welcome-sub {
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 400px;
 }
 
 .welcome-session {
-  font-size: 13px;
-  color: #9ca3af;
-  margin: 0;
+  margin-top: 8px;
+  font-size: 12px;
 }
 
 .welcome-session code {
-  background-color: #f3f4f6;
+  font-family: 'Fira Code', Consolas, monospace;
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: 'Consolas', monospace;
-  color: #6b7280;
+  background-color: rgba(120, 112, 104, 0.1);
+  font-size: 11px;
 }
 
-.message { 
-  display: flex; 
-  align-items: flex-start; 
-  max-width: 85%; 
-  animation: popIn 0.3s ease-out; 
-}
-.message.user { 
-  align-self: flex-end; 
-  flex-direction: row-reverse; 
-}
-.message.ai { 
-  align-self: flex-start; 
+.message {
+  display: flex;
+  gap: 12px;
+  max-width: 100%;
+  animation: messageIn 0.25s ease-out;
 }
 
-.message.ai.loading {
-  opacity: 0.9;
+.message.user {
+  flex-direction: row-reverse;
 }
 
-.avatar { 
-  width: 36px; 
-  height: 36px; 
-  border-radius: 50%; 
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
-  font-size: 18px; 
-  flex-shrink: 0; 
-}
-.message.user .avatar { 
-  background-color: #dbeafe; 
-  margin-left: 12px; 
-}
-.message.ai .avatar { 
-  background: linear-gradient(135deg, #60a5fa, #a78bfa); 
-  margin-right: 12px; 
-  color: white; 
-  box-shadow: 0 2px 8px rgba(96, 165, 250, 0.3); 
+.avatar-wrap {
+  flex-shrink: 0;
+  padding-top: 2px;
 }
 
-.content { 
-  padding: 12px 18px; 
-  border-radius: 12px; 
-  line-height: 1.6; 
-  font-size: 15px; 
-  word-break: break-word; 
-  position: relative; 
-  transition: height 0.2s ease, opacity 0.2s; 
-  min-height: 20px; 
-  opacity: 0.98; 
+.bubble {
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.65;
+  word-break: break-word;
+  max-width: min(720px, 80%);
 }
 
-.content.thinking {
-  min-height: 48px;
-  min-width: 120px;
+.message.user .bubble {
+  background-color: rgba(204, 120, 92, 0.12);
+  border-bottom-right-radius: 4px;
+}
+
+.message.ai .bubble {
+  background-color: var(--n-card-color, #ffffff);
+  border: 1px solid var(--n-divider-color, #e8e6e2);
+  border-bottom-left-radius: 4px;
+}
+
+.user-content {
+  white-space: pre-wrap;
+  color: var(--n-text-color-1, #2c2825);
+}
+
+.bubble.thinking {
+  padding: 14px 18px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  min-height: 24px;
 }
 
-.message.user .content { 
-  background-color: #2563eb; 
-  color: white; 
-  border-bottom-right-radius: 4px; 
-  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2); 
-}
-.message.ai .content { 
-  background-color: #ffffff; 
-  border: 1px solid #e5e7eb; 
-  color: #374151; 
-  border-bottom-left-radius: 4px; 
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); 
-}
-
-.thinking-indicator {
+.thinking-dots {
   display: flex;
   gap: 4px;
   align-items: center;
 }
 
-.thinking-dot {
+.thinking-dots span {
   width: 6px;
   height: 6px;
-  background-color: #2563eb;
+  background-color: #cc785c;
   border-radius: 50%;
+  display: inline-block;
   animation: thinkingBounce 1.4s infinite ease-in-out both;
 }
 
-.thinking-dot:nth-child(1) {
+.thinking-dots span:nth-child(1) {
   animation-delay: -0.32s;
 }
-.thinking-dot:nth-child(2) {
+.thinking-dots span:nth-child(2) {
   animation-delay: -0.16s;
 }
 
 @keyframes thinkingBounce {
-  0%, 80%, 100% { 
-    transform: scale(0);
-    opacity: 0.5;
-  }
-  40% { 
-    transform: scale(1);
-    opacity: 1;
-  }
+  0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
 }
 
-.cursor { 
-  display: inline-block; 
-  width: 2px; 
-  height: 1em; 
-  background-color: #2563eb; 
-  margin-left: 2px; 
-  vertical-align: text-bottom; 
-  animation: blink 1s infinite; 
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* AI 内容的 markdown 样式 */
 .ai-content {
-  line-height: 1.6;
-  color: #374151;
+  color: var(--n-text-color-1, #2c2825);
+}
+
+.ai-content :deep(h1),
+.ai-content :deep(h2),
+.ai-content :deep(h3),
+.ai-content :deep(h4) {
+  margin-top: 18px;
+  margin-bottom: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.ai-content :deep(h1) {
+  font-size: 22px;
+}
+.ai-content :deep(h2) {
+  font-size: 18px;
+}
+.ai-content :deep(h3) {
+  font-size: 16px;
+}
+.ai-content :deep(h4) {
   font-size: 15px;
 }
 
-.ai-content h1, .ai-content h2, .ai-content h3 {
-  margin-top: 24px;
-  margin-bottom: 16px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: #1f2937;
+.ai-content :deep(p) {
+  margin: 8px 0;
 }
-.ai-content h1 { font-size: 24px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
-.ai-content h2 { font-size: 20px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
-.ai-content h3 { font-size: 16px; }
 
-.ai-content p { margin-top: 0; margin-bottom: 16px; }
-.ai-content ul, .ai-content ol { padding-left: 2em; margin-bottom: 16px; }
-.ai-content li { margin-bottom: 4px; }
+.ai-content :deep(ul),
+.ai-content :deep(ol) {
+  padding-left: 1.5em;
+  margin: 8px 0;
+}
 
-.ai-content pre {
-  background-color: #1f2937;
-  color: #f3f4f6;
-  padding: 16px;
+.ai-content :deep(li) {
+  margin: 4px 0;
+}
+
+.ai-content :deep(pre) {
+  background-color: rgba(40, 40, 40, 0.96);
+  color: #e4e4e7;
+  padding: 14px 16px;
   border-radius: 8px;
   overflow-x: auto;
-  margin: 16px 0;
+  margin: 12px 0;
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
 }
-.ai-content code {
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 0.9em;
+
+.ai-content :deep(code) {
+  font-family: 'Fira Code', Consolas, monospace;
+  font-size: 0.92em;
 }
-.ai-content :not(pre) > code {
-  background-color: #f3f4f6;
-  color: #ef4444;
+
+.ai-content :deep(:not(pre) > code) {
+  background-color: rgba(120, 112, 104, 0.15);
+  color: #cc785c;
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 0.85em;
 }
 
-.ai-content blockquote {
-  border-left: 4px solid #2563eb;
-  padding-left: 16px;
-  color: #6b7280;
-  margin: 16px 0;
-  font-style: italic;
+.ai-content :deep(blockquote) {
+  border-left: 3px solid #cc785c;
+  padding: 4px 14px;
+  margin: 12px 0;
+  color: var(--n-text-color-2, #5d5751);
+  background-color: rgba(204, 120, 92, 0.05);
+  border-radius: 0 6px 6px 0;
 }
 
-.ai-content table {
+.ai-content :deep(table) {
   width: 100%;
   border-collapse: collapse;
-  margin: 16px 0;
+  margin: 12px 0;
+  font-size: 14px;
 }
-.ai-content th, .ai-content td {
-  border: 1px solid #e5e7eb;
+
+.ai-content :deep(th),
+.ai-content :deep(td) {
+  border: 1px solid var(--n-divider-color, #e8e6e2);
   padding: 8px 12px;
   text-align: left;
 }
-.ai-content th { background-color: #f9fafb; font-weight: 600; }
 
-.ai-content { 
-  white-space: pre-wrap; 
+.ai-content :deep(th) {
+  background-color: rgba(120, 112, 104, 0.06);
+  font-weight: 600;
 }
 
-@keyframes popIn { 
-  0% { opacity: 0; transform: scale(0.95) translateY(10px); } 
-  100% { opacity: 1; transform: scale(1) translateY(0); } 
+.ai-content :deep(a) {
+  color: #cc785c;
+  text-decoration: none;
 }
-@keyframes fadeIn { 
-  from { opacity: 0; } 
-  to { opacity: 1; } 
+
+.ai-content :deep(a):hover {
+  text-decoration: underline;
 }
-@keyframes blink { 
-  0%, 100% { opacity: 1; } 
-  50% { opacity: 0; } 
+
+.ai-content :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--n-divider-color, #e8e6e2);
+  margin: 16px 0;
 }
 
 @media (max-width: 768px) {
-  .messages-area { padding: 16px; }
+  .messages-area {
+    padding: 20px 16px;
+  }
+  .bubble {
+    max-width: 100%;
+  }
 }
 </style>

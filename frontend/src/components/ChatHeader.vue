@@ -1,96 +1,103 @@
 <template>
   <header class="chat-header">
     <div class="header-left">
-      <h2>🤖 {{ title }}</h2>
+      <n-h3 class="title">{{ title }}</n-h3>
     </div>
-    <div class="header-actions">
-      <button v-if="userStore.role === 'admin'" @click="handleOpenDocManager" class="manage-docs-btn">
-        📚 管理文档 ({{ documentCount }})
-      </button>
-      <button @click="handleLogout" class="logout-btn">退出登录</button>
-    </div>
+
+    <n-space :size="6" align="center">
+      <n-button quaternary @click="$emit('open-doc-manager')">
+        <template #icon>
+          <n-icon :component="LibraryOutline" />
+        </template>
+        管理文档
+        <n-tag
+          v-if="documentCount > 0"
+          round
+          size="small"
+          :bordered="false"
+          style="margin-left: 6px"
+        >
+          {{ documentCount }}
+        </n-tag>
+      </n-button>
+
+      <n-tooltip placement="bottom">
+        <template #trigger>
+          <n-button quaternary circle @click="themeStore.toggle">
+            <template #icon>
+              <n-icon :component="themeStore.isDark ? SunnyOutline : MoonOutline" />
+            </template>
+          </n-button>
+        </template>
+        {{ themeStore.isDark ? '切换到亮色' : '切换到暗色' }}
+      </n-tooltip>
+
+      <n-tooltip placement="bottom">
+        <template #trigger>
+          <n-button quaternary circle @click="$emit('logout')">
+            <template #icon>
+              <n-icon :component="LogOutOutline" />
+            </template>
+          </n-button>
+        </template>
+        退出登录
+      </n-tooltip>
+    </n-space>
   </header>
 </template>
 
 <script setup>
+import {
+  NButton,
+  NIcon,
+  NSpace,
+  NTag,
+  NTooltip,
+  NH3,
+} from 'naive-ui'
+import {
+  LibraryOutline,
+  MoonOutline,
+  SunnyOutline,
+  LogOutOutline,
+} from '@vicons/ionicons5'
+import { useThemeStore } from '@/stores/theme'
 
-import { useUserStore } from '@/stores/user'
-const userStore = useUserStore()
+const themeStore = useThemeStore()
 
-const props = defineProps({
-  title: {
-    type: String,
-    default: '未命名'
-  },
-  documentCount: {
-    type: Number,
-    default: 0
-  }
+defineProps({
+  title: { type: String, default: '新会话' },
+  documentCount: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(['open-doc-manager', 'logout'])
-
-const handleOpenDocManager = () => emit('open-doc-manager')
-const handleLogout = () => emit('logout')
+defineEmits(['open-doc-manager', 'logout'])
 </script>
 
 <style scoped>
 .chat-header {
-  padding: 15px 24px;
-  background-color: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--n-divider-color, #e8e6e2);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background-color: var(--n-card-color, #ffffff);
   z-index: 10;
+  flex-shrink: 0;
 }
 
-.header-left h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  background: linear-gradient(to right, #2563eb, #9333ea);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.header-actions {
+.header-left {
   display: flex;
-  gap: 10px;
   align-items: center;
+  min-width: 0;
 }
 
-.manage-docs-btn {
-  padding: 6px 12px;
-  font-size: 13px;
-  background-color: #f3f4f6;
-  color: #4b5563;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.manage-docs-btn:hover {
-  background-color: #e5e7eb;
-}
-
-.logout-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
-  color: #6b7280;
-  transition: all 0.2s;
-}
-
-.logout-btn:hover {
-  background-color: #f3f4f6;
-  color: #ef4444;
-  border-color: #ef4444;
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60vw;
 }
 </style>

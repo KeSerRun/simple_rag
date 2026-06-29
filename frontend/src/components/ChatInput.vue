@@ -1,136 +1,154 @@
 <template>
   <div class="input-area">
-    <input type="file" ref="fileInput" style="display: none;" @change="handleFileUpload" multiple>
-    <button v-if="userStore.role === 'admin'" @click="$refs.fileInput.click()" :disabled="isUploading"
-      class="upload-btn" title="上传文件">
-      📎
-    </button>
-    <textarea v-model="inputValue" @keydown.enter.prevent="handleSend" placeholder="请输入你的问题..." rows="1"></textarea>
-    <button @click="handleSend" :disabled="!inputValue.trim() || isLoading">
-      {{ isLoading ? '思考中...' : '发送' }}
-    </button>
+    <div class="input-row">
+      <div class="left-actions">
+        <n-upload
+          :show-file-list="false"
+          :custom-request="handleUpload"
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg"
+          :disabled="isUploading"
+          multiple
+        >
+          <n-tooltip placement="top">
+            <template #trigger>
+              <n-button
+                circle
+                quaternary
+                :disabled="isUploading"
+              >
+                <template #icon>
+                  <n-icon :component="AttachOutline" />
+                </template>
+              </n-button>
+            </template>
+            上传文件
+          </n-tooltip>
+        </n-upload>
+      </div>
+
+      <div class="center-input">
+        <n-input
+          v-model:value="inputValue"
+          type="textarea"
+          size="large"
+          placeholder="给我发送消息..."
+          :autosize="{ minRows: 1, maxRows: 6 }"
+          :disabled="isLoading"
+          @keydown="handleKeydown"
+        />
+      </div>
+
+      <div class="right-actions">
+        <n-button
+          type="primary"
+          size="large"
+          circle
+          :loading="isLoading"
+          :disabled="!inputValue.trim() || isLoading"
+          @click="handleSend"
+        >
+          <template #icon>
+            <n-icon :component="ArrowUpOutline" />
+          </template>
+        </n-button>
+      </div>
+    </div>
+
+    <div class="hint">
+      <n-text depth="3" style="font-size: 11px">
+        按 Enter 发送, Shift + Enter 换行
+      </n-text>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-import { useUserStore } from "@/stores/user";
-const userStore = useUserStore()
+import {
+  NButton,
+  NIcon,
+  NInput,
+  NUpload,
+  NTooltip,
+  NText,
+} from 'naive-ui'
+import { AttachOutline, ArrowUpOutline } from '@vicons/ionicons5'
 
 const props = defineProps({
-  isLoading: {
-    type: Boolean,
-    default: false
-  },
-  isUploading: {
-    type: Boolean,
-    default: false
-  }
+  isLoading: { type: Boolean, default: false },
+  isUploading: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['send', 'upload'])
 
 const inputValue = ref('')
-const fileInput = ref(null)
 
 const handleSend = () => {
   const text = inputValue.value.trim()
   if (!text || props.isLoading) return
-
   emit('send', text)
   inputValue.value = ''
 }
 
-const handleFileUpload = (event) => {
-  emit('upload', event)
-  // 重置 input 以便可以重复选择同一文件
-  event.target.value = ''
+const handleKeydown = (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault()
+    handleSend()
+  }
+}
+
+// custom-request 让我们直接拿到原生 File 对象,转给父组件统一处理
+const handleUpload = ({ file, onFinish, onError }) => {
+  emit('upload', file.file)
+  onFinish()
 }
 </script>
 
 <style scoped>
 .input-area {
-  padding: 24px;
-  background-color: #ffffff;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  gap: 12px;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.03);
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--n-divider-color, #e8e6e2);
+  background-color: var(--n-card-color, #ffffff);
+  flex-shrink: 0;
 }
 
-.upload-btn {
-  padding: 0 12px;
-  background-color: #f3f4f6;
-  color: #4b5563;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  cursor: pointer;
-  font-size: 20px;
-  transition: all 0.2s;
+.input-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* 左/右按钮:不参与拉伸,贴底对齐 textarea */
+.left-actions,
+.right-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
+  padding-bottom: 3px;
 }
 
-.upload-btn:hover:not(:disabled) {
-  background-color: #e5e7eb;
+/* 中间输入框:撑满剩余宽度;min-width:0 必备,否则 textarea 内容会撑破 flex 子项 */
+.center-input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.upload-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.center-input :deep(.n-input) {
+  width: 100%;
 }
 
-textarea {
-  flex: 1;
-  padding: 14px 18px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  resize: none;
-  outline: none;
-  font-family: inherit;
-  font-size: 15px;
-  background-color: #f9fafb;
-  transition: all 0.2s;
-  min-height: 24px;
-  max-height: 150px;
-}
-
-textarea:focus {
-  background-color: #fff;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-button {
-  padding: 0 24px;
-  background-color: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 15px;
-  transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
-}
-
-button:hover:not(:disabled) {
-  background-color: #1d4ed8;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
-}
-
-button:disabled {
-  background-color: #9ca3af;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
+.hint {
+  text-align: center;
+  margin-top: 8px;
 }
 
 @media (max-width: 768px) {
   .input-area {
-    padding: 16px;
+    padding: 12px 16px 16px;
   }
 }
 </style>

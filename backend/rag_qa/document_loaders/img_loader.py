@@ -1,8 +1,7 @@
 # edu_document_loaders/edu_imgloader.py 源码
 from typing import Iterator
-from .base import get_ocr_engine as get_ocr
-from langchain_core.documents import Document
-from langchain_core.document_loaders import BaseLoader
+from .base import get_ocr_engine as get_ocr, BaseLoader
+from ..core.document import Document
 
 
 class OCRIMGLoader(BaseLoader):

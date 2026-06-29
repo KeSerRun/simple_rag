@@ -1,107 +1,129 @@
 import re
-from typing import List, Optional, Any
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from typing import List, Optional
 
-def _split_text_with_regex_from_end(
-        text: str, separator: str, keep_separator: bool
-) -> List[str]:
-    # Now that we have the separator, split the text
-    if separator:
-        if keep_separator:
-            # The parentheses in the pattern keep the delimiters in the result.
-            _splits = re.split(f"({separator})", text)
-            splits = ["".join(i) for i in zip(_splits[0::2], _splits[1::2])]
-            if len(_splits) % 2 == 1:
-                splits += _splits[-1:]
-            # splits = [_splits[0]] + splits
-        else:
-            splits = re.split(separator, text)
-    else:
-        splits = list(text)
-    return [s for s in splits if s != ""]
+from ..core.document import Document
 
-class ChineseRecursiveTextSplitter(RecursiveCharacterTextSplitter):
+
+class ChineseRecursiveTextSplitter:
+    """中文友好的递归字符切分器,纯 Python 实现,不依赖 langchain。"""
+
+    DEFAULT_SEPARATORS = [
+        "\n\n",
+        "\n",
+        r"。|！|？",
+        r"\.|\!|\?",
+        r"；|;",
+        r"，|,",
+        " ",
+        "",
+    ]
+
     def __init__(
-            self,
-            separators: Optional[List[str]] = None,
-            keep_separator: bool = True,
-            is_separator_regex: bool = True,
-            **kwargs: Any,
-    ) -> None:
-        '''
-        chunk_size: 切分块的最大字符数，默认为 1000 字符
-        chunk_overlap: 切分块之间的重叠字符数，默认为 200 字符
-        separators: 切分文本时使用的分隔符列表，默认为 ["\n\n", "\n", r"。|！|？", r"\.|\!|\?", r"；|\;", r"，|\,"]
-        keep_separator: 是否在切分后的文本块中保留分隔符，默认为 True
-        is_separator_regex: 分隔符是否为正则表达式，默认为 True
-        '''
-        # Create a new TextSplitter.
-        super().__init__(keep_separator=keep_separator, **kwargs)
-        # 文档切分器的分隔符列表
-        self._separators = separators or [
-            "\n\n",          # 双换行符，通常用于分段
-            "\n",            # 换行符，通常用于分行
-            r"。|！|？",     # 句号、感叹号、问号等中文标点符号，作为句子分隔符
-            r"\.|\!|\?",     #  英文句号、感叹号、问号等标点符号，作为句子分隔符
-            r"；|\;",        # 分号，作为较大语义单元的分隔符
-            r"，|\,"         # 逗号，作为较小语义单元的分隔符
-        ]
-        self._is_separator_regex = is_separator_regex
+        self,
+        chunk_size: int = 500,
+        chunk_overlap: int = 50,
+        separators: Optional[List[str]] = None,
+        keep_separator: bool = True,
+        is_separator_regex: bool = True,
+    ):
+        if chunk_overlap >= chunk_size:
+            raise ValueError("chunk_overlap 必须小于 chunk_size")
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.separators = separators or list(self.DEFAULT_SEPARATORS)
+        self.keep_separator = keep_separator
+        self.is_separator_regex = is_separator_regex
 
-    def _split_text(self, text: str, separators: List[str]) -> List[str]:
-        """Split incoming text and return chunks."""
-        final_chunks = []
-        # Get appropriate separator to use
+    # ─── 对外接口 ───────────────────────────────
+
+    def split_text(self, text: str) -> List[str]:
+        if not text:
+            return []
+        chunks = self._split(text, self.separators)
+        return [re.sub(r"\n{2,}", "\n", c.strip()) for c in chunks if c.strip()]
+
+    def split_documents(self, documents: List[Document]) -> List[Document]:
+        result: List[Document] = []
+        for doc in documents:
+            for chunk in self.split_text(doc.page_content):
+                result.append(Document(page_content=chunk, metadata=dict(doc.metadata)))
+        return result
+
+    # ─── 内部实现 ───────────────────────────────
+
+    def _split(self, text: str, separators: List[str]) -> List[str]:
+        if len(text) <= self.chunk_size:
+            return [text]
+
+        # 选择当前层级的分隔符
         separator = separators[-1]
-        new_separators = []
-        for i, _s in enumerate(separators):
-            _separator = _s if self._is_separator_regex else re.escape(_s)
-            if _s == "":
-                separator = _s
+        next_separators: List[str] = []
+        for i, s in enumerate(separators):
+            pattern = s if self.is_separator_regex else re.escape(s)
+            if s == "":
+                separator = s
                 break
-            if re.search(_separator, text):
-                separator = _s
-                new_separators = separators[i + 1:]
+            if re.search(pattern, text):
+                separator = s
+                next_separators = separators[i + 1:]
                 break
 
-        _separator = separator if self._is_separator_regex else re.escape(separator)
-        splits = _split_text_with_regex_from_end(text, _separator, self._keep_separator)
-
-        # Now go merging things, recursively splitting longer texts.
-        _good_splits = []
-        _separator = "" if self._keep_separator else separator
-        for s in splits:
-            if self._length_function(s) < self._chunk_size:
-                _good_splits.append(s)
+        # 按当前分隔符切片
+        splits = self._regex_split(text, separator)
+        # 合并到 chunk_size
+        good: List[str] = []
+        final: List[str] = []
+        sep_for_merge = "" if self.keep_separator else separator
+        for piece in splits:
+            if len(piece) < self.chunk_size:
+                good.append(piece)
             else:
-                if _good_splits:
-                    merged_text = self._merge_splits(_good_splits, _separator)
-                    final_chunks.extend(merged_text)
-                    _good_splits = []
-                if not new_separators:
-                    final_chunks.append(s)
+                if good:
+                    final.extend(self._merge(good, sep_for_merge))
+                    good = []
+                if next_separators:
+                    final.extend(self._split(piece, next_separators))
                 else:
-                    other_info = self._split_text(s, new_separators)
-                    final_chunks.extend(other_info)
-        if _good_splits:
-            merged_text = self._merge_splits(_good_splits, _separator)
-            final_chunks.extend(merged_text)
-        return [re.sub(r"\n{2,}", "\n", chunk.strip()) for chunk in final_chunks if chunk.strip()!=""]
+                    final.append(piece)
+        if good:
+            final.extend(self._merge(good, sep_for_merge))
+        return final
+
+    def _regex_split(self, text: str, separator: str) -> List[str]:
+        if separator == "":
+            return list(text)
+        pattern = separator if self.is_separator_regex else re.escape(separator)
+        if self.keep_separator:
+            parts = re.split(f"({pattern})", text)
+            merged = ["".join(p) for p in zip(parts[0::2], parts[1::2])]
+            if len(parts) % 2 == 1:
+                merged.append(parts[-1])
+            return [s for s in merged if s]
+        return [s for s in re.split(pattern, text) if s]
+
+    def _merge(self, splits: List[str], separator: str) -> List[str]:
+        sep_len = len(separator)
+        chunks: List[str] = []
+        cur: List[str] = []
+        total = 0
+        for s in splits:
+            slen = len(s)
+            if cur and total + slen + (sep_len if cur else 0) > self.chunk_size:
+                chunks.append(separator.join(cur))
+                # 创建 overlap
+                while cur and (total > self.chunk_overlap or
+                               (total + slen + sep_len > self.chunk_size and total > 0)):
+                    popped = cur.pop(0)
+                    total -= len(popped) + (sep_len if cur else 0)
+            cur.append(s)
+            total += slen + (sep_len if len(cur) > 1 else 0)
+        if cur:
+            chunks.append(separator.join(cur))
+        return chunks
 
 
 if __name__ == "__main__":
-    text_splitter = ChineseRecursiveTextSplitter(
-        keep_separator=True,
-        is_separator_regex=True,
-        chunk_size=150,
-        chunk_overlap=10
-    )
-    ls = [
-        """中国对外贸易形势报告（75页）。前 10 个月，一般贸易进出口 19.5 万亿元，增长 25.1%， 比整体进出口增速高出 2.9 个百分点，占进出口总额的 61.7%，较去年同期提升 1.6 个百分点。其中，一般贸易出口 10.6 万亿元，增长 25.3%，占出口总额的 60.9%，提升 1.5 个百分点；进口8.9万亿元，增长24.9%，占进口总额的62.7%， 提升 1.8 个百分点。加工贸易进出口 6.8 万亿元，增长 11.8%， 占进出口总额的 21.5%，减少 2.0 个百分点。其中，出口增 长 10.4%，占出口总额的 24.3%，减少 2.6 个百分点；进口增 长 14.2%，占进口总额的 18.0%，减少 1.2 个百分点。此外， 以保税物流方式进出口 3.96 万亿元，增长 27.9%。其中，出 口 1.47 万亿元，增长 38.9%；进口 2.49 万亿元，增长 22.2%。前三季度，中国服务贸易继续保持快速增长态势。服务 进出口总额 37834.3 亿元，增长 11.6%；其中服务出口 17820.9 亿元，增长 27.3%；进口 20013.4 亿元，增长 0.5%，进口增 速实现了疫情以来的首次转正。服务出口增幅大于进口 26.8 个百分点，带动服务贸易逆差下降 62.9%至 2192.5 亿元。服 务贸易结构持续优化，知识密集型服务进出口 16917.7 亿元， 增长 13.3%，占服务进出口总额的比重达到 44.7%，提升 0.7 个百分点。 二、中国对外贸易发展环境分析和展望 全球疫情起伏反复，经济复苏分化加剧，大宗商品价格 上涨、能源紧缺、运力紧张及发达经济体政策调整外溢等风 险交织叠加。同时也要看到，我国经济长期向好的趋势没有 改变，外贸企业韧性和活力不断增强，新业态新模式加快发 展，创新转型步伐提速。产业链供应链面临挑战。美欧等加快出台制造业回迁计 划，加速产业链供应链本土布局，跨国公司调整产业链供应 链，全球双链面临新一轮重构，区域化、近岸化、本土化、 短链化趋势凸显。疫苗供应不足，制造业“缺芯”、物流受限、 运价高企，全球产业链供应链面临压力。 全球通胀持续高位运行。能源价格上涨加大主要经济体 的通胀压力，增加全球经济复苏的不确定性。世界银行今年 10 月发布《大宗商品市场展望》指出，能源价格在 2021 年 大涨逾 80%，并且仍将在 2022 年小幅上涨。IMF 指出，全 球通胀上行风险加剧，通胀前景存在巨大不确定性。""",
-        ]
-    # text = """"""
-    for inum, text in enumerate(ls):
-        print(inum)
-        chunks = text_splitter.split_text(text)
-        for chunk in chunks:
-            print(chunk)
+    sp = ChineseRecursiveTextSplitter(chunk_size=150, chunk_overlap=10)
+    sample = "中国对外贸易形势报告。前 10 个月，一般贸易进出口 19.5 万亿元，增长 25.1%。\n\n其中一般贸易出口 10.6 万亿元，增长 25.3%。"
+    for c in sp.split_text(sample):
+        print(c)

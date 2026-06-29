@@ -13,8 +13,8 @@ from docx import ImagePart  # 用于处理Word文档和图片
 from PIL import Image  # 用于处理图片
 from io import BytesIO  # 用于将字节流转换为图片
 import numpy as np  # 用于处理数组
-from langchain_core.documents import Document
-from langchain_core.document_loaders import BaseLoader
+from .base import BaseLoader
+from ..core.document import Document
 
 
 class OCRDOCLoader(BaseLoader):

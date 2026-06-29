@@ -1,5 +1,8 @@
+from typing import Iterator, List
+
 from base.logger import logger
-import os
+
+from ..core.document import Document
 
 '''
 paddleocr：解析图片中的文字，也可以进行表格识别
@@ -13,11 +16,24 @@ rapidocr_paddle 和 rapidocr_onnxruntime 两种导入方式
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='paddle.utils.cpp_extension')
 
+
+class BaseLoader:
+    """轻量 BaseLoader,替代 langchain_core.document_loaders.BaseLoader。
+
+    子类需实现 `lazy_load()` -> Iterator[Document]。`load()` 提供默认实现。
+    """
+
+    def lazy_load(self) -> Iterator[Document]:
+        raise NotImplementedError
+
+    def load(self) -> List[Document]:
+        return list(self.lazy_load())
+
+
 # 选择合适的 OCR 引擎
 def get_ocr_engine(device='cpu'):
     if device == 'gpu':
         try:
-            # 尝试导入 GPU 加速的 OCR 引擎, 需要安装 rapidocr_paddle 包与 GPU 版本的 PaddlePaddle
             from rapidocr_paddle import RapidOCR
             logger.info("成功加载 GPU 加速的 OCR 引擎")
             return RapidOCR()
@@ -28,10 +44,11 @@ def get_ocr_engine(device='cpu'):
     else:
         from rapidocr_onnxruntime import RapidOCR
         logger.info("成功加载 CPU 版本的 OCR 引擎")
-        return RapidOCR()  
+        return RapidOCR()
+
 
 if __name__ == "__main__":
-    ocr_engine = get_ocr_engine(device='gpu')  # 尝试使用 GPU 加速
-    test_image = "test_image.png"  # 替换为你的测试图片路径
+    ocr_engine = get_ocr_engine(device='gpu')
+    test_image = "test_image.png"
     result = ocr_engine(test_image)
     print(result)

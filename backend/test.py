@@ -1,14 +1,13 @@
-from rag_qa.text_spliter.ali_text_spliter import AliTextSplitter
-from base.config import conf
+from rag_qa.text_spliter import ChineseRecursiveTextSplitter
 
-sample_text = """移动端语音唤醒模型，检测关键词为“小云小云”。
+sample_text = """移动端语音唤醒模型，检测关键词为"小云小云"。
 模型主体为4层FSMN结构，使用CTC训练准则，参数量750K，适用于移动端设备运行。
 
 模型输入为Fbank特征，输出为基于char建模的中文全集token预测，测试工具根据每一帧的预测数据进行后处理得到输入音频的实时检测结果。
-模型训练采用“basetrain + finetune”的模式，basetrain过程使用大量内部移动端数据，在此基础上，使用1万条设备端录制安静场景“小云小云”数据进行微调，得到最终面向业务的模型。
+模型训练采用"basetrain + finetune"的模式，basetrain过程使用大量内部移动端数据，在此基础上，使用1万条设备端录制安静场景"小云小云"数据进行微调，得到最终面向业务的模型。
 后续用户可在basetrain模型基础上，使用其他关键词数据进行微调，得到新的语音唤醒模型，但暂时未开放模型finetune功能。"""
 
-# Assuming MODEL_PATH is correctly configured and modelscope is installed
-model_split = AliTextSplitter(model=conf.segment_model, pdf=False)
-result = model_split.split_text(text=sample_text)
-print(result)
+splitter = ChineseRecursiveTextSplitter(chunk_size=120, chunk_overlap=20)
+for chunk in splitter.split_text(sample_text):
+    print(chunk)
+    print("-" * 40)

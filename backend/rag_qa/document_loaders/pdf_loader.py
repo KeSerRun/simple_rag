@@ -5,9 +5,8 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from typing import Iterator
-from .base import get_ocr_engine as get_ocr
-from langchain_core.documents import Document
-from langchain_core.document_loaders import BaseLoader
+from .base import get_ocr_engine as get_ocr, BaseLoader
+from ..core.document import Document
 # PDF OCR 控制：只对宽高超过页面一定比例（图片宽/页面宽，图片高/页面高）的图片进行 OCR。
 # 这样可以避免 PDF 中一些小图片的干扰，提高非扫描版 PDF 处理速度
 # 默认图片宽/页面宽 < 0.1 或 图片高/页面高 < 0.05 则跳过 OCR

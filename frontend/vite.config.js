@@ -7,6 +7,11 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 // https://vite.dev/config/
 export default defineConfig({
   base: './', // 设置基础路径为相对路径
+  // 构建产物输出到 backend/dist,与后端 app.py 中 dist_path 一致
+  build: {
+    outDir: '../backend/dist',
+    emptyOutDir: true, // 输出到 frontend 目录外,默认会拒绝清空,需显式启用
+  },
   plugins: [
     vue(),
     vueDevTools(),

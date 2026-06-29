@@ -43,11 +43,14 @@ backend/model/
 # 数据文件（运行时生成）
 # ============================================================
 backend/data/vector_store/tmp/
-
-# ============================================================
-# Docker 数据卷
-# ============================================================
-docker/data/
+# 本地文件存储（JSON 版，替代 MySQL/Redis）
+backend/data/users.json
+backend/data/sessions.json
+backend/data/qa_pairs.json
+backend/data/history/
+# 本地向量存储（FAISS 版，替代 Milvus）
+backend/data/vector_store/dense_vectors.npy
+backend/data/vector_store/metadata.json
 
 # ============================================================
 # 前端
@@ -111,3 +114,4 @@ desktop.ini
 # 其他
 # ============================================================
 data/
+dist/

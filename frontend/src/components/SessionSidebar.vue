@@ -1,200 +1,202 @@
 <template>
   <aside class="session-sidebar">
     <div class="sidebar-header">
-      <h3>我的会话</h3>
-      <button @click="handleCreateSession" class="new-session-btn">
-        ➕ 新建会话
-      </button>
-    </div>
-    
-    <div class="session-list">
-      <div 
-        v-for="session in sessions" 
-        :key="session.id"
-        :class="['session-item', { active: currentSessionId === session.id }]"
-        @click="handleSwitchSession(session.id)"
+      <div class="brand">
+        <n-icon :size="22" :component="ChatbubblesOutline" />
+        <span class="brand-name">RAG 助手</span>
+      </div>
+      <n-button
+        block
+        type="primary"
+        secondary
+        @click="$emit('create')"
+        class="new-session-btn"
       >
-        <span class="session-icon">💬</span>
-        <span class="session-title">{{ session.title || '会话...' }}</span>
-        <button 
-          class="delete-btn" 
-          @click.stop="handleDeleteSession(session.id)"
-          title="删除会话"
-        >
-          ✕
-        </button>
-      </div>
-      
-      <div v-if="!isLoading && sessions.length === 0" class="empty-tip">
-        暂无历史记录
-      </div>
+        <template #icon>
+          <n-icon :component="AddOutline" />
+        </template>
+        新建会话
+      </n-button>
     </div>
+
+    <n-scrollbar class="session-scroll">
+      <div class="session-list">
+        <div
+          v-for="session in sessions"
+          :key="session.id"
+          :class="['session-item', { active: currentSessionId === session.id }]"
+          @click="$emit('switch', session.id)"
+        >
+          <n-icon :size="16" class="session-icon" :component="ChatbubbleEllipsesOutline" />
+          <span class="session-title">{{ session.title || '新会话' }}</span>
+
+          <n-popconfirm
+            placement="right"
+            :show-icon="false"
+            @positive-click="$emit('delete', session.id)"
+          >
+            <template #trigger>
+              <n-button
+                quaternary
+                circle
+                size="tiny"
+                class="delete-btn"
+                @click.stop
+                aria-label="删除会话"
+              >
+                <template #icon>
+                  <n-icon :component="CloseOutline" />
+                </template>
+              </n-button>
+            </template>
+            <span>确定删除该会话吗?</span>
+          </n-popconfirm>
+        </div>
+
+        <n-empty
+          v-if="!isLoading && sessions.length === 0"
+          description="暂无会话"
+          size="small"
+          class="empty"
+        />
+      </div>
+    </n-scrollbar>
   </aside>
 </template>
 
 <script setup>
+import {
+  NButton,
+  NIcon,
+  NScrollbar,
+  NPopconfirm,
+  NEmpty,
+} from 'naive-ui'
+import {
+  ChatbubblesOutline,
+  ChatbubbleEllipsesOutline,
+  AddOutline,
+  CloseOutline,
+} from '@vicons/ionicons5'
 
-const props = defineProps({
-  sessions: {
-    type: Array,
-    required: true
-  },
-  currentSessionId: {
-    type: String,
-    default: ''
-  },
-  isLoading: {
-    type: Boolean,
-    default: false
-  }
+defineProps({
+  sessions: { type: Array, required: true },
+  currentSessionId: { type: String, default: '' },
+  isLoading: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['create', 'switch', 'delete'])
-
-const handleCreateSession = () => emit('create')
-const handleSwitchSession = (id) => emit('switch', id)
-const handleDeleteSession = (id) => emit('delete', id)
+defineEmits(['create', 'switch', 'delete'])
 </script>
 
 <style scoped>
 .session-sidebar {
-  width: 260px;
-  background-color: #ffffff;
-  border-right: 1px solid #e5e7eb;
+  width: 280px;
+  flex-shrink: 0;
+  background-color: var(--n-card-color, #ffffff);
+  border-right: 1px solid var(--n-divider-color, #e8e6e2);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  height: 100%;
 }
 
 .sidebar-header {
-  padding: 20px;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 20px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.sidebar-header h3 {
-  margin: 0 0 15px 0;
-  font-size: 16px;
-  color: #374151;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cc785c;
+  padding: 0 4px;
+}
+
+.brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 
 .new-session-btn {
-  width: 100%;
-  padding: 10px;
-  background-color: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
   font-weight: 500;
-  transition: background 0.2s;
 }
 
-.new-session-btn:hover {
-  background-color: #1d4ed8;
+.session-scroll {
+  flex: 1;
+  min-height: 0;
 }
 
 .session-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .session-item {
   display: flex;
   align-items: center;
-  padding: 12px;
-  margin-bottom: 5px;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
-  color: #4b5563;
+  color: var(--n-text-color-2, #5d5751);
+  font-size: 14px;
+  transition: background-color 0.15s ease, color 0.15s ease;
   position: relative;
-  padding-right: 40px;
+  user-select: none;
 }
 
 .session-item:hover {
-  background-color: #f3f4f6;
+  background-color: rgba(120, 112, 104, 0.08);
 }
 
 .session-item.active {
-  background-color: #eff6ff;
-  color: #2563eb;
+  background-color: rgba(204, 120, 92, 0.12);
+  color: #cc785c;
   font-weight: 500;
 }
 
 .session-icon {
   margin-right: 10px;
-  font-size: 16px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.session-item.active .session-icon {
+  opacity: 1;
 }
 
 .session-title {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .delete-btn {
-  opacity: 0.4;
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%) scale(0.9);
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: transparent;
-  border: none;
-  color: #9ca3af;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
 
-.delete-btn:hover {
-  opacity: 1;
-  transform: translateY(-50%) scale(1);
-  background-color: #fee2e2;
-  color: #ef4444;
-  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15);
-}
-
-.delete-btn:active {
-  transform: translateY(-50%) scale(0.85);
-}
-
+.session-item:hover .delete-btn,
 .session-item.active .delete-btn {
-  color: #93bbfc;
-  opacity: 0.5;
-}
-
-.session-item.active .delete-btn:hover {
-  background-color: #dbeafe;
-  color: #2563eb;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
-}
-
-.session-item:hover .delete-btn {
   opacity: 0.7;
 }
 
-.delete-btn:focus-visible {
+.session-item .delete-btn:hover {
   opacity: 1;
-  outline: 2px solid #ef4444;
-  outline-offset: 2px;
 }
 
-.empty-tip {
-  text-align: center;
-  color: #9ca3af;
-  margin-top: 20px;
-  font-size: 14px;
+.empty {
+  margin: 32px 0;
 }
 
 @media (max-width: 768px) {
-  .session-sidebar { display: none; }
+  .session-sidebar {
+    display: none;
+  }
 }
 </style>

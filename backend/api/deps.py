@@ -1,0 +1,41 @@
+"""共享依赖:IntegratedSystem 单例 + auth_required 鉴权装饰器"""
+from functools import wraps
+
+import jwt
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+from base.config import conf
+from base.logger import logger
+from main import IntegratedSystem
+
+
+# 模块级单例:首次 import 触发初始化(与原 app.py 顶层创建行为一致)
+system = IntegratedSystem()
+
+
+def auth_required(func):
+    """要求请求携带合法 JWT,不限制 role。payload 注入到 request.state.user
+
+    用法:
+        @router.post("/foo")
+        @auth_required
+        async def foo(request: Request):
+            username = request.state.user["username"]
+    """
+    @wraps(func)
+    async def wrapper(request: Request, *args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse(content={"message": "Unauthorized"}, status_code=401)
+        token = auth_header.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(token.encode('utf-8'), conf.jwt_secret_key, algorithms=['HS256'])
+        except jwt.PyJWTError as e:
+            logger.warning(f"JWT 校验失败: {e}")
+            return JSONResponse(content={"message": "Unauthorized"}, status_code=401)
+        if not payload.get("username"):
+            return JSONResponse(content={"message": "Unauthorized"}, status_code=401)
+        request.state.user = payload
+        return await func(request, *args, **kwargs)
+    return wrapper

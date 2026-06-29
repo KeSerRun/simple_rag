@@ -1,231 +1,157 @@
 <template>
-  <div class="doc-modal-mask" @click.self="handleClose">
-    <div class="doc-modal">
-      <div class="doc-modal-header">
-        <h3>用户文档库</h3>
-        <button @click="handleClose" class="close-btn">✕</button>
-      </div>
+  <n-modal
+    :show="isOpen"
+    preset="card"
+    :bordered="false"
+    title="知识库文档"
+    style="max-width: 560px; width: 92vw"
+    :mask-closable="true"
+    :segmented="{ content: false, footer: 'soft' }"
+    @update:show="(v) => !v && $emit('close')"
+  >
+    <template #header-extra>
+      <n-text depth="3">{{ documents.length }} 个文档</n-text>
+    </template>
 
-      <div class="doc-modal-body">
-        <div v-if="documents.length === 0" class="empty-docs">
-          暂无文档，请在下方上传文件。
-        </div>
-        <div v-else class="doc-list">
-          <div v-for="(docName, index) in documents" :key="index" class="doc-item">
-            <label class="doc-checkbox-label">
-              <input type="checkbox" v-model="localSelectedDocs" :value="docName">
-              <span class="doc-icon">📄</span>
-              <div class="doc-info">
-                <span class="doc-name">{{ docName }}</span>
-              </div>
+    <div class="modal-body">
+      <n-empty
+        v-if="documents.length === 0"
+        description="还没有上传任何文档"
+        style="margin: 24px 0"
+      >
+        <template #extra>
+          <n-text depth="3">在对话区底部使用上传按钮添加</n-text>
+        </template>
+      </n-empty>
+
+      <n-scrollbar v-else style="max-height: 50vh">
+        <n-checkbox-group v-model:value="selected">
+          <div class="doc-list">
+            <label
+              v-for="docName in documents"
+              :key="docName"
+              class="doc-item"
+              :class="{ checked: selected.includes(docName) }"
+            >
+              <n-checkbox :value="docName" />
+              <n-icon
+                :size="20"
+                :component="DocumentTextOutline"
+                style="color: #cc785c; margin-left: 4px"
+              />
+              <span class="doc-name">{{ docName }}</span>
             </label>
           </div>
-        </div>
-      </div>
-
-      <div class="doc-modal-footer">
-        <div class="selection-info">
-          已选择 <strong>{{ localSelectedDocs.length }}</strong> 个文档
-        </div>
-        <button @click="handleDelete" :disabled="localSelectedDocs.length === 0 || isDeleting"
-          class="delete-selected-btn">
-          {{ isDeleting ? '删除中...' : '删除选中' }}
-        </button>
-      </div>
+        </n-checkbox-group>
+      </n-scrollbar>
     </div>
-  </div>
+
+    <template #footer>
+      <div class="footer">
+        <n-text depth="3">已选择 <b>{{ selected.length }}</b> 个</n-text>
+        <n-space>
+          <n-button @click="$emit('close')">取消</n-button>
+          <n-button
+            type="error"
+            :disabled="selected.length === 0 || isDeleting"
+            :loading="isDeleting"
+            @click="handleDelete"
+          >
+            <template #icon>
+              <n-icon :component="TrashOutline" />
+            </template>
+            删除选中
+          </n-button>
+        </n-space>
+      </div>
+    </template>
+  </n-modal>
 </template>
 
 <script setup>
 import { ref, watch } from 'vue'
+import {
+  NModal,
+  NCheckbox,
+  NCheckboxGroup,
+  NButton,
+  NIcon,
+  NEmpty,
+  NScrollbar,
+  NSpace,
+  NText,
+} from 'naive-ui'
+import { DocumentTextOutline, TrashOutline } from '@vicons/ionicons5'
 
 const props = defineProps({
-  isOpen: {
-    type: Boolean,
-    default: false
-  },
-  documents: {
-    type: Array,
-    required: true
-  },
-  isDeleting: {
-    type: Boolean,
-    default: false
-  }
+  isOpen: { type: Boolean, default: false },
+  documents: { type: Array, required: true },
+  isDeleting: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['close', 'delete'])
 
-const localSelectedDocs = ref([])
+const selected = ref([])
 
-// 打开时重置选择
-watch(() => props.isOpen, (newVal) => {
-  if (newVal) {
-    localSelectedDocs.value = []
+watch(
+  () => props.isOpen,
+  (open) => {
+    if (open) selected.value = []
   }
-})
-
-const handleClose = () => emit('close')
+)
 
 const handleDelete = () => {
-  if (localSelectedDocs.value.length === 0) return
-  emit('delete', [...localSelectedDocs.value])
+  if (selected.value.length === 0) return
+  emit('delete', [...selected.value])
 }
 </script>
 
 <style scoped>
-.doc-modal-mask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  animation: fadeIn 0.2s ease-out;
-}
-
-.doc-modal {
-  background: white;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 500px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-}
-
-.doc-modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.doc-modal-header h3 {
-  margin: 0;
-  font-size: 18px;
-  color: #1f2937;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  color: #9ca3af;
-}
-
-.close-btn:hover {
-  color: #4b5563;
-}
-
-.doc-modal-body {
-  padding: 20px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.empty-docs {
-  text-align: center;
-  color: #9ca3af;
-  padding: 40px 0;
+.modal-body {
+  min-height: 100px;
 }
 
 .doc-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
+  padding: 4px 0;
 }
 
 .doc-item {
-  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: 8px;
-  padding: 10px;
-  transition: all 0.2s;
+  border: 1px solid var(--n-divider-color, #e8e6e2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background-color: transparent;
 }
 
 .doc-item:hover {
-  border-color: #2563eb;
-  background-color: #eff6ff;
+  border-color: #cc785c;
+  background-color: rgba(204, 120, 92, 0.04);
 }
 
-.doc-checkbox-label {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  width: 100%;
-}
-
-.doc-checkbox-label input {
-  margin-right: 12px;
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
-
-.doc-icon {
-  font-size: 20px;
-  margin-right: 10px;
-}
-
-.doc-info {
-  display: flex;
-  flex-direction: column;
+.doc-item.checked {
+  border-color: #cc785c;
+  background-color: rgba(204, 120, 92, 0.08);
 }
 
 .doc-name {
-  font-weight: 500;
-  color: #1f2937;
+  flex: 1;
+  font-size: 14px;
+  color: var(--n-text-color-1, #2c2825);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.doc-modal-footer {
-  padding: 16px 20px;
-  border-top: 1px solid #e5e7eb;
-  background-color: #f9fafb;
+.footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.selection-info {
-  font-size: 14px;
-  color: #4b5563;
-}
-
-.delete-selected-btn {
-  padding: 8px 16px;
-  background-color: #ef4444;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.delete-selected-btn:hover:not(:disabled) {
-  background-color: #dc2626;
-}
-
-.delete-selected-btn:disabled {
-  background-color: #fca5a5;
-  cursor: not-allowed;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
 }
 </style>

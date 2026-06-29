@@ -1,0 +1,28 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "轻量 RAG 问答系统：FastAPI + OpenAI SDK + FAISS,无 LangChain / 无本地推理模型"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Web 服务
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.20",
+    "PyJWT>=2.8",
+    # LLM / Embedding API
+    "openai>=1.50",
+    # 向量检索
+    "faiss-cpu>=1.10.0",
+    "numpy>=2.0",
+    # 文档加载与 OCR
+    "PyMuPDF>=1.24",
+    "python-docx>=1.0",
+    "python-pptx>=1.0",
+    "Pillow>=10.0",
+    "opencv-python>=4.10",
+    "rapidocr-onnxruntime>=1.4",
+    "tqdm>=4.66",
+    # 工具
+    "rich>=13.7",
+]

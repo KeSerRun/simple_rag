@@ -9,6 +9,9 @@ import 'vfonts/FiraCode.css'
 // 代码高亮样式
 import 'highlight.js/styles/github-dark.css'
 
+// LaTeX 数学公式样式
+import 'katex/dist/katex.min.css'
+
 import App from './App.vue'
 import router from './router'
 import http from './http/interceptor'

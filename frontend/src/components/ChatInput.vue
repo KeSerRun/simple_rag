@@ -6,7 +6,7 @@
         <n-upload
           :show-file-list="false"
           :custom-request="handleUpload"
-          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg"
+          accept=".pdf,.txt,.md"
           :disabled="isUploading"
           multiple
         >
@@ -29,7 +29,7 @@
         <n-upload
           :show-file-list="false"
           :custom-request="handleUpload"
-          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg"
+          accept=".pdf,.txt,.md"
           :disabled="isUploading"
           multiple
           directory

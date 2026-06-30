@@ -278,6 +278,14 @@ defineExpose({ scrollToBottom })
   margin: 8px 0;
 }
 
+.ai-content :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 8px 0;
+  display: block;
+}
+
 .ai-content :deep(ul),
 .ai-content :deep(ol) {
   padding-left: 1.5em;

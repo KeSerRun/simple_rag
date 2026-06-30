@@ -41,6 +41,7 @@
       :is-deleting="isDeleting"
       @close="closeDocManager"
       @delete="confirmDeleteDocs"
+      @open="openDocument"
     />
   </div>
 </template>
@@ -76,9 +77,7 @@ const messageListRef = ref(null)
 const sessionList = ref([])
 const currentSessionId = ref('')
 
-const ALLOWED_EXTENSIONS = [
-  'pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'md', 'png', 'jpg', 'jpeg',
-]
+const ALLOWED_EXTENSIONS = ['pdf', 'txt', 'md']
 const MAX_FILE_SIZE = 100 * 1024 * 1024
 
 const documentList = ref([])
@@ -132,6 +131,32 @@ const closeDocManager = () => {
   isDocModalOpen.value = false
 }
 
+// 双击文档: 通过 axios 带 JWT 拿 blob, 浏览器新标签打开 (PDF 直接预览, 其它走下载)
+const openDocument = async (docName) => {
+  try {
+    const response = await axios.get(
+      `/api/documents/file/${encodeURIComponent(docName)}`,
+      { responseType: 'blob' }
+    )
+    const url = URL.createObjectURL(response.data)
+    const win = window.open(url, '_blank')
+    if (!win) {
+      // 弹窗被拦截时回退为下载
+      const a = document.createElement('a')
+      a.href = url
+      a.download = docName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }
+    // 留一点时间让新窗口加载完再释放
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (error) {
+    const detail = error.response?.status === 404 ? '原文件已不存在' : '打开失败'
+    message.error(detail)
+  }
+}
+
 const confirmDeleteDocs = (docsToDelete) => {
   dialog.warning({
     title: '确认删除',
@@ -148,7 +173,12 @@ const deleteSelectedDocs = async (docsToDelete) => {
     const response = await axios.post(
       '/api/clear_chosed_documents',
       { sources: docsToDelete },
-      { headers: { 'Content-Type': 'application/json' } }
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': currentSessionId.value || '',
+        },
+      }
     )
     if (response.status === 200) {
       documentList.value = documentList.value.filter(
@@ -270,11 +300,15 @@ const loadHistoryMessages = async (sessionId) => {
       const data = response.data
       const newMessages = []
       for (const msg of data.history || []) {
+        // 事件条目 (upload/delete) 不在聊天界面渲染, 仅供后端注入 LLM 上下文
+        // 同时防御没有 user/assistant 字段的条目, 避免渲染出空白气泡
+        if (msg.type === 'event') continue
+        if (msg.user == null && msg.assistant == null) continue
         newMessages.push(
-          { role: 'user', content: msg.user },
+          { role: 'user', content: msg.user || '' },
           {
             role: 'ai',
-            content: msg.assistant,
+            content: msg.assistant || '',
             renderedContent: renderMarkdown(msg.assistant || ''),
           }
         )
@@ -319,7 +353,7 @@ const sendQuestion = async (text) => {
   try {
     await axios.post(
       '/api/query',
-      { session_id: currentSessionId.value, question: text, stream: true },
+      { session_id: currentSessionId.value, question: text, stream: true, style: userStore.answerStyle },
       {
         headers: { 'Content-Type': 'application/json' },
         responseType: 'text',

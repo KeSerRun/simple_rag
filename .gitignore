@@ -52,6 +52,10 @@ backend/data/history/
 backend/data/vector_store/dense_vectors.npy
 backend/data/vector_store/metadata.json
 
+# MinerU PDF 解析中间产物（上传 PDF 同目录下生成）
+**/mineru_out/
+chunks_mineru.jsonl
+
 # ============================================================
 # 前端
 # ============================================================

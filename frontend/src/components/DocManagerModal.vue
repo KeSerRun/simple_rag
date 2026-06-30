@@ -47,6 +47,8 @@
               :key="docName"
               class="doc-item"
               :class="{ checked: selected.includes(docName) }"
+              title="双击打开 / 下载"
+              @dblclick.prevent="$emit('open', docName)"
             >
               <n-checkbox :value="docName" />
               <n-icon
@@ -117,7 +119,7 @@ const props = defineProps({
   isDeleting: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'delete'])
+const emit = defineEmits(['close', 'delete', 'open'])
 
 const selected = ref([])
 const searchQuery = ref('')

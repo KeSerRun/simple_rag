@@ -16,6 +16,16 @@
     </div>
 
     <n-space :size="6" align="center" class="header-actions">
+      <!-- 回答风格选择器 -->
+      <n-select
+        v-model:value="styleValue"
+        :options="styleOptions"
+        size="small"
+        style="width: 96px"
+        placeholder="风格"
+        @update:value="handleStyleChange"
+      />
+
       <n-button quaternary @click="$emit('open-doc-manager')">
         <template #icon>
           <n-icon :component="LibraryOutline" />
@@ -47,10 +57,12 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import {
   NButton,
   NIcon,
   NSpace,
+  NSelect,
   NTag,
   NTooltip,
   NH3,
@@ -60,13 +72,34 @@ import {
   LogOutOutline,
   MenuOutline,
 } from '@vicons/ionicons5'
+import { useUserStore } from '@/stores/user'
 
-defineProps({
+const userStore = useUserStore()
+
+const props = defineProps({
   title: { type: String, default: '新会话' },
   documentCount: { type: Number, default: 0 },
 })
 
-defineEmits(['open-doc-manager', 'logout', 'toggle-sidebar'])
+defineEmits(['open-doc-manager', 'logout', 'toggle-sidebar', 'style-change'])
+
+const styleOptions = [
+  { label: '默认', value: 'style-default' },
+  { label: '正式专业', value: 'style-formal' },
+  { label: '简洁明了', value: 'style-simple' },
+  { label: '学术严谨', value: 'style-academic' },
+  { label: '亲切友好', value: 'style-friendly' },
+]
+
+// 双向绑定 userStore.answerStyle
+const styleValue = computed({
+  get: () => userStore.answerStyle,
+  set: (v) => { userStore.answerStyle = v },
+})
+
+const handleStyleChange = (value) => {
+  userStore.answerStyle = value
+}
 </script>
 
 <style scoped>

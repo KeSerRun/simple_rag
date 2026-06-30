@@ -27,6 +27,7 @@ async def query(request: Request):
         session_id = data.get("session_id")
         question = data.get("question")
         stream = data.get("stream", False)
+        style = data.get("style") or None  # 前端传空字符串 / null 时统一视为 None
         # username 始终取自 token,作为检索分区使用
         username = request.state.user["username"]
 
@@ -35,11 +36,11 @@ async def query(request: Request):
 
         if stream:
             return StreamingResponse(
-                _sse_wrapper(system.answer_generator(session_id, question, partition=username)),
+                _sse_wrapper(system.answer_generator(session_id, question, partition=username, style=style)),
                 media_type="text/event-stream",
             )
         return JSONResponse(content={
-            "answer": system.get_answer(session_id, question, partition=username)
+            "answer": system.get_answer(session_id, question, partition=username, style=style)
         })
 
     except json.JSONDecodeError:

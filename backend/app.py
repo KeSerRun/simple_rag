@@ -68,12 +68,6 @@ async def health_check():
     return JSONResponse(content={"status": "healthy"})
 
 
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """全局 HTTP 异常处理器"""
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-
-
 @app.get("/index")
 async def index():
     """根路径,返回主页 HTML 内容(若前端未构建则返回 404 提示)"""

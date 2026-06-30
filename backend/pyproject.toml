@@ -15,14 +15,15 @@ dependencies = [
     # 向量检索
     "faiss-cpu>=1.10.0",
     "numpy>=2.0",
-    # 文档加载与 OCR
+    # 文档加载与 OCR (仅 PDF 兜底路径使用 PyMuPDF + RapidOCR)
     "PyMuPDF>=1.24",
-    "python-docx>=1.0",
-    "python-pptx>=1.0",
     "Pillow>=10.0",
     "opencv-python>=4.10",
     "rapidocr-onnxruntime>=1.4",
     "tqdm>=4.66",
+    # MinerU PDF 结构化解析
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
     # 工具
     "rich>=13.7",
 ]

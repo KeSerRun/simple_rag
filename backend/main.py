@@ -5,8 +5,9 @@ from base.logger import logger, log_qa
 # 导入 JSON 持久化存储
 from storage import JSONFileStore
 # 导入 RAG_QA 问答系统类
-from rag_qa import RAGSystem
+from agent import RAGSystem
 # 导入 uuid 模块用于生成唯一标识符
+from typing import Optional
 import uuid
 import argparse
 import os
@@ -22,67 +23,67 @@ class IntegratedSystem:
         self.rag_qa = RAGSystem()
         # 初始化向量存储
         self.vector_store = self.rag_qa.vector_store
-        # 会话级上传文件追踪（内存）
-        self.session_files = {}
 
     def get_history(self, session_id):
-        # 获取会话历史记录,供 RAG_QA 生成答案时参考
-        history = self.data_store.get_session_history(session_id)
-        # 限制历史记录长度,避免过长的历史影响模型性能
-        if history and len(history) > conf.max_history_length:
-            history = history[-conf.max_history_length:]
-        # 格式化历史记录为模型输入的格式
-        history = [[{'role': 'user', 'content': h['user']},
-                    {'role': 'assistant', 'content': h['assistant']}] for h in (history or [])]
-        # 展开为单层列表
-        history = [item for sublist in history for item in sublist]
+        """读取会话历史并展开为 LLM 输入格式。
 
-        # 注入上传文件上下文
-        upload_ctx = self.get_upload_context(session_id)
-        if upload_ctx:
-            history.insert(0, {'role': 'user', 'content': upload_ctx})
-        return history
+        history.json 中两种条目:
+          - {type: 'qa', user, assistant}       → user / assistant 两条消息
+          - {type: 'event', event_type, files}  → 单条 <operation：...> user 消息
+        最末若干条按 max_history_length 截取。
+        """
+        raw = self.data_store.get_session_history(session_id) or []
+        if raw and len(raw) > conf.max_history_length:
+            raw = raw[-conf.max_history_length:]
+        messages = []
+        for h in raw:
+            if h.get('type') == 'event':
+                tag = self._event_to_tag(h.get('event_type', ''), h.get('files', []))
+                if tag:
+                    messages.append({'role': 'user', 'content': tag})
+            else:
+                # 兼容老数据 (无 type 字段) 和 type='qa'
+                messages.append({'role': 'user', 'content': h.get('user', '')})
+                messages.append({'role': 'assistant', 'content': h.get('assistant', '')})
+        return messages
 
-    def record_upload(self, session_id, filenames):
-        """记录会话上传的文件名"""
-        if session_id not in self.session_files:
-            self.session_files[session_id] = []
-        self.session_files[session_id].extend(filenames)
-
-    def get_upload_context(self, session_id):
-        """生成 <operation：upload files: ...> 上下文标签"""
-        files = self.session_files.get(session_id, [])
+    @staticmethod
+    def _event_to_tag(event_type: str, files: list) -> str:
+        """事件 → <operation：...> 文本, 供 LLM 感知用户最近操作"""
+        if event_type == 'delete_all':
+            return "<operation：clear all uploaded files>"
         if not files:
-            return None
-        # 去重保序
-        seen = set()
-        unique = []
-        for f in files:
-            if f not in seen:
-                seen.add(f)
-                unique.append(f)
-        if len(unique) > 3:
-            return f"<operation：upload files: {', '.join(unique[:3])}等>"
-        return f"<operation：upload files: {', '.join(unique)}>"
+            return ""
+        head = files[:3]
+        suffix = "等" if len(files) > 3 else ""
+        if event_type == 'upload':
+            return f"<operation：upload files: {', '.join(head)}{suffix}>"
+        if event_type == 'delete':
+            return f"<operation：delete files: {', '.join(head)}{suffix}>"
+        return ""
 
-    def get_answer(self, session_id, question, partition: str = None):
+    def get_answer(self, session_id, question, partition: str = None, style: Optional[str] = None):
         """处理用户查询,返回答案"""
         history = self.get_history(session_id)
         logger.info(f"收到查询: {question}")
         # 使用 RAG_QA 生成答案
-        answer = self.rag_qa.generate_answer(question, stream=False, history=history, partition=partition)
+        answer = self.rag_qa.generate_answer(
+            question, stream=False, history=history, partition=partition, style=style,
+        )
         logger.info(f"生成的回答: {answer}")
         # 将会话历史记录存储,记录 session_id 以关联同一会话的问答对
         self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
         return answer
 
-    def answer_generator(self, session_id, question, partition: str = None):
+    def answer_generator(self, session_id, question, partition: str = None, style: Optional[str] = None):
         """流式返回答案的生成器"""
         history = self.get_history(session_id)
         logger.info(f"收到查询: {question}")
         # 使用 RAG_QA 生成答案
-        answer_iter = self.rag_qa.generate_answer(question, stream=True, history=history, partition=partition)
+        answer_iter = self.rag_qa.generate_answer(
+            question, stream=True, history=history, partition=partition, style=style,
+        )
         ans = []
         for chunk in answer_iter:
             # generater() 每次 yield 的是累积 token 列表,取最新增量
@@ -98,10 +99,9 @@ class IntegratedSystem:
 
     def run_cli(self, args):
         """CLI entry point"""
-        session_id = args.session or "cli-" + str(abs(hash(args.question)) % 100000) if hasattr(args, "question") else "cli-" + str(uuid.uuid4())[:8]
         if hasattr(args, "session") and args.session:
             session_id = args.session
-        elif not hasattr(args, "session") or not args.session:
+        else:
             session_id = "cli-" + str(uuid.uuid4())[:8]
         partition = args.partition if hasattr(args, "partition") and args.partition else session_id
 
@@ -121,7 +121,7 @@ class IntegratedSystem:
                 sys.exit(1)
             if os.path.isfile(args.path):
                 name = os.path.basename(args.path)
-                self.record_upload(session_id, [name])
+                self.data_store.insert_session_event(session_id, 'upload', [name])
                 self.vector_store.store_documents_from_dir(args.path, partition=partition)
                 print("uploaded:", name)
             elif os.path.isdir(args.path):

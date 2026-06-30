@@ -69,8 +69,6 @@ class Config:
         self.openai_api_key = os.environ.get('OPENAI_API_KEY') or _strip_quotes(config.get('api', 'api_key', fallback='')) or None
         self.openai_base_url = _strip_quotes(config.get('api', 'base_url', fallback='https://api.openai.com/v1')) or None
         self.chat_model = _strip_quotes(config.get('api', 'chat_model', fallback='gpt-4o-mini'))
-        self.strategy_model = _strip_quotes(config.get('api', 'strategy_model', fallback=self.chat_model))
-        self.classifier_model = _strip_quotes(config.get('api', 'classifier_model', fallback=self.chat_model))
 
         # OpenAI API 配置 — Embedding 端（可独立指向另一家服务商,留空则回退到 chat 端配置）
         self.embedding_api_key = (
@@ -84,15 +82,8 @@ class Config:
         )
         self.openai_embedding_model = _strip_quotes(config.get('api', 'embedding_model', fallback='text-embedding-3-small'))
         self.openai_embedding_dim = config.getint('api', 'embedding_dim', fallback=1536)
-        self.enable_llm_rerank = config.getboolean('api', 'enable_llm_rerank', fallback=False)
         self.openai_timeout = config.getfloat('api', 'timeout', fallback=60.0)
         self.openai_max_retries = config.getint('api', 'max_retries', fallback=3)
-
-        # 意图识别标签
-        self.query_classifier_label_list = [
-            label.strip() for label in
-            config.get('query_classifier', 'query_classifier_labels', fallback='需要,不需要').split(',')
-        ]
 
         # 评估配置
         self.rag_evaluate_data = get_file(config, 'assessment', 'rag_evaluate_data')
@@ -104,11 +95,20 @@ class Config:
         self.index_file = get_file(config, 'html', 'index_file')
 
         # jwt配置
-        self.jwt_secret_key = config.get('jwt', 'secret_key')
+        self.jwt_secret_key = _strip_quotes(config.get('jwt', 'secret_key'))
 
         # superuser配置
         self.superuser_usernames = [u.strip() for u in config.get('superuser', 'users').split(',')]
         self.superuser_passwords = [p.strip() for p in config.get('superuser', 'passwords').split(',')]
+
+        # MinerU 配置（PDF 高质量结构化解析；留空则回退到 OCRPDFLoader）
+        self.mineru_token_key = (
+            os.environ.get('MINERU_TOKEN_KEY')
+            or _strip_quotes(config.get('mineru', 'token_key', fallback=''))
+        )
+        self.mineru_token_name = _strip_quotes(config.get('mineru', 'token_name', fallback='default'))
+        self.mineru_model_version = _strip_quotes(config.get('mineru', 'model_version', fallback='vlm'))
+        self.mineru_language = _strip_quotes(config.get('mineru', 'language', fallback='ch'))
 
 # 创建全局配置实例，供其他模块使用
 conf = Config()

@@ -156,12 +156,36 @@ class JSONFileStore:
             history = self._read_json(history_file)
         history.append({
             'id': self._get_next_id(history),
+            'type': 'qa',
             'user': user,
             'assistant': assistant,
             'timestamp': datetime.now().isoformat()
         })
         self._write_json(history_file, history)
         logger.info(f"session_id={session_id}, 成功插入对话历史")
+        return True
+
+    def insert_session_event(self, session_id, event_type, files):
+        """记录会话级操作事件 (上传 / 删除文件等), 与 qa 条目一起追加到同一历史文件。
+
+        event_type: 'upload' | 'delete' | 'delete_all'
+        files:     list[str] 受影响的文件名 (delete_all 时可为空)
+        """
+        if not session_id:
+            return False
+        history_file = os.path.join(self._history_dir, f'{session_id}.json')
+        history = []
+        if os.path.exists(history_file):
+            history = self._read_json(history_file)
+        history.append({
+            'id': self._get_next_id(history),
+            'type': 'event',
+            'event_type': event_type,
+            'files': list(files or []),
+            'timestamp': datetime.now().isoformat()
+        })
+        self._write_json(history_file, history)
+        logger.info(f"session_id={session_id}, 记录事件: {event_type} -> {files}")
         return True
 
     def delete_session_history(self, session_id):

@@ -17,12 +17,11 @@ import sys
 '''集成系统类，封装数据存储 + RAG_QA,提供统一的问答接口'''
 class IntegratedSystem:
     def __init__(self):
-        # 数据存储（用户/会话/历史 JSON 文件版）
         self.data_store = JSONFileStore()
-        # 初始化 RAG_QA 问答系统
         self.rag_qa = RAGSystem()
-        # 初始化向量存储
         self.vector_store = self.rag_qa.vector_store
+        # 追踪每个会话当前使用的 style（用于检测切换）
+        self.session_last_style: dict[str, str] = {}
 
     def get_history(self, session_id):
         """读取会话历史并展开为 LLM 输入格式。
@@ -165,10 +164,22 @@ class IntegratedSystem:
             return f"<operation：upload files: {', '.join(head)}{suffix}>"
         if event_type == 'delete':
             return f"<operation：delete files: {', '.join(head)}{suffix}>"
+        if event_type == 'style_change':
+            new_style = files[0] if files else 'default'
+            return f"<operation：switch answer style to {new_style}>"
         return ""
+
+    def _check_style_change(self, session_id: str, style: Optional[str]) -> None:
+        """检测 style 切换，记录事件到历史。"""
+        prev = self.session_last_style.get(session_id)
+        if prev is not None and prev != style:
+            self.data_store.insert_session_event(session_id, 'style_change', [str(style or 'default')])
+            logger.info(f"style 切换: {prev} → {style or 'default'}")
+        self.session_last_style[session_id] = style or 'default'
 
     def get_answer(self, session_id, question, partition: str = None, style: Optional[str] = None):
         """处理用户查询,返回答案"""
+        self._check_style_change(session_id, style)
         history = self.get_history(session_id)
         try:
             answer = self.rag_qa.generate_answer(
@@ -187,6 +198,7 @@ class IntegratedSystem:
 
     def answer_generator(self, session_id, question, partition: str = None, style: Optional[str] = None):
         """流式返回答案的生成器"""
+        self._check_style_change(session_id, style)
         history = self.get_history(session_id)
         answer_iter = self.rag_qa.generate_answer(
             question, stream=True, history=history, partition=partition, style=style,

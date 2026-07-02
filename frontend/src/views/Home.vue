@@ -91,7 +91,7 @@ const MAX_FILE_SIZE = 100 * 1024 * 1024
 const documentList = ref([])
 const isDocModalOpen = ref(false)
 const isDeleting = ref(false)
-const drawerOpen = ref(true)
+const drawerOpen = ref(false)
 
 // 格式化会话标题：首条消息摘要 + 相对时间
 const formatSessionTitle = (firstMsg, createdAt) => {

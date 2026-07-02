@@ -1,5 +1,6 @@
 """RAG 问答查询接口(支持流式 SSE)"""
 import json
+import os
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -9,6 +10,23 @@ from base.logger import logger
 from .deps import auth_required, system
 
 router = APIRouter(prefix="/api", tags=["query"])
+
+
+@router.get("/styles")
+async def list_styles():
+    """返回可用的回答风格列表（由 backend/prompts/skills/style/ 自动发现）。"""
+    skills = system.rag_qa.context_builder.skills
+    styles = []
+    for name, skill in skills.items():
+        if "/style/" in skill.source.replace("\\", "/"):
+            styles.append({
+                "value": name,
+                "label": name,
+                "description": skill.description or "",
+            })
+    # 默认排第一
+    styles.sort(key=lambda s: (s["value"] != "default", s["label"]))
+    return JSONResponse(content={"styles": styles})
 
 
 def _sse_wrapper(generator):

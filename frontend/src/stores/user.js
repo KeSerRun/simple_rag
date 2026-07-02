@@ -8,7 +8,7 @@ export const useUserStore = defineStore('user', () => {
     const username = ref(localStorage.getItem('username') || '')
     const role = ref(localStorage.getItem('role') || '')
     // 回答风格偏好
-    const answerStyle = ref(localStorage.getItem('answer_style') || 'style-default')
+    const answerStyle = ref(localStorage.getItem('answer_style') || 'default')
 
     // 计算属性：判断是否已登录，当 token 存在时认为已登录
     const isLoggedIn = computed(() => !!token.value)

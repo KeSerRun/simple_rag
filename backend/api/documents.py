@@ -1,6 +1,7 @@
 """文档管理接口:上传/向量化/列出/清除/下载"""
 import glob
 import json
+import jwt
 import mimetypes
 import os
 import shutil
@@ -273,15 +274,24 @@ async def download_document(request: Request, filename: str):
 
 @router.get("/documents/image/{doc_stem}/{img_name:path}")
 async def serve_mineru_image(
+    request: Request,
     doc_stem: str,
     img_name: str,
+    token: str = Query(None),
 ):
-    """提供 MinerU 解析产出的图片。
+    """提供 MinerU 解析产出的图片。支持 ?token= 参数供 <img> 标签加载。"""
+    # 验证 token: header 优先, query param 兜底
+    auth_token = token
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        auth_token = auth_header.split(" ", 1)[1]
+    if auth_token:
+        try:
+            payload = jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
+            request.state.user = payload
+        except jwt.PyJWTError:
+            raise HTTPException(status_code=401, detail="invalid token")
 
-    支持两种容错:
-      1. hash 前缀匹配 (LLM 截断长 hash)
-      2. 仅目录 + 任意文件匹配 (LLM 编造了不存在的 hash 时, 取第一张)
-    """
     base_dir = Path(conf.vector_store_dir) / "tmp" / "*" / "chunk_out" / doc_stem
 
     # 1) 精确匹配

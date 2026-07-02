@@ -95,7 +95,26 @@ def _parse_yaml_block(text: str) -> dict:
         key, _, value = line.partition(":")
         key = key.strip()
         value = value.strip()
-        if value:
+        if value == "|":
+            # 多行字面块: key: |\n  line1\n  line2
+            lines_joined = []
+            i += 1
+            if i < len(lines):
+                indent = len(lines[i]) - len(lines[i].lstrip())
+                while i < len(lines):
+                    nxt = lines[i]
+                    stripped = nxt.strip()
+                    if stripped == "":
+                        lines_joined.append("")
+                        i += 1
+                        continue
+                    if len(nxt) - len(nxt.lstrip()) >= indent:
+                        lines_joined.append(stripped)
+                        i += 1
+                    else:
+                        break
+            result[key] = " ".join(lines_joined)
+        elif value:
             result[key] = _coerce_bool(_strip_quotes(value))
             i += 1
         else:
@@ -164,7 +183,7 @@ class ContextBuilder:
 
     def _scan_skills(self, root: Path):
         for f in sorted(root.glob("*.md")):
-            if f.name.lower() == "skill.md":
+            if f.name.lower() in ("skill.md", "readme.md"):
                 continue
             yield f, f.stem
         for sub in sorted(root.iterdir()):

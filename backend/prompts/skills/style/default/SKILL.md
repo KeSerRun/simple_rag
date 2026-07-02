@@ -1,9 +1,7 @@
 ---
-name: style-default
-description: 默认风格（不加额外约束）
-include_identity: false
-inputs:
-  - style
+name: default
+description: |
+  默认风格（不加额外约束）
 ---
 
 ## 风格要求：默认

@@ -20,8 +20,9 @@
       <n-select
         v-model:value="styleValue"
         :options="styleOptions"
+        :loading="styleLoading"
         size="small"
-        style="width: 96px"
+        style="width: 112px"
         placeholder="风格"
         @update:value="handleStyleChange"
       />
@@ -57,7 +58,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import {
   NButton,
   NIcon,
@@ -73,6 +74,7 @@ import {
   MenuOutline,
 } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
+import axios from '@/http/interceptor'
 
 const userStore = useUserStore()
 
@@ -83,13 +85,23 @@ const props = defineProps({
 
 defineEmits(['open-doc-manager', 'logout', 'toggle-sidebar', 'style-change'])
 
-const styleOptions = [
-  { label: '默认', value: 'style-default' },
-  { label: '正式专业', value: 'style-formal' },
-  { label: '简洁明了', value: 'style-simple' },
-  { label: '学术严谨', value: 'style-academic' },
-  { label: '亲切友好', value: 'style-friendly' },
-]
+// 风格选项从后端动态获取
+const styleOptions = ref([])
+const styleLoading = ref(true)
+
+onMounted(async () => {
+  try {
+    const resp = await axios.get('/api/styles')
+    if (resp.status === 200 && resp.data.styles) {
+      styleOptions.value = resp.data.styles
+    }
+  } catch {
+    // 兜底: 至少给个默认选项
+    styleOptions.value = [{ label: '默认', value: 'style-default' }]
+  } finally {
+    styleLoading.value = false
+  }
+})
 
 // 双向绑定 userStore.answerStyle
 const styleValue = computed({

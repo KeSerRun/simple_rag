@@ -11,7 +11,7 @@ import numpy as np
 from base.config import conf
 from base.logger import logger
 
-from .document import Document
+from .document_process import Document
 from .document_process import process_documents_from_dir
 from .openai_client import OpenAIClient
 

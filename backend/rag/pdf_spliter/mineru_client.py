@@ -14,7 +14,7 @@ import requests
 from base.config import conf
 from base.logger import logger
 
-API_BASE = "https://mineru.net/api/v4"
+API_BASE = conf.mineru_base_url
 
 
 class MinerUError(Exception):
@@ -23,17 +23,17 @@ class MinerUError(Exception):
 
 class MinerUClient:
     def __init__(self, token: str | None = None, timeout: int = 60):
-        self.token = token or conf.mineru_token_key
+        self.token = token or conf.mineru_api_key
         self.token_name = "explicit" if token else (conf.mineru_token_name or "default")
         if not self.token:
             raise MinerUError(
                 "缺少 API Token. 请在 backend/config.ini [mineru] 段或环境变量 "
-                "MINERU_TOKEN_KEY 中配置 (申请地址: https://mineru.net/apiManage)"
+                "MINERU_API_KEY 中配置 (申请地址: https://mineru.net/apiManage)"
             )
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {self.token}"})
-        logger.info(f"[MinerU] 使用 token: {self.token_name} ({self.token[:12]}...)")
+        logger.info(f"MinerU 使用 token: {self.token_name} ({self.token[:12]}...)")
 
     def request_upload_url(
         self, file_name: str, data_id: str | None = None,
@@ -91,23 +91,23 @@ class MinerUClient:
     def parse_pdf(self, pdf_path: Path, work_dir: Path | None = None,
                    model_version: str = "vlm", language: str = "ch") -> Path:
         pdf_path = Path(pdf_path)
-        work_dir = Path(work_dir or pdf_path.parent / "mineru_out")
+        work_dir = Path(work_dir or pdf_path.parent / "chunk_out")
         work_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"[1/4] 申请上传 URL: {pdf_path.name}")
+        logger.info(f"1/4 申请上传 URL: {pdf_path.name}")
         batch_id, put_url, data_id = self.request_upload_url(
             pdf_path.name, model_version=model_version, language=language,
         )
         logger.info(f"      batch_id={batch_id}")
-        logger.info(f"[2/4] 上传 PDF ({pdf_path.stat().st_size / 1024:.1f} KB)")
+        logger.info(f"2/4 上传 PDF ({pdf_path.stat().st_size / 1024:.1f} KB)")
         self.upload_file(put_url, pdf_path)
-        logger.info(f"[3/4] 等待解析完成 (轮询)")
+        logger.info(f"3/4 等待解析完成 (轮询)")
         results = self.poll_batch(batch_id)
         if not results:
             raise MinerUError("未拿到任何结果")
         item = results[0]
         if item.get("state") != "done":
             raise MinerUError(f"解析失败: {item.get('err_msg') or item}")
-        logger.info(f"[4/4] 下载并解压: {item['full_zip_url']}")
+        logger.info(f"4/4 下载并解压: {item['full_zip_url']}")
         out = self.download_and_unzip(item["full_zip_url"], work_dir)
         logger.info(f"      -> {out}")
         return out

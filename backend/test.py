@@ -1,4 +1,4 @@
-from rag_qa.text_spliter import ChineseRecursiveTextSplitter
+from rag.text_spliter import ChineseRecursiveTextSplitter
 
 sample_text = """移动端语音唤醒模型，检测关键词为"小云小云"。
 模型主体为4层FSMN结构，使用CTC训练准则，参数量750K，适用于移动端设备运行。

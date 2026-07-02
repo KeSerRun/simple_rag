@@ -30,22 +30,127 @@ class IntegratedSystem:
         history.json 中两种条目:
           - {type: 'qa', user, assistant}       → user / assistant 两条消息
           - {type: 'event', event_type, files}  → 单条 <operation：...> user 消息
-        最末若干条按 max_history_length 截取。
+        规则:
+          - max_history_length: 硬截断窗口，超过时丢弃最早的 QA
+          - max_history_chars: 字符数超限时压缩早期对话（保留最近 2 轮）
         """
         raw = self.data_store.get_session_history(session_id) or []
-        if raw and len(raw) > conf.max_history_length:
-            raw = raw[-conf.max_history_length:]
+        if not raw:
+            return []
         messages = []
-        for h in raw:
-            if h.get('type') == 'event':
-                tag = self._event_to_tag(h.get('event_type', ''), h.get('files', []))
-                if tag:
-                    messages.append({'role': 'user', 'content': tag})
+
+        # 1) 硬截断: 按轮次截取最近 N 条 QA
+        qa_entries = [h for h in raw if h.get('type') != 'event']
+        if len(qa_entries) > conf.max_history_length:
+            # 找出哪些 QA 被截断
+            discard = len(qa_entries) - conf.max_history_length
+            discard_ids = {id(h) for h in qa_entries[:discard]}
+            raw = [h for h in raw if id(h) not in discard_ids]
+            logger.info(f"历史截断: 丢弃前 {discard} 轮, 保留最近 {conf.max_history_length} 轮")
+
+        # 2) 字符数压缩: 超过上限时压缩早期对话
+        qa_entries2 = [h for h in raw if h.get('type') != 'event']
+        total_chars = sum(
+            len(h.get('user', '') or '') + len(h.get('assistant', '') or '')
+            for h in qa_entries2
+        )
+        if total_chars > conf.max_history_chars and len(qa_entries2) > 2:
+            keep = 2
+            compressed_qa = qa_entries2[:-keep]
+            compressed_ids = {id(h) for h in compressed_qa}
+            remaining_raw = [h for h in raw if id(h) not in compressed_ids]
+
+            mode = "规则拼接" if len(compressed_qa) <= 3 else "LLM 摘要"
+
+            # 生成摘要
+            summary_text = ""
+            if len(compressed_qa) <= 3:
+                questions = [h.get('user', '') for h in compressed_qa if h.get('user')]
+                if questions:
+                    summary_text = "（历史摘要）用户之前的问题：" + "；".join(
+                        q[:60] for q in questions if q
+                    )
             else:
-                # 兼容老数据 (无 type 字段) 和 type='qa'
-                messages.append({'role': 'user', 'content': h.get('user', '')})
-                messages.append({'role': 'assistant', 'content': h.get('assistant', '')})
+                summary_text = self._summarize_history(compressed_qa) or ""
+
+            if summary_text:
+                messages.append({'role': 'user', 'content': summary_text})
+
+            for h in remaining_raw:
+                self._append_history_item(messages, h)
+
+            # 压缩后字符数
+            after_chars = sum(len(m.get('content', '') or '') for m in messages)
+            logger.info(
+                f"历史压缩触发: "
+                f"压缩前 {len(compressed_qa)} 轮/{total_chars} 字符, "
+                f"压缩后 {after_chars} 字符, "
+                f"节省 {total_chars - after_chars} 字符, "
+                f"方式={mode}"
+            )
+        else:
+            for h in raw:
+                self._append_history_item(messages, h)
+
         return messages
+
+    def _summarize_history(self, entries: list) -> str:
+        """用 LLM 对历史对话做语义摘要。"""
+        from rag.core.openai_client import OpenAIClient
+
+        # 构建摘要 prompt
+        turns = []
+        for h in entries:
+            u = h.get('user', '') or ''
+            a = h.get('assistant', '') or ''
+            if u:
+                turns.append(f"用户：{u[:200]}")
+            if a:
+                turns.append(f"助手：{a[:200]}")
+        if not turns:
+            return ""
+        text = "\n".join(turns)
+
+        client = OpenAIClient(
+            api_key=conf.openai_api_key, base_url=conf.openai_base_url,
+            timeout=conf.openai_timeout, max_retries=conf.openai_max_retries,
+        )
+        try:
+            resp = client.chat(
+                messages=[{
+                    "role": "system",
+                    "content": "你是一个摘要助手。将以下对话浓缩为一段话（150字以内），"
+                               "保留核心问题和关键结论，不要丢失重要数据和时间信息。"
+                }, {
+                    "role": "user",
+                    "content": f"请摘要以下对话：\n\n{text}",
+                }],
+                model=conf.summary_model,
+                stream=False,
+                temperature=0.1,
+                max_tokens=300,
+            )
+            return (resp or "").strip()
+        except Exception as e:
+            logger.warning(f"LLM 摘要失败，回退规则拼接: {e}")
+            # 回退到规则拼接
+            questions = [h.get('user', '')[:60] for h in entries if h.get('user')]
+            if questions:
+                return "用户之前的问题：" + "；".join(questions)
+            return ""
+
+    @staticmethod
+    def _append_history_item(messages: list, h: dict):
+        """将一条 history 条目追加到 messages。"""
+        if h.get('type') == 'event':
+            tag = IntegratedSystem._event_to_tag(
+                h.get('event_type', ''), h.get('files', [])
+            )
+            if tag:
+                messages.append({'role': 'user', 'content': tag})
+        else:
+            messages.append({'role': 'user', 'content': h.get('user', '')})
+            messages.append({'role': 'assistant', 'content': h.get('assistant', '')})
 
     @staticmethod
     def _event_to_tag(event_type: str, files: list) -> str:
@@ -65,13 +170,17 @@ class IntegratedSystem:
     def get_answer(self, session_id, question, partition: str = None, style: Optional[str] = None):
         """处理用户查询,返回答案"""
         history = self.get_history(session_id)
-        logger.info(f"收到查询: {question}")
-        # 使用 RAG_QA 生成答案
-        answer = self.rag_qa.generate_answer(
-            question, stream=False, history=history, partition=partition, style=style,
-        )
-        logger.info(f"生成的回答: {answer}")
-        # 将会话历史记录存储,记录 session_id 以关联同一会话的问答对
+        try:
+            answer = self.rag_qa.generate_answer(
+                question, stream=False, history=history, partition=partition, style=style,
+            )
+            logger.info(f"回答成功 len={len(answer)}")
+        except Exception as e:
+            logger.error(f"回答失败: {e}")
+            answer = f"抱歉，处理请求时发生了错误: {e}"
+            self.data_store.insert_session_history(session_id, question, answer)
+            log_qa(partition, session_id, question, answer)
+            return answer
         self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
         return answer
@@ -79,21 +188,20 @@ class IntegratedSystem:
     def answer_generator(self, session_id, question, partition: str = None, style: Optional[str] = None):
         """流式返回答案的生成器"""
         history = self.get_history(session_id)
-        logger.info(f"收到查询: {question}")
-        # 使用 RAG_QA 生成答案
         answer_iter = self.rag_qa.generate_answer(
             question, stream=True, history=history, partition=partition, style=style,
         )
         ans = []
-        for chunk in answer_iter:
-            # generater() 每次 yield 的是累积 token 列表,取最新增量
-            ans = chunk
-            yield chunk[-1]
+        for event in answer_iter:
+            # 流式格式: {"type": "token", "text": "..."} 或 {"type": "status", ...}
+            # yield 原始事件, 由 _sse_wrapper JSON 编码后传前端
+            if event.get("type") == "token":
+                ans.append(event.get("text", ""))
+            yield event  # 传递原始事件, 不过滤
         answer = ''.join(ans)
-        logger.info(f"生成的回答: {answer}")
-        # 将会话历史记录存储
         self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
+        logger.info(f"回答成功 len={len(answer)}")
 
 # -- replaced by run_cli --
 
@@ -108,8 +216,9 @@ class IntegratedSystem:
         if args.command == "query":
             print(end="", flush=True)
             if getattr(args, "stream", False):
-                for token in self.answer_generator(session_id, args.question, partition=partition):
-                    print(token, end="", flush=True)
+                for event in self.answer_generator(session_id, args.question, partition=partition):
+                    if event.get("type") == "token":
+                        print(event.get("text", ""), end="", flush=True)
                 print()
             else:
                 answer = self.get_answer(session_id, args.question, partition=partition)

@@ -19,9 +19,26 @@ from rag.core.openai_client import OpenAIClient
 
 from .context_builder import ContextBuilder
 from .state import AgentState
-from .tools import TOOL_SCHEMAS, execute_tool
+from .registry import ToolContext
+from .tools import registry
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 输入日志（每次调 LLM 的完整 messages）
+_input_log_path = os.path.join(_BACKEND_ROOT, "logs", "input.log")
+
+
+def _log_input(messages: list, round: int = 0):
+    """将 messages 追加到 input.log。"""
+    import json as _json, datetime as _dt
+    try:
+        os.makedirs(os.path.dirname(_input_log_path), exist_ok=True)
+        with open(_input_log_path, "a", encoding="utf-8") as _f:
+            _f.write(f"\n=== {_dt.datetime.now().isoformat()} round={round} ===\n")
+            _f.write(_json.dumps(messages, ensure_ascii=False, indent=2))
+            _f.write("\n")
+    except Exception:
+        pass
 
 
 class RAGSystem:
@@ -68,26 +85,27 @@ class RAGSystem:
 
         logger.info(
             f"RAG agent 就绪, chat_model={self.chat_model}, "
-            f"工具={[t['function']['name'] for t in TOOL_SCHEMAS]}"
+            f"工具={[t['function']['name'] for t in registry.schemas]}"
         )
 
-        if conf.mineru_token_key:
-            tok_preview = f"{conf.mineru_token_key[:12]}...({conf.mineru_token_name})"
-            logger.info(f"PDF 解析: MinerU [{conf.mineru_model_version}/{conf.mineru_language}] token={tok_preview}")
+        if conf.mineru_api_key:
+            tok_preview = f"{conf.mineru_api_key[:12]}...({conf.mineru_token_name})"
+            logger.info(f"PDF 解析: MinerU {conf.mineru_model_version}/{conf.mineru_language} token={tok_preview}")
         else:
             logger.info("PDF 解析: OCRPDFLoader (MinerU token 未配置)")
 
-    def _build_system_message(self, doc_names: List[str], style: Optional[str] = None) -> str:
-        """构造 system message: identity + 文档清单 + 可选回答风格。
+    def _build_system_message(self, style: Optional[str] = None) -> str:
+        """构造 system message: identity + 可选回答风格。
 
         style 为 None / "style-default" 时跳过风格注入。
+        文档清单不再注入 system message，LLM 通过 list_documents 工具按需获取。
         """
         parts = [self.context_builder.identity or ""]
-        parts.append("\n\n## 当前知识库的文档清单\n")
-        if doc_names:
-            parts.append("\n".join(f"- {n}" for n in doc_names))
-        else:
-            parts.append("(用户尚未上传任何文档)")
+        # 注入当前时间, 帮助 LLM 理解 "今年" "最近" "今天" 等时间指代
+        from datetime import datetime as _dt
+        import time as _time
+        _tz = _time.tzname
+        parts.append(f"\n当前日期: {_dt.now().strftime('%Y年%m月%d日 %A')} (时区: {_tz[0] if _tz else 'UTC'})")
         # 注入回答风格
         if style and style != "style-default":
             skill = self.context_builder.skills.get(style)
@@ -99,14 +117,12 @@ class RAGSystem:
 
     def generate_answer(
         self, query, force_retrieve: bool = False,
-        source_filter=None, stream=False, history: list = None,
+        stream=False, history: list = None,
         partition: str = None, style: Optional[str] = None,
     ):
         logger.info(f"收到用户查询: {query} (style={style})")
-        doc_names = self.vector_store.get_documents_by_partition(partition=partition) or []
-        logger.info(f"分区 {partition} 可见文档 {len(doc_names)} 份")
 
-        system_msg = self._build_system_message(doc_names, style=style)
+        system_msg = self._build_system_message(style=style)
         messages: List[dict] = [{"role": "system", "content": system_msg}]
         if history:
             messages.extend(history)
@@ -115,7 +131,6 @@ class RAGSystem:
         state = AgentState(
             messages=messages,
             partition=partition,
-            source_filter=source_filter,
             style=style,
         )
 
@@ -129,11 +144,13 @@ class RAGSystem:
         tool_choice = "required" if force_retrieve else "auto"
 
         while state.should_continue():
+            _log_input(state.messages, round=state.iteration)
             try:
                 resp = self.client.chat_with_tools(
                     messages=state.messages, model=self.chat_model,
-                    tools=TOOL_SCHEMAS, tool_choice=tool_choice,
+                    tools=registry.schemas, tool_choice=tool_choice,
                     stream=False, temperature=0.7, max_tokens=2048,
+                    reasoning_effort=conf.chat_reasoning_effort,
                 )
             except Exception as e:
                 logger.error(f"LLM tool 调用失败 (round {state.iteration}): {e}")
@@ -142,15 +159,16 @@ class RAGSystem:
             if not resp["tool_calls"]:
                 return resp["content"]
 
-            logger.info(f"[tool-loop {state.iteration}] LLM 请求 {len(resp['tool_calls'])} 个工具调用")
+            logger.info(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
             state.add_assistant_response(resp["content"], resp["tool_calls"])
 
             for tc in resp["tool_calls"]:
-                result = execute_tool(
+                result = registry.dispatch(
                     tc["name"], tc["arguments"],
-                    vector_store=self.vector_store,
-                    partition=state.partition,
-                    source_filter=state.source_filter,
+                    ctx=ToolContext(
+                        vector_store=self.vector_store,
+                        partition=state.partition,
+                    )
                 )
                 state.add_tool_result(tc["id"], result)
 
@@ -162,52 +180,88 @@ class RAGSystem:
     # ─── Tool-call 循环 (流式) ─────────────────
 
     def _run_tool_loop_stream(self, state: AgentState, force_retrieve: bool):
-        tool_choice = "required" if force_retrieve else "auto"
-        total: list = []
+        """流式生成器: 逐 token 产出, 中间穿插 status 事件。
 
-        while state.should_continue():
+        Yield 格式:
+          {"type": "token", "text": "..."}
+          {"type": "status", "status": "thinking"}
+          {"type": "status", "status": "calling_tool", "tool": "search_knowledge_base", "args": [...]}
+          {"type": "status", "status": "tool_result", "tool": "search_knowledge_base", "chunks": 5}
+        """
+        tool_choice = "required" if force_retrieve else "auto"
+
+        for it in range(state.max_iterations):
             accumulated_content = ""
             tool_calls: List[dict] = []
 
+            # 通知前端开始思考
+            yield {"type": "status", "status": "thinking"}
+            _log_input(state.messages, round=it)
             try:
                 events = self.client.chat_with_tools(
                     messages=state.messages, model=self.chat_model,
-                    tools=TOOL_SCHEMAS, tool_choice=tool_choice,
+                    tools=registry.schemas, tool_choice=tool_choice,
                     stream=True, temperature=0.7, max_tokens=2048,
+                    reasoning_effort=conf.chat_reasoning_effort,
                 )
                 for ev in events:
                     if ev["type"] == "content":
                         accumulated_content += ev["text"]
-                        total.append(ev["text"])
-                        yield total
+                        yield {"type": "token", "text": ev["text"]}
                     elif ev["type"] == "tool_calls":
                         tool_calls = ev["calls"]
             except Exception as e:
-                logger.error(f"LLM tool 流式调用失败 (round {state.iteration}): {e}")
-                total.append("\n\n抱歉，模型处理请求时发生了错误。")
-                yield total
+                logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")
+                yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}
                 return
 
             if not tool_calls:
-                return  # 终态
+                return  # 终态: 无工具调用, 已流完答案
 
-            logger.info(f"[tool-loop {state.iteration}] LLM 请求 {len(tool_calls)} 个工具调用")
+            logger.info(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")
             state.add_assistant_response(accumulated_content, tool_calls)
 
             for tc in tool_calls:
-                result = execute_tool(
+                # 通知前端正在调工具
+                import json as _json
+                tool_info = {"tool": tc["name"]}
+                try:
+                    _args = _json.loads(tc.get("arguments") or "{}")
+                    if "queries" in _args:
+                        tool_info["query"] = _args["queries"]
+                    if "filename" in _args:
+                        tool_info["filename"] = _args["filename"]
+                    if "query" in _args:
+                        tool_info["query"] = [_args["query"]]
+                except Exception:
+                    pass
+                yield {"type": "status", "status": "calling_tool", **tool_info}
+
+                result = registry.dispatch(
                     tc["name"], tc["arguments"],
-                    vector_store=self.vector_store,
-                    partition=state.partition,
-                    source_filter=state.source_filter,
+                    ctx=ToolContext(
+                        vector_store=self.vector_store,
+                        partition=state.partition,
+                    )
                 )
                 state.add_tool_result(tc["id"], result)
+
+                # 通知前端工具完成，附结果摘要
+                import re as _re
+                if tc["name"] == "search_knowledge_base":
+                    _cnt = len(_re.findall(r"【片段 \d+", result))
+                    if _cnt:
+                        tool_info["chunks"] = _cnt
+                elif tc["name"] == "web_search":
+                    _cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))
+                    if _cnt:
+                        tool_info["chunks"] = _cnt
+                yield {"type": "status", "status": "tool_result", **tool_info}
 
             tool_choice = "auto"
 
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 强制返回")
-        total.append("\n\n（已达到工具调用上限，请重新提问。）")
-        yield total
+        yield {"type": "token", "text": "\n\n（已达到工具调用上限，请重新提问。）"}
 
 
 if __name__ == "__main__":

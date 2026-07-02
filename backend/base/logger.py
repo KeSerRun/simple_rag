@@ -5,9 +5,12 @@ import logging
 # 导入路径操作模块
 import os
 
-def setup_logger(log_file=conf.log_file):
+def setup_logger(log_path=None):
+    if log_path is None:
+        log_path = conf.log_path
+    log_file = os.path.join(log_path, 'app.log')
     # 创建日志目录
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    os.makedirs(log_path, exist_ok=True)
     # 配置日志记录器
     logger = logging.getLogger('RAGLogger')
     # 设置日志级别
@@ -32,19 +35,19 @@ def setup_logger(log_file=conf.log_file):
 logger = setup_logger()  # 创建全局日志记录器实例，供其他模块使用
 
 # HTTP 请求日志专用
-_http_log_path = os.path.join(os.path.dirname(conf.log_file), 'http.log')
+_http_log_path = os.path.join(conf.log_path, 'http.log')
 _http_logger = logging.getLogger('HTTPLogger')
 _http_logger.setLevel(logging.INFO)
-_http_logger.propagate = False  # 不冒泡到 RAGLogger
+_http_logger.propagate = False
 _http_handler = logging.FileHandler(_http_log_path, encoding='utf-8')
 _http_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
 _http_logger.addHandler(_http_handler)
 
 # 用户 QA 问答日志专用
-_user_log_path = os.path.join(os.path.dirname(conf.log_file), 'user.log')
+_user_log_path = os.path.join(conf.log_path, 'user.log')
 _user_logger = logging.getLogger('UserLogger')
 _user_logger.setLevel(logging.INFO)
-_user_logger.propagate = False  # 不冒泡到 RAGLogger
+_user_logger.propagate = False
 _user_handler = logging.FileHandler(_user_log_path, encoding='utf-8')
 _user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
 _user_logger.addHandler(_user_handler)
@@ -55,8 +58,11 @@ def log_http(method: str, path: str, status: int, username: str = '-'):
 
 def log_qa(username: str, session_id: str, question: str, answer: str):
     """记录用户 QA 问答对"""
-    _user_logger.info(f'[{username}][{session_id}] Q: {question}')
-    _user_logger.info(f'[{username}][{session_id}] A: {answer}')
+    _user_logger.info(
+        f"[{username}][{session_id}]\n"
+        f"Q: {question}\n"
+        f"A: {answer}"
+    )
 
 def batch_configure_loggers(level=logging.WARNING,propagate=False):
     """

@@ -8,9 +8,7 @@ from typing import Iterator
 from base.config import conf
 from base.logger import logger
 
-from ..core.document import Document
-from .base import BaseLoader
-from .pdf_loader import OCRPDFLoader
+from .base_pdf_loader import BaseLoader, OCRPDFLoader
 
 
 class MinerUPDFLoader(BaseLoader):
@@ -18,6 +16,7 @@ class MinerUPDFLoader(BaseLoader):
         self.file_path = file_path
 
     def lazy_load(self) -> Iterator[Document]:
+        from ..core.document_process import Document
         path = Path(self.file_path)
         try:
             from ..pdf_spliter.chunker import chunk_content_list
@@ -27,13 +26,13 @@ class MinerUPDFLoader(BaseLoader):
             yield from OCRPDFLoader(self.file_path).lazy_load()
             return
         try:
-            client = MinerUClient(token=conf.mineru_token_key or None)
+            client = MinerUClient(token=conf.mineru_api_key or None)
         except MinerUError as e:
             logger.warning(f"MinerU 不可用 ({e}), 回退到 OCRPDFLoader: {path.name}")
             yield from OCRPDFLoader(self.file_path).lazy_load()
             return
         try:
-            work_dir = path.parent / "mineru_out" / path.stem
+            work_dir = path.parent / "chunk_out" / path.stem
             out_dir = client.parse_pdf(
                 path, work_dir=work_dir,
                 model_version=conf.mineru_model_version,

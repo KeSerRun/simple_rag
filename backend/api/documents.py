@@ -7,8 +7,8 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from base.config import conf
 from base.logger import logger
@@ -23,10 +23,10 @@ def _user_tmp_dir(username: str) -> str:
 
 
 def _purge_files(username: str, sources: Optional[List[str]] = None):
-    """清理用户暂存目录下的原文件与 MinerU 产物。
+    """清理用户暂存目录下的原文件与 chunk 产物。
 
-    sources=None        → 清空整个 tmp/{username}/ (含所有文件 + mineru_out/)
-    sources=[...]       → 仅清掉指定文件及其对应的 mineru_out/{stem}/
+    sources=None        → 清空整个 tmp/{username}/ (含所有文件 + chunk_out/)
+    sources=[...]       → 仅清掉指定文件及其对应的 chunk_out/{stem}/
     """
     tmp_dir = _user_tmp_dir(username)
     if not os.path.isdir(tmp_dir):
@@ -40,7 +40,7 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
             logger.warning(f"清空 {tmp_dir} 失败: {e}")
         return
 
-    mineru_root = os.path.join(tmp_dir, "mineru_out")
+    chunk_root = os.path.join(tmp_dir, "chunk_out")
     for src in sources:
         file_path = os.path.join(tmp_dir, src)
         if os.path.isfile(file_path):
@@ -49,11 +49,11 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
                 logger.info(f"已删除原文件: {file_path}")
             except Exception as e:
                 logger.warning(f"删除 {file_path} 失败: {e}")
-        mineru_sub = os.path.join(mineru_root, os.path.splitext(src)[0])
+        mineru_sub = os.path.join(chunk_root, os.path.splitext(src)[0])
         if os.path.isdir(mineru_sub):
             try:
                 shutil.rmtree(mineru_sub)
-                logger.info(f"已删除 MinerU 产物: {mineru_sub}")
+                logger.info(f"已删除 chunk 产物: {mineru_sub}")
             except Exception as e:
                 logger.warning(f"删除 {mineru_sub} 失败: {e}")
 
@@ -95,7 +95,7 @@ async def clear_documents(
     request: Request,
     x_session_id: str = Header(None, alias="X-Session-ID"),
 ):
-    """清除当前用户自己的所有文档(向量 + 原文件 + MinerU 产物)"""
+    """清除当前用户自己的所有文档(向量 + 原文件 + chunk 产物)"""
     try:
         username = request.state.user["username"]
         system.vector_store.delete_documents_by_partition(partition=username)
@@ -109,13 +109,13 @@ async def clear_documents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/clear_chosed_documents")
+@router.post("/clear_chosen_documents")
 @auth_required
-async def clear_chosed_documents(
+async def clear_chosen_documents(
     request: Request,
     x_session_id: str = Header(None, alias="X-Session-ID"),
 ):
-    """清除当前用户分区中指定来源的文档(向量 + 原文件 + 对应 MinerU 产物)"""
+    """清除当前用户分区中指定来源的文档(向量 + 原文件 + 对应 chunk 产物)"""
     try:
         data = await request.json()
         username = request.state.user["username"]
@@ -129,12 +129,12 @@ async def clear_chosed_documents(
             system.data_store.insert_session_event(session_id, 'delete', sources)
         return JSONResponse(content={"message": "Selected documents cleared successfully"})
     except json.JSONDecodeError:
-        logger.error("Invalid JSON format in clear_chosed_documents request")
+        logger.error("Invalid JSON format in clear_chosen_documents request")
         raise HTTPException(status_code=400, detail="Invalid JSON format")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in clear_chosed_documents: {str(e)}")
+        logger.error(f"Error in clear_chosen_documents: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -182,33 +182,41 @@ async def upload_embeddings(
     request: Request,
     files: List[UploadFile] = File(...),
     x_session_id: str = Header(None, alias="X-Session-ID"),
+    stream: bool = Query(False, description="是否 SSE 流式返回处理进度"),
 ):
     """上传文件并立即向量化入库到当前用户分区(任意已登录用户均可)"""
+    username = request.state.user["username"]
+    session_id = x_session_id or request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="缺少 session_id")
+
+    # 先把所有文件内容读入内存
+    files_data = []
+    for file in files:
+        content = await file.read()
+        files_data.append((file.filename, content, file.content_type))
+
+    if stream:
+        return StreamingResponse(
+            _upload_sse_generator(username, session_id, files_data),
+            media_type="text/event-stream",
+        )
+
+    # 非流式：保持向后兼容的阻塞模式
     try:
-        username = request.state.user["username"]
-        session_id = x_session_id or request.cookies.get("session_id")
-        if not session_id:
-            raise HTTPException(status_code=400, detail="缺少 session_id")
         results = []
         filenames = []
-        for file in files:
-            content = await file.read()
-            save_path = f"{conf.vector_store_dir}/tmp/{username}/{file.filename}"
+        for filename, content, _ct in files_data:
+            save_path = f"{conf.vector_store_dir}/tmp/{username}/{filename}"
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            # 同名上传: 先清旧 (向量 + 原文件 + MinerU 产物), 再写入新内容
-            logger.info(f"准备删除同名文档旧向量: {file.filename}, partition={username}")
-            system.vector_store.delete_documents_by_sources([file.filename], partition=username)
-            _purge_files(username, sources=[file.filename])
+            logger.info(f"准备删除同名文档旧向量: {filename}, partition={username}")
+            system.vector_store.delete_documents_by_sources([filename], partition=username)
+            _purge_files(username, sources=[filename])
             with open(save_path, "wb") as f:
                 f.write(content)
-            results.append({
-                "filename": file.filename,
-                "size": len(content),
-                "content_type": file.content_type,
-            })
-            filenames.append(file.filename)
+            results.append({"filename": filename, "size": len(content), "content_type": _ct})
+            filenames.append(filename)
             system.vector_store.store_documents_from_dir(save_path, partition=username)
-        # 记录上传的文件名，供生成答案时注入上下文
         if filenames:
             system.data_store.insert_session_event(session_id, 'upload', filenames)
         return JSONResponse(content={"files": results})
@@ -268,11 +276,69 @@ async def serve_mineru_image(
     doc_stem: str,
     img_name: str,
 ):
-    """提供 MinerU 解析产出的图片 (供 markdown `<img>` 标签加载)。"""
-    pattern = str(Path(conf.vector_store_dir) / "tmp" / "*" / "mineru_out" / doc_stem / img_name)
-    candidates = glob.glob(pattern)
+    """提供 MinerU 解析产出的图片。
+
+    支持两种容错:
+      1. hash 前缀匹配 (LLM 截断长 hash)
+      2. 仅目录 + 任意文件匹配 (LLM 编造了不存在的 hash 时, 取第一张)
+    """
+    base_dir = Path(conf.vector_store_dir) / "tmp" / "*" / "chunk_out" / doc_stem
+
+    # 1) 精确匹配
+    candidates = glob.glob(str(base_dir / img_name))
+    # 2) 前缀匹配 (hash 被截断)
+    if not candidates:
+        candidates = sorted(glob.glob(str(base_dir / f"{img_name}*")))
+    # 3) 容错: LLM 可能在 doc_stem 后加了 .pdf 等扩展名
+    if not candidates and "." in doc_stem:
+        stem_clean = doc_stem.rsplit(".", 1)[0]
+        base_dir2 = Path(conf.vector_store_dir) / "tmp" / "*" / "chunk_out" / stem_clean
+        candidates = sorted(glob.glob(str(base_dir2 / f"{img_name}*")))
+    # 4) 容错: 取 images/ 目录下第一张图 (hash 被编造)
+    if not candidates and "/" in img_name:
+        prefix = img_name.rsplit("/", 1)[0]
+        candidates = sorted(glob.glob(str(base_dir / prefix / "*")))
     if not candidates:
         raise HTTPException(status_code=404, detail="image not found")
     target = Path(candidates[0]).resolve()
     media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
     return FileResponse(path=str(target), media_type=media_type, filename=target.name, content_disposition_type="inline")
+
+
+def _upload_sse_generator(username: str, session_id: str, files_data: list):
+    """SSE 生成器：上传处理各阶段状态事件。"""
+    import json as _json
+    from rag.core.document_process import process_documents_from_dir
+    results = []
+    filenames = []
+
+    def _sse(data: dict) -> str:
+        return f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+    for idx, (filename, content, _ct) in enumerate(files_data):
+        save_path = f"{conf.vector_store_dir}/tmp/{username}/{filename}"
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+        yield _sse({"status": "uploading", "text": "文档上传", "file": filename})
+        # 同名文档: 先清旧向量 + chunk 产物
+        system.vector_store.delete_documents_by_sources([filename], partition=username)
+        _purge_files(username, sources=[filename])
+        with open(save_path, "wb") as f:
+            f.write(content)
+
+        yield _sse({"status": "parsing", "text": "文档解析", "file": filename})
+        documents = process_documents_from_dir(save_path)
+        if not documents:
+            yield _sse({"status": "error", "text": "解析失败", "file": filename})
+            continue
+
+        yield _sse({"status": "embedding", "text": "词嵌入", "file": filename})
+        system.vector_store.add_documents(documents, partition=username)
+
+        results.append({"filename": filename, "size": len(content), "content_type": _ct})
+        filenames.append(filename)
+
+    if filenames:
+        system.data_store.insert_session_event(session_id, 'upload', filenames)
+
+    yield _sse({"status": "done", "text": "入库成功", "files": results})

@@ -25,6 +25,7 @@
         :messages="messages"
         :is-loading="isLoading"
         :current-session-id="currentSessionId"
+        :status-text="agentStatus.visible ? agentStatus.text : ''"
       />
 
       <ChatInput
@@ -33,6 +34,13 @@
         @send="sendQuestion"
         @upload="handleFileUpload"
       />
+
+      <!-- 上传进度条 -->
+      <div v-if="uploadStatus.visible" class="upload-status-bar">
+        <div class="upload-dot"></div>
+        <span class="upload-label">{{ uploadStatus.text }}</span>
+        <span v-if="uploadStatus.file" class="upload-file" :title="uploadStatus.file">{{ truncateFilename(uploadStatus.file) }}</span>
+      </div>
     </main>
 
     <DocManagerModal
@@ -171,7 +179,7 @@ const deleteSelectedDocs = async (docsToDelete) => {
   isDeleting.value = true
   try {
     const response = await axios.post(
-      '/api/clear_chosed_documents',
+      '/api/clear_chosen_documents',
       { sources: docsToDelete },
       {
         headers: {
@@ -335,6 +343,44 @@ const throttleScroll = () => {
 let lastProcessedLength = 0
 let sseBuffer = ''
 
+// Agent 状态追踪
+const agentStatus = ref({ visible: false, text: '' })
+
+const statusLabels = {
+  thinking: '深度思考中…',
+  calling_tool: (info) => {
+    if (info.tool === 'search_knowledge_base' && info.query) {
+      const q = Array.isArray(info.query) ? info.query.join(', ') : info.query
+      return `正在检索知识库: ${q}…`
+    }
+    if (info.tool === 'read_full_document' && info.filename) {
+      return `正在阅读: ${info.filename}…`
+    }
+    if (info.tool === 'web_search' && info.query) {
+      const q = Array.isArray(info.query) ? info.query[0] : info.query
+      return `正在联网搜索: ${q}…`
+    }
+    const toolNames = {
+      search_knowledge_base: '正在检索知识库…',
+      read_full_document: '正在阅读文档全文…',
+      web_search: '正在联网搜索…',
+    }
+    return toolNames[info.tool] || `正在调用工具: ${info.tool}…`
+  },
+  tool_result: (info) => {
+    if (info.chunks !== undefined) {
+      return `检索完成，找到 ${info.chunks} 条结果`
+    }
+    if (info.tool === 'web_search') {
+      return '联网搜索完成'
+    }
+    if (info.tool === 'read_full_document') {
+      return '文档阅读完成'
+    }
+    return ''
+  },
+}
+
 const sendQuestion = async (text) => {
   if (!text || isLoading.value) return
 
@@ -376,7 +422,7 @@ const sendQuestion = async (text) => {
               if (!trimmed.startsWith('data:')) continue
               const raw = trimmed.slice(5)
               if (!raw || raw === '[DONE]') continue
-              // 后端用 JSON 编码 token，这里解码（正确处理 \n、空格、特殊字符）
+              // 后端用 JSON 编码事件，这里解码
               let content
               try {
                 content = JSON.parse(raw)
@@ -385,6 +431,36 @@ const sendQuestion = async (text) => {
                 content = raw
               }
               if (!content) continue
+
+              // 处理状态事件（tool call / thinking）
+              if (typeof content === 'object' && content.type) {
+                if (content.type === 'status') {
+                  const label = statusLabels[content.status]
+                  if (content.status === 'thinking' || content.status === 'calling_tool') {
+                    agentStatus.value = {
+                      visible: true,
+                      text: typeof label === 'function' ? label(content) : (label || '处理中…'),
+                    }
+                  } else if (content.status === 'tool_result') {
+                    // 显示结果摘要（如 "检索完成，找到 5 条结果"），下次 thinking/calling_tool 会覆盖
+                    const summary = typeof label === 'function' ? label(content) : ''
+                    if (summary) {
+                      agentStatus.value = { visible: true, text: summary }
+                    } else {
+                      agentStatus.value = { visible: false, text: '' }
+                    }
+                  }
+                  continue
+                }
+                if (content.type === 'token') {
+                  // 首个 token 到达时清除状态
+                  agentStatus.value = { visible: false, text: '' }
+                  chunk += content.text || ''
+                  continue
+                }
+              }
+
+              // 旧格式（纯字符串 token）
               chunk += content
             }
           }
@@ -422,6 +498,18 @@ const sendQuestion = async (text) => {
 }
 
 // --- 文件上传 ---
+const uploadStatus = ref({ visible: false, text: '', file: '' })
+
+const truncateFilename = (name) => {
+  if (!name || name.length <= 40) return name
+  const ext = name.lastIndexOf('.')
+  if (ext > 0) {
+    const stem = name.slice(0, 20) + '…' + name.slice(ext)
+    return stem
+  }
+  return name.slice(0, 40) + '…'
+}
+
 const handleFileUpload = async (file) => {
   if (!file) return
 
@@ -432,6 +520,7 @@ const handleFileUpload = async (file) => {
   }
 
   isUploading.value = true
+  uploadStatus.value = { visible: true, text: '准备上传…' }
   loadingBar.start()
 
   try {
@@ -442,10 +531,47 @@ const handleFileUpload = async (file) => {
       message.error('会话 ID 缺失,请重新登录')
       return
     }
-    const response = await axios.post('/api/upload_embeddings', formData, {
+
+    // SSE 流式上传: 实时接收处理进度
+    let sseBuf = ''
+    let uploadDone = false
+    let fileResult = null
+
+    await axios.post('/api/upload_embeddings?stream=true', formData, {
       headers: { 'X-Session-ID': sessionId },
+      responseType: 'text',
+      onDownloadProgress: (progressEvent) => {
+        const fullText = progressEvent.event.target.responseText || ''
+        const newText = fullText.slice(sseBuf ? fullText.indexOf(sseBuf.slice(-20)) + 20 : 0)
+        if (!newText) return
+        sseBuf = fullText
+
+        const events = fullText.split('\n\n')
+        for (const raw of events) {
+          const match = raw.match(/^data:\s*(.+)$/m)
+          if (!match) continue
+          try {
+            const data = JSON.parse(match[1])
+            if (data.status === 'done') {
+              uploadDone = true
+              fileResult = data.files
+              uploadStatus.value = { visible: true, text: '上传完成' }
+              continue
+            }
+            if (data.text) {
+              uploadStatus.value = {
+                visible: true,
+                text: data.text,
+                file: data.file || uploadStatus.value.file || '',
+              }
+            }
+          } catch { /* skip parse errors */ }
+        }
+      },
     })
-    if (response.status === 200) {
+
+    // 等待 done 事件或直接完成
+    if (fileResult || uploadDone) {
       message.success(`${file.name} 上传成功`)
       await fetchDocuments()
       loadingBar.finish()
@@ -459,6 +585,7 @@ const handleFileUpload = async (file) => {
     message.error(detail)
   } finally {
     isUploading.value = false
+    uploadStatus.value = { visible: false, text: '' }
   }
 }
 
@@ -496,5 +623,46 @@ onMounted(() => {
   flex-direction: column;
   min-width: 0;
   background-color: transparent;
+}
+
+.upload-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--n-divider-color, #d4cfc8);
+  background-color: var(--n-card-color, #ffffff);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.upload-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #d4734e;
+  animation: thinkingBounce 1.4s infinite ease-in-out both;
+}
+
+.upload-label {
+  font-size: 13px;
+  color: var(--n-text-color-3, #6e6760);
+  flex-shrink: 0;
+}
+
+.upload-file {
+  font-size: 12px;
+  color: var(--n-text-color-2, #4a4440);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+  direction: rtl;
+  text-align: left;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 </style>

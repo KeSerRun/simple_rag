@@ -49,7 +49,7 @@
       </div>
     </div>
 
-    <!-- 思考中：等待后端首段响应（最后一条消息是用户消息，说明 AI 还没开始回复） -->
+    <!-- 思考中：等待后端首段响应 -->
     <div v-if="isLoading && (!messages.length || messages[messages.length - 1]?.role !== 'ai')" class="message ai">
       <div class="avatar-wrap">
         <n-avatar
@@ -64,7 +64,14 @@
         <div class="thinking-dots">
           <span></span><span></span><span></span>
         </div>
+        <div v-if="statusText" class="status-text">{{ statusText }}</div>
       </div>
+    </div>
+
+    <!-- Agent 操作状态（独立于 thinking 气泡，AI 已经开始回复后仍可显示） -->
+    <div v-if="statusText && isLoading && messages.length && messages[messages.length - 1]?.role === 'ai'" class="agent-status-bar">
+      <div class="status-dot"></div>
+      <span class="status-label">{{ statusText }}</span>
     </div>
   </div>
 </template>
@@ -79,6 +86,7 @@ const props = defineProps({
   messages: { type: Array, required: true },
   isLoading: { type: Boolean, default: false },
   currentSessionId: { type: String, default: '' },
+  statusText: { type: String, default: '' },
 })
 
 const messagesContainer = ref(null)
@@ -98,6 +106,7 @@ const scrollToBottom = async () => {
 
 watch(() => props.messages.length, scrollToBottom, { immediate: true })
 watch(() => props.isLoading, scrollToBottom)
+watch(() => props.statusText, scrollToBottom)
 
 defineExpose({ scrollToBottom })
 </script>
@@ -206,7 +215,36 @@ defineExpose({ scrollToBottom })
   padding: 14px 18px;
   display: flex;
   align-items: center;
+  gap: 10px;
   min-height: 24px;
+}
+
+.status-text {
+  font-size: 13px;
+  color: var(--n-text-color-3, #6e6760);
+  white-space: nowrap;
+}
+
+.agent-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 0;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #d4734e;
+  animation: thinkingBounce 1.4s infinite ease-in-out both;
+}
+
+.status-label {
+  font-size: 13px;
+  color: var(--n-text-color-3, #6e6760);
 }
 
 .thinking-dots {

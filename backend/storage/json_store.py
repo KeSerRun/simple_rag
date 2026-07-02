@@ -60,35 +60,57 @@ class JSONFileStore:
                     os.remove(tmp_path)
                 raise
 
+    def _update_json(self, filepath, updater):
+        """原子地读取 → 更新 → 写入 JSON 文件。整个过程中持锁。"""
+        with self._lock:
+            dirname = os.path.dirname(filepath)
+            os.makedirs(dirname, exist_ok=True)
+            data = []
+            if os.path.exists(filepath):
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            result = updater(data)
+            fd, tmp_path = tempfile.mkstemp(dir=dirname, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, filepath)
+            except Exception:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                raise
+            return result
+
     def _get_next_id(self, items):
         return max((item['id'] for item in items), default=0) + 1
 
     # --- 用户 --------------------------------------------------------------
 
     def insert_user(self, username, password, role='user'):
-        users = self._read_json(self._users_file)
-        if any(u['username'] == username for u in users):
-            logger.info(f"用户 '{username}' 已存在,跳过插入")
-            return False
-        users.append({
-            'id': self._get_next_id(users),
-            'username': username,
-            'password': password,
-            'role': role,
-            'created_at': datetime.now().isoformat()
-        })
-        self._write_json(self._users_file, users)
-        logger.info(f"成功插入用户: {username}")
-        return True
+        def updater(users):
+            if any(u['username'] == username for u in users):
+                logger.info(f"用户 '{username}' 已存在,跳过插入")
+                return False
+            users.append({
+                'id': self._get_next_id(users),
+                'username': username,
+                'password': password,
+                'role': role,
+                'created_at': datetime.now().isoformat()
+            })
+            logger.info(f"成功插入用户: {username}")
+            return True
+        return self._update_json(self._users_file, updater)
 
     def delete_user(self, username):
-        users = self._read_json(self._users_file)
-        new_users = [u for u in users if u['username'] != username]
-        if len(new_users) == len(users):
-            return False
-        self._write_json(self._users_file, new_users)
-        logger.info(f"成功删除用户: {username}")
-        return True
+        def updater(users):
+            orig = list(users)
+            users[:] = [u for u in users if u['username'] != username]
+            if len(users) == len(orig):
+                return False
+            logger.info(f"成功删除用户: {username}")
+            return True
+        return self._update_json(self._users_file, updater)
 
     def check_user_credentials(self, username, password):
         users = self._read_json(self._users_file)
@@ -101,26 +123,27 @@ class JSONFileStore:
     # --- 会话 --------------------------------------------------------------
 
     def insert_session(self, session_id, username):
-        sessions = self._read_json(self._sessions_file)
-        if any(s['session_id'] == session_id for s in sessions):
-            return False
-        sessions.append({
-            'session_id': session_id,
-            'username': username,
-            'created_at': datetime.now().isoformat()
-        })
-        self._write_json(self._sessions_file, sessions)
-        logger.info(f"成功插入用户会话: session_id={session_id}, username={username}")
-        return True
+        def updater(sessions):
+            if any(s['session_id'] == session_id for s in sessions):
+                return False
+            sessions.append({
+                'session_id': session_id,
+                'username': username,
+                'created_at': datetime.now().isoformat()
+            })
+            logger.info(f"成功插入用户会话: session_id={session_id}, username={username}")
+            return True
+        return self._update_json(self._sessions_file, updater)
 
     def delete_session(self, session_id):
-        sessions = self._read_json(self._sessions_file)
-        new_sessions = [s for s in sessions if s['session_id'] != session_id]
-        if len(new_sessions) == len(sessions):
-            return False
-        self._write_json(self._sessions_file, new_sessions)
-        logger.info(f"成功删除用户会话: session_id={session_id}")
-        return True
+        def updater(sessions):
+            orig = list(sessions)
+            sessions[:] = [s for s in sessions if s['session_id'] != session_id]
+            if len(sessions) == len(orig):
+                return False
+            logger.info(f"成功删除用户会话: session_id={session_id}")
+            return True
+        return self._update_json(self._sessions_file, updater)
 
     def fetch_sessions_by_username(self, username):
         sessions = self._read_json(self._sessions_file)
@@ -150,20 +173,18 @@ class JSONFileStore:
         return history
 
     def insert_session_history(self, session_id, user, assistant):
-        history_file = os.path.join(self._history_dir, f'{session_id}.json')
-        history = []
-        if os.path.exists(history_file):
-            history = self._read_json(history_file)
-        history.append({
-            'id': self._get_next_id(history),
-            'type': 'qa',
-            'user': user,
-            'assistant': assistant,
-            'timestamp': datetime.now().isoformat()
-        })
-        self._write_json(history_file, history)
-        logger.info(f"session_id={session_id}, 成功插入对话历史")
-        return True
+        def updater(history):
+            history.append({
+                'id': self._get_next_id(history),
+                'type': 'qa',
+                'user': user,
+                'assistant': assistant,
+                'timestamp': datetime.now().isoformat()
+            })
+            logger.info(f"session_id={session_id}, 成功插入对话历史")
+            return True
+        return self._update_json(
+            os.path.join(self._history_dir, f'{session_id}.json'), updater)
 
     def insert_session_event(self, session_id, event_type, files):
         """记录会话级操作事件 (上传 / 删除文件等), 与 qa 条目一起追加到同一历史文件。

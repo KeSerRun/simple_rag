@@ -79,5 +79,7 @@ async def index():
 if __name__ == "__main__":
     # 启动时根据配置文件中的超级管理员用户名和密码创建超级管理员账户
     create_superusers()
+    from base.logger import logger
+    logger.info(f"主页地址: http://127.0.0.1:11000/index")
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=11000)

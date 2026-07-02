@@ -1,7 +1,6 @@
+from __future__ import annotations
 import re
 from typing import List, Optional
-
-from ..core.document import Document
 
 
 class ChineseRecursiveTextSplitter:
@@ -41,6 +40,7 @@ class ChineseRecursiveTextSplitter:
         return [re.sub(r"\n{2,}", "\n", c.strip()) for c in chunks if c.strip()]
 
     def split_documents(self, documents: List[Document]) -> List[Document]:
+        from ..core.document_process import Document
         result: List[Document] = []
         for doc in documents:
             for chunk in self.split_text(doc.page_content):

@@ -123,7 +123,7 @@ def _split_long(text: str, max_chars: int) -> list[str]:
 def main():
     import sys
     if len(sys.argv) < 2:
-        raise SystemExit("用法: python -m rag.pdf_spliter.chunker <mineru_out_dir> [chunks.jsonl]")
+        raise SystemExit("用法: python -m rag.pdf_spliter.chunker <chunk_out_dir> [chunks.jsonl]")
     out_dir = Path(sys.argv[1])
     out_jsonl = Path(sys.argv[2]) if len(sys.argv) > 2 else out_dir / "chunks_mineru.jsonl"
     candidates = [p for p in out_dir.rglob("*content_list.json") if "v2" not in p.name]

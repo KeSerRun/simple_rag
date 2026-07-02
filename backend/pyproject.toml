@@ -26,4 +26,6 @@ dependencies = [
     "beautifulsoup4>=4.12",
     # 工具
     "rich>=13.7",
+    "duckduckgo-search>=8.1.1",
+    "ddgs>=9.14.4",
 ]

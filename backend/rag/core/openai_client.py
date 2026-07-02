@@ -15,6 +15,7 @@ class OpenAIClient:
         base_url: Optional[str] = None,
         timeout: float = 60.0,
         max_retries: int = 3,
+        client_name: str = "Chat",
     ):
         key = api_key or os.environ.get("OPENAI_API_KEY")
         if not key:
@@ -28,7 +29,7 @@ class OpenAIClient:
             max_retries=max_retries,
         )
         self.base_url = base_url
-        logger.info(f"OpenAI 客户端初始化完成,base_url={base_url or 'https://api.openai.com/v1'}")
+        logger.info(f"{client_name} OpenAI 客户端初始化完成,base_url={base_url or 'https://api.openai.com/v1'}")
 
     def chat(
         self,
@@ -37,10 +38,13 @@ class OpenAIClient:
         stream: bool = False,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ):
         kwargs = dict(model=model, messages=messages, temperature=temperature)
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
+        if reasoning_effort is not None:
+            kwargs["reasoning_effort"] = reasoning_effort
         if not stream:
             resp = self.client.chat.completions.create(**kwargs)
             return (resp.choices[0].message.content or "").strip()
@@ -66,6 +70,7 @@ class OpenAIClient:
         stream: bool = False,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ):
         kwargs = dict(
             model=model,
@@ -74,6 +79,8 @@ class OpenAIClient:
             tools=tools,
             tool_choice=tool_choice,
         )
+        if reasoning_effort is not None:
+            kwargs["reasoning_effort"] = reasoning_effort
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
         if not stream:
@@ -122,7 +129,6 @@ class OpenAIClient:
         texts: Iterable[str],
         model: str,
         batch_size: int = 32,
-        dimensions: Optional[int] = None,
     ) -> List[List[float]]:
         texts = list(texts)
         if not texts:
@@ -135,8 +141,6 @@ class OpenAIClient:
             batch_idx = i // batch_size + 1
             logger.info(f"嵌入请求 {batch_idx}/{num_batches} (本批 {len(batch)} 条, 累计 {i}/{total})...")
             kwargs = dict(model=model, input=batch)
-            if dimensions is not None:
-                kwargs["dimensions"] = dimensions
             resp = self.client.embeddings.create(**kwargs)
             out.extend([d.embedding for d in resp.data])
             logger.info(f"嵌入完成 {batch_idx}/{num_batches} (本批 {len(batch)} 条)")

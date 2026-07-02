@@ -41,11 +41,43 @@ def _strip_quotes(value: str) -> str:
         return value[1:-1]
     return value
 
+
+def _load_dotenv(path: str = None) -> dict[str, str]:
+    """加载 .env 文件, 返回 {KEY: value} 字典。
+
+    格式: KEY=VALUE, 支持 # 注释, 忽略空行。引号会被自动去除。
+    """
+    if path is None:
+        path = os.path.join(_project_root, '.env')
+    result: dict[str, str] = {}
+    if not os.path.exists(path):
+        return result
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' not in line:
+                continue
+            key, _, value = line.partition('=')
+            key = key.strip()
+            value = value.strip()
+            value = _strip_quotes(value)
+            if key and value:
+                result[key] = value
+    return result
+
+
 class Config:
-    # 初始化配置，加载 config.ini 文件
+    # 初始化配置，加载 config.ini + .env 文件
     def __init__(self, config_file=_config_file):
         config = configparser.ConfigParser()
         config.read(config_file, encoding='utf-8')
+        dotenv = _load_dotenv()
+
+        def env(key: str) -> str | None:
+            """优先级: 系统环境变量 > .env 文件 > 无。"""
+            return os.environ.get(key) or dotenv.get(key) or None
 
         # Storage 配置（文件存储路径）
         self.data_dir = get_file(config, 'storage', 'data_dir')
@@ -58,57 +90,92 @@ class Config:
         self.retrieval_top_k = config.getint('retrieval', 'retrieval_top_k', fallback=10)
         self.candidate_top_k = config.getint('retrieval', 'candidate_top_k', fallback=5)
 
-        # 日志配置
-        self.log_file = get_file(config, 'logger', 'log_file')
+        # 日志配置（目录路径）
+        self.log_path = normalize_path(config.get('logger', 'log_path', fallback='logs'))
         self.log_file_level = config.get('logger', 'log_file_level', fallback='INFO')
         self.log_console_level = config.get('logger', 'log_console_level', fallback='DEBUG')
-        self.log_file_format = '[%(levelname)s] %(asctime)s : %(message)s'
-        self.log_console_format = '[%(levelname)s] %(asctime)s : %(message)s'
+        self.log_file_format = '%(levelname)s %(asctime)s %(module)s:%(lineno)d : %(message)s'
+        self.log_console_format = '%(levelname)s %(asctime)s %(module)s:%(lineno)d : %(message)s'
 
-        # OpenAI API 配置 — Chat 端（环境变量优先）
-        self.openai_api_key = os.environ.get('OPENAI_API_KEY') or _strip_quotes(config.get('api', 'api_key', fallback='')) or None
-        self.openai_base_url = _strip_quotes(config.get('api', 'base_url', fallback='https://api.openai.com/v1')) or None
+        # OpenAI API 配置 — Chat 端（env > .env > config.ini）
+        self.openai_api_key = (
+            env('OPENAI_API_KEY')
+            or _strip_quotes(config.get('api', 'chat_api_key', fallback=''))
+            or _strip_quotes(config.get('api', 'api_key', fallback=''))
+            or None
+        )
+        self.openai_base_url = (
+            env('OPENAI_BASE_URL')
+            or _strip_quotes(config.get('api', 'chat_base_url', fallback=''))
+            or _strip_quotes(config.get('api', 'base_url', fallback='https://api.openai.com/v1'))
+            or None
+        )
         self.chat_model = _strip_quotes(config.get('api', 'chat_model', fallback='gpt-4o-mini'))
 
-        # OpenAI API 配置 — Embedding 端（可独立指向另一家服务商,留空则回退到 chat 端配置）
+        # OpenAI API 配置 — Embedding 端
         self.embedding_api_key = (
-            os.environ.get('OPENAI_EMBEDDING_API_KEY')
+            env('OPENAI_EMBEDDING_API_KEY')
             or _strip_quotes(config.get('api', 'embedding_api_key', fallback=''))
             or self.openai_api_key
         )
         self.embedding_base_url = (
-            _strip_quotes(config.get('api', 'embedding_base_url', fallback=''))
+            env('OPENAI_EMBEDDING_BASE_URL')
+            or _strip_quotes(config.get('api', 'embedding_base_url', fallback=''))
             or self.openai_base_url
         )
         self.openai_embedding_model = _strip_quotes(config.get('api', 'embedding_model', fallback='text-embedding-3-small'))
         self.openai_embedding_dim = config.getint('api', 'embedding_dim', fallback=1536)
         self.openai_timeout = config.getfloat('api', 'timeout', fallback=60.0)
         self.openai_max_retries = config.getint('api', 'max_retries', fallback=3)
-
-        # 评估配置
-        self.rag_evaluate_data = get_file(config, 'assessment', 'rag_evaluate_data')
+        self.chat_reasoning_effort = _strip_quotes(config.get('api', 'chat_reasoning_effort', fallback='medium'))
 
         # 对话历史配置
         self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=10)
+        self.max_history_chars = config.getint('conversation_history', 'max_history_chars', fallback=10000)
 
-        # HTML主页配置
-        self.index_file = get_file(config, 'html', 'index_file')
+        # 联网搜索配置
+        self.search_backend = _strip_quotes(config.get('search', 'backend', fallback='duckduckgo'))
+        self.searxng_url = _strip_quotes(config.get('search', 'searxng_url', fallback=''))
+        self.search_timeout = config.getfloat('search', 'timeout', fallback=15)
 
-        # jwt配置
-        self.jwt_secret_key = _strip_quotes(config.get('jwt', 'secret_key'))
+        # Agent 配置
+        self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=6)
+        self.summary_model = _strip_quotes(config.get('agent', 'summary_model', fallback='')) or self.chat_model
+
+        # HTML主页文件路径（相对于 backend/ 根目录）
+        self.index_file = normalize_path("dist/index.html")
+
+        # jwt配置（优先 .env，否则自动生成）
+        _jwt = env('JWT_SECRET_KEY')
+        if not _jwt:
+            import secrets as _sec
+            _jwt = _sec.token_hex(32)
+            # 写入 .env 文件以便后续持久化
+            _env_path = os.path.join(_project_root, '.env')
+            try:
+                with open(_env_path, 'a', encoding='utf-8') as _f:
+                    _f.write(f"\n# 自动生成的 JWT 密钥（如要更换请删除此行）\nJWT_SECRET_KEY={_jwt}\n")
+                print(f"[config] 已自动生成 JWT_SECRET_KEY 并写入 {_env_path}")
+            except Exception:
+                pass  # 写入失败不影响运行
+        self.jwt_secret_key = _jwt
 
         # superuser配置
         self.superuser_usernames = [u.strip() for u in config.get('superuser', 'users').split(',')]
         self.superuser_passwords = [p.strip() for p in config.get('superuser', 'passwords').split(',')]
 
-        # MinerU 配置（PDF 高质量结构化解析；留空则回退到 OCRPDFLoader）
-        self.mineru_token_key = (
-            os.environ.get('MINERU_TOKEN_KEY')
-            or _strip_quotes(config.get('mineru', 'token_key', fallback=''))
+        # MinerU 配置
+        self.mineru_base_url = (
+            env('MINERU_BASE_URL')
+            or _strip_quotes(config.get('api', 'mineru_base_url', fallback='https://mineru.net/api/v4'))
         )
-        self.mineru_token_name = _strip_quotes(config.get('mineru', 'token_name', fallback='default'))
-        self.mineru_model_version = _strip_quotes(config.get('mineru', 'model_version', fallback='vlm'))
-        self.mineru_language = _strip_quotes(config.get('mineru', 'language', fallback='ch'))
+        self.mineru_api_key = (
+            env('MINERU_API_KEY')
+            or _strip_quotes(config.get('api', 'mineru_api_key', fallback=''))
+        )
+        self.mineru_token_name = _strip_quotes(config.get('api', 'mineru_token_name', fallback='default'))
+        self.mineru_model_version = _strip_quotes(config.get('api', 'mineru_model_version', fallback='vlm'))
+        self.mineru_language = _strip_quotes(config.get('api', 'mineru_language', fallback='ch'))
 
 # 创建全局配置实例，供其他模块使用
 conf = Config()

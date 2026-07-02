@@ -58,7 +58,7 @@
           size="large"
           placeholder="给我发送消息..."
           :autosize="{ minRows: 1, maxRows: 6 }"
-          :disabled="isLoading"
+          :disabled="isLoading || isUploading"
           @keydown="handleKeydown"
         />
       </div>
@@ -69,7 +69,7 @@
           size="large"
           circle
           :loading="isLoading"
-          :disabled="!inputValue.trim() || isLoading"
+          :disabled="!inputValue.trim() || isLoading || isUploading"
           @click="handleSend"
         >
           <template #icon>
@@ -110,7 +110,7 @@ const inputValue = ref('')
 
 const handleSend = () => {
   const text = inputValue.value.trim()
-  if (!text || props.isLoading) return
+  if (!text || props.isLoading || props.isUploading) return
   emit('send', text)
   inputValue.value = ''
 }

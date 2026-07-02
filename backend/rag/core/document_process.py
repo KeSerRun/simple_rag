@@ -1,17 +1,26 @@
 """文档加载与分块入口(MinerU 已预切块则跳过二次切分)"""
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Iterator, List
+from typing import Iterator, List, Optional
 
 from base.config import conf
 from base.logger import logger, batch_configure_loggers
 
 from ..document_loaders import MinerUPDFLoader, OCRPDFLoader
-from ..document_loaders.base import BaseLoader
+from ..document_loaders.base_pdf_loader import BaseLoader
 from ..text_spliter import ChineseRecursiveTextSplitter
-from .document import Document
 
 batch_configure_loggers()
+
+
+@dataclass
+class Document:
+    """轻量文档容器,替代 langchain_core.documents.Document"""
+    page_content: str
+    metadata: dict = field(default_factory=dict)
 
 
 class PlainTextLoader(BaseLoader):
@@ -96,6 +105,7 @@ def process_documents_from_dir(
     parent_splitter = ChineseRecursiveTextSplitter(chunk_size=parent_chunk_size, chunk_overlap=chunk_overlap)
     child_splitter = ChineseRecursiveTextSplitter(chunk_size=child_chunk_size, chunk_overlap=chunk_overlap)
     child_chunk_list: List[Document] = []
+    pre_chunk_count: dict[str, int] = {}  # filename → chunk count
     for i, doc in enumerate(documents):
         doc_name = doc.metadata.get("source", f"文档_{i}")
         if doc.metadata.get("pre_chunked"):
@@ -104,7 +114,7 @@ def process_documents_from_dir(
             doc.metadata["parent_content"] = doc.page_content
             doc.metadata["child_chunk_id"] = chunk_id
             child_chunk_list.append(doc)
-            logger.info(f"文档: {doc_name} 已预切块, 直接入库 (1 块)")
+            pre_chunk_count[doc_name] = pre_chunk_count.get(doc_name, 0) + 1
             continue
         logger.info(f"使用切分器: {parent_splitter.__class__.__name__} 处理文档: {doc_name}")
         parent_chunks = parent_splitter.split_documents([doc])
@@ -121,5 +131,7 @@ def process_documents_from_dir(
                 child_chunk_list.append(child_chunk)
                 child_count += 1
         logger.info(f"文档: {doc_name} 的子级切分块数量: {child_count}")
+    for fname, cnt in pre_chunk_count.items():
+        logger.info(f"文档: {fname} 已预切块, 共 {cnt} 块, 直接入库")
     logger.info(f"文档切分完成,生成的子级切分块总数量: {len(child_chunk_list)}")
     return child_chunk_list

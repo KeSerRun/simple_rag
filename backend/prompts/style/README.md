@@ -1,6 +1,6 @@
 # 回答风格 Skills
 
-`prompts/skills/style/` 下每个子目录对应一种回答风格，每个风格是一个独立的 `SKILL.md` 文件。
+`prompts/style/` 下每个子目录对应一种回答风格，每个风格是一个独立的 `SKILL.md` 文件。
 
 ## 目录结构
 

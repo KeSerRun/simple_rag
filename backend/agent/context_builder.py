@@ -163,6 +163,7 @@ class ContextBuilder:
                 continue
             is_baseline = idx == 0
             self._load_skills_from(d, is_baseline)
+
         logger.info(
             f"ContextBuilder 就绪: identity={'是' if self.identity else '否'}, "
             f"skills={sorted(self.skills.keys())}"
@@ -175,11 +176,20 @@ class ContextBuilder:
         return f.read_text(encoding="utf-8").strip()
 
     def _load_skills_from(self, prompts_dir: Path, is_baseline: bool):
+        """从 prompts_dir 加载技能。
+
+        旧布局: prompts_dir/skills/ 下存放 skill 目录
+        新布局: 非基线目录自身就是 skill 集合（如 prompts/style/）
+        """
         skills_dir = prompts_dir / "skills"
-        if not skills_dir.is_dir():
-            return
-        for file, fallback in self._scan_skills(skills_dir):
-            self._register(self._load_one(file, fallback_name=fallback), is_baseline)
+        if skills_dir.is_dir():
+            # 旧布局
+            for file, fallback in self._scan_skills(skills_dir):
+                self._register(self._load_one(file, fallback_name=fallback), is_baseline)
+        elif not is_baseline:
+            # 新布局：非基线目录本身是 skill 集合
+            for file, fallback in self._scan_skills(prompts_dir):
+                self._register(self._load_one(file, fallback_name=fallback), is_baseline)
 
     def _scan_skills(self, root: Path):
         for f in sorted(root.glob("*.md")):

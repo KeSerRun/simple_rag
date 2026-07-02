@@ -4,17 +4,12 @@
   - 持有 messages (会话消息列表, 随 tool 调用自动增长)
   - 追踪迭代轮次, 到达上限后自动终结
   - 存储上下文参数 (partition / style)
+  - 追踪短期/长期任务 (跨提问轮次持久化)
 
 使用方式:
-  state = AgentState(messages, partition=...)
+  state = AgentState(messages, partition=..., short_term_tasks=[...])
   while state.should_continue():
-      resp = client.chat_with_tools(messages=state.messages, ...)
-      if not resp["tool_calls"]:
-          break
-      state.add_assistant_response(resp["content"], resp["tool_calls"])
-      for tc in resp["tool_calls"]:
-          result = execute_tool(...)
-          state.add_tool_result(tc["id"], result)
+      ...
 """
 from __future__ import annotations
 
@@ -36,12 +31,16 @@ class AgentState:
         max_iterations: 最多允许的 tool-call 轮数
         partition: 向量检索分区 (用户名)
         style: 回答风格 skill 名 (如 style-formal), None 表示默认
+        short_term_tasks: 当前会话的短期任务列表（本轮对话的核心目标）
+        long_term_tasks: 当前会话的长期任务列表（多轮对话中持续追踪的目标）
     """
     messages: List[dict] = field(default_factory=list)
     iteration: int = 0
     max_iterations: int = MAX_TOOL_ITER
     partition: Optional[str] = None
     style: Optional[str] = None
+    short_term_tasks: List[str] = field(default_factory=list)
+    long_term_tasks: List[str] = field(default_factory=list)
 
     def should_continue(self) -> bool:
         """循环条件: 未达上限。"""

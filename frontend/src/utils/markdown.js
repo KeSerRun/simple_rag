@@ -7,6 +7,7 @@ import remarkRehype from 'remark-rehype'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeStringify from 'rehype-stringify'
+import { visit } from 'unist-util-visit'
 
 const FENCE_RE = /^[ \t]{0,3}(?:```|~~~)/
 
@@ -47,6 +48,30 @@ function sanitizeOrphanAsterisks(text) {
   return lines.join('\n')
 }
 
+/** rehype 插件：将 .katex-display 包裹在横向滚动的 div 中 */
+function rehypeWrapKatex() {
+  return (tree) => {
+    visit(tree, 'element', (node, index, parent) => {
+      if (
+        node.tagName === 'span' &&
+        node.properties?.className?.includes('katex-display') &&
+        parent &&
+        typeof index === 'number'
+      ) {
+        parent.children[index] = {
+          type: 'element',
+          tagName: 'div',
+          properties: {
+            class: 'katex-scroll-wrap',
+            style: 'overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;',
+          },
+          children: [node],
+        }
+      }
+    })
+  }
+}
+
 const processor = unified()
   .use(remarkParse)
   .use(remarkMath)
@@ -54,6 +79,7 @@ const processor = unified()
   .use(remarkBreaks)
   .use(remarkRehype, { allowDangerousHtml: false })
   .use(rehypeKatex, { throwOnError: false, strict: false })
+  .use(rehypeWrapKatex)  // 在 KaTeX 之后包裹滚动容器
   .use(rehypeHighlight)
   .use(rehypeStringify)
 

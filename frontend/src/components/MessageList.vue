@@ -401,6 +401,7 @@ defineExpose({ scrollToBottom })
   margin: 16px 0;
 }
 
+/* 移动端适配 */
 @media (max-width: 768px) {
   .messages-area {
     padding: 20px 16px;

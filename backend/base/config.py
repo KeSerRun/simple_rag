@@ -127,7 +127,7 @@ class Config:
         self.openai_embedding_dim = config.getint('api', 'embedding_dim', fallback=1536)
         self.openai_timeout = config.getfloat('api', 'timeout', fallback=60.0)
         self.openai_max_retries = config.getint('api', 'max_retries', fallback=3)
-        self.chat_reasoning_effort = _strip_quotes(config.get('api', 'chat_reasoning_effort', fallback='medium'))
+        self.chat_reasoning_effort = _strip_quotes(config.get('api', 'chat_reasoning_effort', fallback='')) or None
 
         # 对话历史配置
         self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=10)

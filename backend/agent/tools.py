@@ -61,11 +61,13 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         queries = [queries]
     queries = [str(q).strip() for q in queries if str(q).strip()]
     if not queries:
+        logger.warning("tool search_knowledge_base 被调用但未提供有效 query")
         return "(未提供任何检索 query)"
 
     logger.info(f"tool search_knowledge_base queries={queries} partition={ctx.partition}")
     chunks = _retrieve_and_dedup(ctx.vector_store, queries, ctx.partition)
     if not chunks:
+        logger.info("tool search_knowledge_base 未检索到相关内容, 返回 0 块")
         return "(知识库中未检索到相关内容)"
 
     for ci, c in enumerate(chunks):
@@ -144,7 +146,7 @@ def _exec_web_search(args: dict, ctx: ToolContext) -> str:
         title = r.get("title", "").strip()
         snippet = r.get("body", "").strip()
         url = r.get("href", "").strip()
-        lines.append(f"搜索结果 {i}] {title}")
+        lines.append(f"[搜索结果 {i}] {title}")
         if snippet:
             lines.append(f"   {snippet}")
         if url:

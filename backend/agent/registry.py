@@ -1,17 +1,13 @@
 """工具注册中心: ToolRegistry + ToolContext + ToolDef
 
 设计目标:
-  - 内建工具通过 registry.register() 注册，不再写 if/elif 链
-  - 第三方工具放在 tools_extra/ 目录下，自动发现加载
+  - 工具通过 registry.register() 注册，不再写 if/elif 链
   - 前后端兼容: registry.schemas 替代 TOOL_SCHEMAS, registry.dispatch 替代 execute_tool
 """
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable, List, Optional
 
 from base.logger import logger
@@ -52,7 +48,6 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: dict[str, ToolDef] = {}
-        self._extra_dirs: list[Path] = []
 
     def register(
         self,
@@ -98,36 +93,3 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"工具 {name!r} 执行失败: {e}")
             return f"(工具执行失败: {e})"
-
-    def add_extra_dir(self, directory: str | Path):
-        p = Path(directory).resolve()
-        if p.is_dir() and p not in self._extra_dirs:
-            self._extra_dirs.append(p)
-
-    def load_extra_tools(self):
-        loaded = 0
-        for d in self._extra_dirs:
-            if not d.is_dir():
-                logger.warning(f"extra tools 目录不存在: {d}")
-                continue
-            for f in sorted(d.glob("*.py")):
-                if f.name.startswith("_"):
-                    continue
-                try:
-                    self._load_tool_module(f)
-                    loaded += 1
-                except Exception as e:
-                    logger.error(f"加载工具文件 {f} 失败: {e}")
-        if loaded:
-            logger.info(f"已加载 {loaded} 个第三方工具文件")
-
-    def _load_tool_module(self, file_path: Path):
-        module_name = f"_extra_tool_{file_path.stem}"
-        spec = importlib.util.spec_from_file_location(module_name, file_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"无法加载 {file_path}")
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = mod
-        spec.loader.exec_module(mod)
-        if hasattr(mod, "register"):
-            mod.register(self)

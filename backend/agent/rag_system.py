@@ -21,6 +21,7 @@ from .context_builder import ContextBuilder
 from .state import AgentState
 from .registry import ToolContext
 from .tools import registry
+from .workflow_router import WorkflowRouter
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -59,7 +60,10 @@ class RAGSystem:
         elif prompts_dir:
             dirs = [prompts_dir]
         else:
-            dirs = [os.path.join(_BACKEND_ROOT, "prompts")]
+            dirs = [
+                os.path.join(_BACKEND_ROOT, "prompts"),
+                os.path.join(_BACKEND_ROOT, "prompts", "style"),
+            ]
         self.context_builder = ContextBuilder(dirs)
 
         self.client = OpenAIClient(
@@ -83,6 +87,11 @@ class RAGSystem:
             embedding_dim=self.embedding_dim,
         )
 
+        # 初始化 WorkflowRouter
+        self.workflow_router = WorkflowRouter(
+            os.path.join(_BACKEND_ROOT, "prompts")
+        )
+
         logger.info(
             f"RAG agent 就绪, chat_model={self.chat_model}, "
             f"工具={[t['function']['name'] for t in registry.schemas]}"
@@ -94,8 +103,13 @@ class RAGSystem:
         else:
             logger.info("PDF 解析: OCRPDFLoader (MinerU token 未配置)")
 
-    def _build_system_message(self, style: Optional[str] = None) -> str:
-        """构造 system message: identity + 可选回答风格。
+    def _build_system_message(
+        self,
+        style: Optional[str] = None,
+        short_term_tasks: Optional[List[str]] = None,
+        long_term_tasks: Optional[List[str]] = None,
+    ) -> str:
+        """构造 system message: identity + 可选回答风格 + 短期/长期任务。
 
         style 为 None / "style-default" 时跳过风格注入。
         文档清单不再注入 system message，LLM 通过 list_documents 工具按需获取。
@@ -105,7 +119,17 @@ class RAGSystem:
         from datetime import datetime as _dt
         import time as _time
         _tz = _time.tzname
-        parts.append(f"\n当前日期: {_dt.now().strftime('%Y年%m月%d日 %A')} (时区: {_tz[0] if _tz else 'UTC'})")
+        parts.append(f"\n当前日期: {_dt.now().strftime('%Y年%m月%d日 %A %H:%M')} (时区: {_tz[0] if _tz else 'UTC'})")
+
+        # 注入短期/长期任务
+        tasks_lines = []
+        if short_term_tasks:
+            tasks_lines.append("短期任务：" + "；".join(short_term_tasks))
+        if long_term_tasks:
+            tasks_lines.append("长期任务：" + "；".join(long_term_tasks))
+        if tasks_lines:
+            parts.append("\n\n---\n" + "\n".join(tasks_lines))
+
         # 注入回答风格
         if style and style != "style-default":
             skill = self.context_builder.skills.get(style)
@@ -119,10 +143,28 @@ class RAGSystem:
         self, query, force_retrieve: bool = False,
         stream=False, history: list = None,
         partition: str = None, style: Optional[str] = None,
+        short_term_tasks: Optional[List[str]] = None,
+        long_term_tasks: Optional[List[str]] = None,
     ):
         logger.info(f"收到用户查询: {query} (style={style})")
 
-        system_msg = self._build_system_message(style=style)
+        system_msg = self._build_system_message(
+            style=style,
+            short_term_tasks=short_term_tasks,
+            long_term_tasks=long_term_tasks,
+        )
+
+        # ── Workflow 路由注入 ─────────────────────────────────────────
+        wf_name = self.workflow_router.match(query)
+        if wf_name:
+            wf_content = self.workflow_router.get_workflow_content(wf_name)
+            if wf_content:
+                system_msg += (
+                    f"\n\n---\n## ⚠️ 必须遵守的工作流：{wf_name}\n"
+                    f"{wf_content}"
+                )
+                logger.info(f"已注入 workflow [{wf_name}] 到 system message")
+
         messages: List[dict] = [{"role": "system", "content": system_msg}]
         if history:
             messages.extend(history)
@@ -132,6 +174,8 @@ class RAGSystem:
             messages=messages,
             partition=partition,
             style=style,
+            short_term_tasks=short_term_tasks or [],
+            long_term_tasks=long_term_tasks or [],
         )
 
         if stream:
@@ -174,8 +218,19 @@ class RAGSystem:
 
             tool_choice = "auto"  # 首轮过后不再强制
 
-        logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 强制返回")
-        return "（已达到工具调用上限，请重新提问。）"
+        # ── 达上限: 用已收集的信息生成最终答案 ──────────
+        logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")
+        try:
+            resp = self.client.chat_with_tools(
+                messages=state.messages, model=self.chat_model,
+                tools=[], tool_choice="none",
+                stream=False, temperature=0.7, max_tokens=2048,
+                reasoning_effort=conf.chat_reasoning_effort,
+            )
+            return resp["content"]
+        except Exception as e:
+            logger.error(f"最终回答生成失败: {e}")
+            return "抱歉，生成最终回答时发生了错误。"
 
     # ─── Tool-call 循环 (流式) ─────────────────
 
@@ -260,8 +315,21 @@ class RAGSystem:
 
             tool_choice = "auto"
 
-        logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 强制返回")
-        yield {"type": "token", "text": "\n\n（已达到工具调用上限，请重新提问。）"}
+        # ── 达上限: 用已收集的信息生成最终答案 ──────────
+        logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")
+        try:
+            events = self.client.chat_with_tools(
+                messages=state.messages, model=self.chat_model,
+                tools=[], tool_choice="none",
+                stream=True, temperature=0.7, max_tokens=2048,
+                reasoning_effort=conf.chat_reasoning_effort,
+            )
+            for ev in events:
+                if ev["type"] == "content":
+                    yield {"type": "token", "text": ev["text"]}
+        except Exception as e:
+            logger.error(f"最终回答流式生成失败: {e}")
+            yield {"type": "token", "text": "\n\n抱歉，生成最终回答时发生了错误。"}
 
 
 if __name__ == "__main__":

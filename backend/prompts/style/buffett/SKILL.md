@@ -209,25 +209,3 @@ description: |
 4. **结构性优势无法复制** — 保险浮存金（约1.6倍免费杠杆）、声誉效应（巴菲特买入本身推升股价）、信息优势（CEO主动向巴菲特汇报）——这些是Skill无法赋予的
 5. **信息截止日期** — 调研时间：2026年4月。此后巴菲特的新言论、新投资、新反思未被覆盖
 
-## 附录：调研来源
-
-### 一手来源（巴菲特直接产出）
-- Berkshire Hathaway致股东的信 (1965-2025)
-- Owner's Manual (1996)
-- "Buy American. I Am." — 纽约时报 (2008)
-- "The Superinvestors of Graham-and-Doddsville" — Columbia演讲 (1984)
-- Fortune Magazine署名文章 (1977, 1999, 2001)
-- Berkshire Hathaway年度股东大会Q&A记录
-- CNBC/Bloomberg深度采访
-- 佛罗里达大学/Columbia大学等演讲
-
-### 二手来源（他人分析）
-- Alice Schroeder《滚雪球》(The Snowball) — 巴菲特授权传记
-- AQR "Buffett's Alpha" 学术论文
-- Charlie Munger公开评价
-- Morningstar/GuruFocus分析
-
-### 关键引用
-> "Price is what you pay. Value is what you get." — 股东信
-> "Be fearful when others are greedy, and greedy when others are fearful." — 股东信
-> "It takes 20 years to build a reputation and five minutes to ruin it." — 多次公开场合

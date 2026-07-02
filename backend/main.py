@@ -12,6 +12,7 @@ import uuid
 import argparse
 import os
 import sys
+import re
 
 
 '''集成系统类，封装数据存储 + RAG_QA,提供统一的问答接口'''
@@ -22,6 +23,10 @@ class IntegratedSystem:
         self.vector_store = self.rag_qa.vector_store
         # 追踪每个会话当前使用的 style（用于检测切换）
         self.session_last_style: dict[str, str] = {}
+        # 追踪每个会话的短期/长期任务
+        self.session_tasks: dict[str, dict] = {}  # {session_id: {"short": [...], "long": [...]}}
+        # 会话轮次计数器（用于任务时效判断）
+        self.session_turn: dict[str, int] = {}
 
     def get_history(self, session_id):
         """读取会话历史并展开为 LLM 输入格式。
@@ -177,13 +182,149 @@ class IntegratedSystem:
             logger.info(f"style 切换: {prev} → {style or 'default'}")
         self.session_last_style[session_id] = style or 'default'
 
+    # ─── 会话任务追踪 ───────────────────────────────
+
+    TASK_MAX_STALE_TURNS = 5  # 超过 N 轮未被引用的任务标记为 superseded
+    TASK_MAX_SHORT = 3        # 短期活跃任务上限
+    TASK_MAX_SHORT_HIST = 20  # 短期任务总历史上限（含已关闭）
+    TASK_MAX_LONG = 10        # 长期任务上限
+    TASK_OVERLAP_RATIO = 0.2  # 话题关联判定阈值
+
+    @staticmethod
+    def _task_keywords(text: str) -> set:
+        """提取文本中的关键词用于话题关联判定。"""
+        return set(re.findall(r'[\w一-鿿]+', text.lower()))
+
+    @staticmethod
+    def _is_related_to(q_words: set, task_desc: str) -> bool:
+        """新问题与任务描述是否属于同一话题。"""
+        t_words = IntegratedSystem._task_keywords(task_desc)
+        if not q_words or not t_words:
+            return True
+        overlap = q_words & t_words
+        return len(overlap) / max(len(t_words), 1) >= IntegratedSystem.TASK_OVERLAP_RATIO
+
+    def _load_session_tasks(self, session_id: str) -> tuple[list[str], list[str]]:
+        """读取会话中状态为 active 的短期/长期任务描述。"""
+        tasks = self.session_tasks.get(session_id, {"short": [], "long": []})
+        short = [t["desc"] for t in tasks.get("short", []) if t.get("status") == "active"]
+        long_ = [t["desc"] for t in tasks.get("long", []) if t.get("status") == "active"]
+        return short, long_
+
+    def _save_session_tasks(self, session_id: str, short: list[dict], long_: list[dict]):
+        """保存会话任务列表。"""
+        self.session_tasks[session_id] = {"short": short, "long": long_}
+
+    def _extract_task_from_query(self, question: str, wf_name: str = None) -> str:
+        """从用户问题中提取短期任务描述。"""
+        if wf_name:
+            wf_display = {"USstocks": "美股分析"}
+            return wf_display.get(wf_name, wf_name)
+        q = question.strip().rstrip("？?。.!！")
+        return q[:40] + ("…" if len(q) > 40 else "")
+
+    def _get_turn(self, session_id: str) -> int:
+        """获取并递增会话轮次。"""
+        self.session_turn.setdefault(session_id, 0)
+        self.session_turn[session_id] += 1
+        return self.session_turn[session_id]
+
+    def _update_tasks(self, session_id: str, question: str, wf_name: str = None):
+        """更新会话任务：检测完成/切换，管理状态生命周期。"""
+        turn = self._get_turn(session_id)
+        tasks = self.session_tasks.get(session_id, {"short": [], "long": []})
+        raw_short: list[dict] = tasks.get("short", [])
+        raw_long: list[dict] = tasks.get("long", [])
+        current_desc = self._extract_task_from_query(question, wf_name)
+        q_words = self._task_keywords(question)
+
+        def _task_active(t: dict) -> bool:
+            """判定任务与新问题是否同属一个话题（关键词重叠 或 同 workflow）。"""
+            if t["status"] != "active":
+                return False
+            # 同 workflow → 相关
+            if wf_name and t.get("workflow") == wf_name:
+                return True
+            # 关键词重叠 → 相关
+            if self._is_related_to(q_words, t["desc"]):
+                return True
+            return False
+
+        # ── 1. 关闭已无关的旧任务 ────────────────────
+        for t in raw_short:
+            if t["status"] != "active":
+                continue
+            if _task_active(t):
+                # 仍相关 → 刷新活跃轮次
+                t["last_active_turn"] = turn
+            else:
+                # 话题切换 或 超期
+                if turn - t.get("last_active_turn", t["turn"]) > self.TASK_MAX_STALE_TURNS:
+                    logger.info(f"任务超期: '{t['desc']}' ({self.TASK_MAX_STALE_TURNS}轮未引用)")
+                else:
+                    logger.info(f"任务完成: '{t['desc']}' (话题切换)")
+                t["status"] = "superseded"
+
+        # ── 2. 更新短期任务 ──────────────────────────
+        existing = [t for t in raw_short if t["desc"] == current_desc and t["status"] == "active"]
+        others = [t for t in raw_short if t["desc"] != current_desc]
+
+        if existing:
+            existing[0]["last_active_turn"] = turn
+            active_tasks = existing
+        else:
+            new_task = {
+                "desc": current_desc, "status": "active",
+                "turn": turn, "last_active_turn": turn,
+                "workflow": wf_name,
+            }
+            active_tasks = [new_task]
+
+        # active 在前（不超过上限），已关闭的在后面（用于历史提升判断）
+        active_part = (active_tasks + [t for t in others if t["status"] == "active"])[:self.TASK_MAX_SHORT]
+        inactive_part = [t for t in raw_short if t["status"] != "active"]
+        new_short = (active_part + inactive_part)[:self.TASK_MAX_SHORT_HIST]
+
+        # ── 3. 长期任务：同一 desc 再次出现时提升 ────
+        long_descs = {t["desc"] for t in raw_long}
+        if current_desc not in long_descs:
+            # 检查在历史短期中是否曾出现过（不是当前轮）
+            hist_descs = {t["desc"] for t in raw_short} | {
+                t["desc"] for t in self.session_tasks.get(session_id, {}).get("short", [])
+            }
+            if current_desc in hist_descs:
+                raw_long.append({
+                    "desc": current_desc, "status": "active",
+                    "turn": turn, "last_active_turn": turn,
+                    "workflow": wf_name,
+                })
+                logger.info(f"提升为长期任务: '{current_desc}'")
+
+        # 长期任务也做超时检测
+        for t in raw_long:
+            if t["status"] != "active":
+                continue
+            if turn - t.get("last_active_turn", t["turn"]) > self.TASK_MAX_STALE_TURNS * 2:
+                t["status"] = "superseded"
+                logger.info(f"长期任务过期: '{t['desc']}'")
+
+        self._save_session_tasks(session_id, new_short, raw_long[:self.TASK_MAX_LONG])
+
     def get_answer(self, session_id, question, partition: str = None, style: Optional[str] = None):
         """处理用户查询,返回答案"""
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
+
+        # Workflow 路由检测（用于任务提取）
+        wf_name = self.rag_qa.workflow_router.match(question)
+        short_tasks, long_tasks = self._load_session_tasks(session_id)
+
         try:
             answer = self.rag_qa.generate_answer(
-                question, stream=False, history=history, partition=partition, style=style,
+                question, stream=False, history=history,
+                partition=partition, style=style,
+                short_term_tasks=short_tasks,
+                long_term_tasks=long_tasks,
             )
             logger.info(f"回答成功 len={len(answer)}")
         except Exception as e:
@@ -192,6 +333,8 @@ class IntegratedSystem:
             self.data_store.insert_session_history(session_id, question, answer)
             log_qa(partition, session_id, question, answer)
             return answer
+
+        self._update_tasks(session_id, question, wf_name)
         self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
         return answer
@@ -200,17 +343,24 @@ class IntegratedSystem:
         """流式返回答案的生成器"""
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
+
+        wf_name = self.rag_qa.workflow_router.match(question)
+        short_tasks, long_tasks = self._load_session_tasks(session_id)
+
         answer_iter = self.rag_qa.generate_answer(
-            question, stream=True, history=history, partition=partition, style=style,
+            question, stream=True, history=history,
+            partition=partition, style=style,
+            short_term_tasks=short_tasks,
+            long_term_tasks=long_tasks,
         )
         ans = []
         for event in answer_iter:
-            # 流式格式: {"type": "token", "text": "..."} 或 {"type": "status", ...}
-            # yield 原始事件, 由 _sse_wrapper JSON 编码后传前端
             if event.get("type") == "token":
                 ans.append(event.get("text", ""))
-            yield event  # 传递原始事件, 不过滤
+            yield event
         answer = ''.join(ans)
+
+        self._update_tasks(session_id, question, wf_name)
         self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
         logger.info(f"回答成功 len={len(answer)}")

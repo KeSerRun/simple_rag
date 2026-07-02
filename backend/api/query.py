@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api", tags=["query"])
 
 @router.get("/styles")
 async def list_styles():
-    """返回可用的回答风格列表（由 backend/prompts/skills/style/ 自动发现）。"""
+    """返回可用的回答风格列表（由 backend/prompts/style/ 自动发现）。"""
     skills = system.rag_qa.context_builder.skills
     styles = []
     for name, skill in skills.items():

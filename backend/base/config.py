@@ -141,6 +141,7 @@ class Config:
         # Agent 配置
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=6)
         self.summary_model = _strip_quotes(config.get('agent', 'summary_model', fallback='')) or self.chat_model
+        self.reflection_mode = config.getboolean('agent', 'reflection_mode', fallback=False)
 
         # HTML主页文件路径（相对于 backend/ 根目录）
         self.index_file = normalize_path("dist/index.html")

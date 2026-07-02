@@ -227,6 +227,25 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     return "当前知识库中的文档：\n" + "\n".join(lines)
 
 
+def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
+    """读取归档的历史对话记录。"""
+    archive_id = (args.get("archive_id") or "").strip()
+    if not archive_id:
+        return "(未提供 archive_id 参数)"
+    if not ctx.data_store:
+        return "(归档存储不可用)"
+
+    try:
+        result = ctx.data_store.format_archive_turns(archive_id)
+        if result is None:
+            return f"(归档 {archive_id} 不存在)"
+        logger.info(f"tool read_archive 成功: {archive_id} ({len(result)} 字符)")
+        return result
+    except Exception as e:
+        logger.warning(f"tool read_archive 失败 ({archive_id}): {e}")
+        return f"(读取归档失败: {e})"
+
+
 # ─── 注册内建工具 ───────────────────────────────────
 
 registry.register(
@@ -326,6 +345,26 @@ registry.register(
         "required": [],
     },
     handler=_exec_list_documents,
+    source=__name__,
+)
+
+registry.register(
+    name="read_archive",
+    description=(
+        "读取被归档的历史对话记录。当 system message 中出现「历史摘要 #[archive_id]」标记时，"
+        "可调用此工具获取该段历史的完整对话内容。每次调用读取一个归档。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "archive_id": {
+                "type": "string",
+                "description": "归档 ID，格式如 arch_xxx。从历史摘要标记 #[archive_id] 中提取。",
+            },
+        },
+        "required": ["archive_id"],
+    },
+    handler=_exec_read_archive,
     source=__name__,
 )
 

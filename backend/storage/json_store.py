@@ -217,6 +217,45 @@ class JSONFileStore:
             return True
         return False
 
+    # --- 归档 ---------------------------------------------------------------
+
+    def insert_archive(self, session_id, summary, turns):
+        """将历史轮次归档存储，返回 archive_id。"""
+        import uuid as _uuid
+        archive_id = f"arch_{_uuid.uuid4().hex[:12]}"
+        archive_file = os.path.join(self.data_dir, 'archives', f'{archive_id}.json')
+        os.makedirs(os.path.dirname(archive_file), exist_ok=True)
+        self._write_json(archive_file, {
+            'id': archive_id,
+            'session_id': session_id,
+            'summary': summary,
+            'turns': turns,
+            'created_at': datetime.now().isoformat(),
+        })
+        logger.info(f"归档创建: {archive_id} ({len(turns)} 轮)")
+        return archive_id
+
+    def get_archive(self, archive_id):
+        """按 ID 读取归档，返回完整内容或 None。"""
+        archive_file = os.path.join(self.data_dir, 'archives', f'{archive_id}.json')
+        if not os.path.exists(archive_file):
+            logger.warning(f"归档不存在: {archive_id}")
+            return None
+        return self._read_json(archive_file)
+
+    def format_archive_turns(self, archive_id):
+        """读取归档并格式化为 LLM 可读的文本。"""
+        data = self.get_archive(archive_id)
+        if not data:
+            return None
+        lines = [f"[归档 {archive_id}] 以下为历史对话记录："]
+        for t in data.get('turns', []):
+            if t.get('user'):
+                lines.append(f"用户：{t['user']}")
+            if t.get('assistant'):
+                lines.append(f"助手：{t['assistant']}")
+        return "\n\n".join(lines)
+
 
 if __name__ == "__main__":
     store = JSONFileStore()

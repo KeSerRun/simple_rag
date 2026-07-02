@@ -50,10 +50,12 @@ class RAGSystem:
         embedding_dim: Optional[int] = None,
         prompts_dir: Optional[str] = None,
         prompts_dirs: Optional[List[str]] = None,
+        data_store: Optional[object] = None,
     ):
         self.chat_model = chat_model or conf.chat_model
         self.embedding_model = embedding_model or conf.openai_embedding_model
         self.embedding_dim = embedding_dim or conf.openai_embedding_dim
+        self.data_store = data_store
 
         if prompts_dirs:
             dirs = prompts_dirs
@@ -180,7 +182,72 @@ class RAGSystem:
 
         if stream:
             return self._run_tool_loop_stream(state, force_retrieve)
-        return self._run_tool_loop(state, force_retrieve)
+
+        # 非流式：tool loop → 可选反思
+        answer = self._run_tool_loop(state, force_retrieve)
+        if conf.reflection_mode:
+            answer = self._reflection_pass(query, history, state.messages, answer)
+        return answer
+
+    # ─── 反思模式 ────────────────────────────────
+
+    def _reflection_pass(
+        self,
+        query: str,
+        history: Optional[list],
+        messages: List[dict],
+        draft_answer: str,
+    ) -> str:
+        """让 LLM 自我审查回答质量，发现不足时改进。
+
+        仅在 reflection_mode = true 时调用，会增加一次额外 LLM 调用。
+        检查维度：是否回答了用户问题、引用是否准确、逻辑是否完整。
+        """
+        import json as _json
+
+        logger.info("反思模式: 审查回答质量")
+
+        system_msg = (
+            "你是一个严格的回答质量审查员。检查下面的对话和回答，逐项评估：\n\n"
+            "1. **完整性**：是否直接回答了用户的提问？有没有遗漏关键点？\n"
+            "2. **准确性**：引用和数据的出处是否明确标注了来源？\n"
+            "3. **逻辑性**：推理链条是否清晰？有没有自相矛盾的地方？\n"
+            "4. **可读性**：格式是否清晰（表格、排版、公式）？\n\n"
+            "如果有需要改进的地方，输出优化后的完整回答。\n"
+            "如果没有问题，直接原样输出原始回答。\n"
+            "不要输出评估过程，只输出最终回答。"
+        )
+
+        ref_messages = [{"role": "system", "content": system_msg}]
+        if history:
+            # 只取最近 2 轮历史
+            ref_messages.extend(history[-4:])
+        ref_messages.append({"role": "user", "content": query})
+        ref_messages.append({"role": "assistant", "content": draft_answer})
+        ref_messages.append({
+            "role": "user",
+            "content": "请审查以上回答，必要时改进后重新输出。只输出改进后的回答内容本身，不要输出审查过程。",
+        })
+
+        try:
+            resp = self.client.chat_with_tools(
+                messages=ref_messages,
+                model=self.chat_model,
+                tools=[], tool_choice="none",
+                stream=False,
+                temperature=0.3,
+                max_tokens=4096,
+                reasoning_effort=conf.chat_reasoning_effort,
+            )
+            improved = resp["content"].strip()
+            if improved and len(improved) >= len(draft_answer) * 0.5:
+                logger.info(f"反思完成: {len(draft_answer)} → {len(improved)} 字符")
+                return improved
+            logger.info("反思未产生改进，使用原始回答")
+            return draft_answer
+        except Exception as e:
+            logger.error(f"反思过程出错: {e}，使用原始回答")
+            return draft_answer
 
     # ─── Tool-call 循环 (非流式) ─────────────────
 
@@ -212,6 +279,7 @@ class RAGSystem:
                     ctx=ToolContext(
                         vector_store=self.vector_store,
                         partition=state.partition,
+                        data_store=self.data_store,
                     )
                 )
                 state.add_tool_result(tc["id"], result)
@@ -297,6 +365,7 @@ class RAGSystem:
                     ctx=ToolContext(
                         vector_store=self.vector_store,
                         partition=state.partition,
+                        data_store=self.data_store,
                     )
                 )
                 state.add_tool_result(tc["id"], result)

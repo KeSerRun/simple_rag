@@ -19,6 +19,7 @@ Agent 在处理用户查询时，首先检测查询是否命中某个 workflow �
 -->
 
 - USstocks: 美股, US stocks, 纳斯达克, 道琼斯, 标普500, S&P 500, S&P, NYSE, 美国股市, 道指, 纳指, 华尔街, 美国股票, 美股行情, 美国股指, Dow Jones, NASDAQ, 美债, 美联储, 联邦基金利率, 非农, 美股分析, 美股市场, 美国经济, stock market, stock price, AAPL, TSLA, MSFT, GOOGL, AMZN, NVDA, META, 苹果股价, 苹果股票, 特斯拉股价, 特斯拉股票, 英伟达, 美国加息, 美国降息, 美国通胀, 美国CPI, 美国GDP
+- Autoplan: 规划, 计划, 方案, 策略, 路线图, 实施步骤, 任务分解, 行动计划, 操作流程, 执行方案, 对比分析, 调研方案, 制定策略
 
 <!-- 新增工作流在此添加路由规则 -->
 

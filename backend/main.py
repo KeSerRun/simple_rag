@@ -19,7 +19,7 @@ import re
 class IntegratedSystem:
     def __init__(self):
         self.data_store = JSONFileStore()
-        self.rag_qa = RAGSystem()
+        self.rag_qa = RAGSystem(data_store=self.data_store)
         self.vector_store = self.rag_qa.vector_store
         # 追踪每个会话当前使用的 style（用于检测切换）
         self.session_last_style: dict[str, str] = {}
@@ -64,18 +64,24 @@ class IntegratedSystem:
             compressed_ids = {id(h) for h in compressed_qa}
             remaining_raw = [h for h in raw if id(h) not in compressed_ids]
 
-            mode = "规则拼接" if len(compressed_qa) <= 3 else "LLM 摘要"
-
-            # 生成摘要
-            summary_text = ""
-            if len(compressed_qa) <= 3:
-                questions = [h.get('user', '') for h in compressed_qa if h.get('user')]
-                if questions:
-                    summary_text = "（历史摘要）用户之前的问题：" + "；".join(
-                        q[:60] for q in questions if q
-                    )
-            else:
-                summary_text = self._summarize_history(compressed_qa) or ""
+            # 归档：将压缩掉的轮次存入归档，供 LLM 通过 read_archive 工具回溯
+            archive_id = self.data_store.insert_archive(
+                session_id=session_id,
+                summary="用户的问题：" + "；".join(
+                    h.get('user', '')[:60] for h in compressed_qa if h.get('user')
+                ),
+                turns=[
+                    {
+                        "user": h.get("user", ""),
+                        "assistant": h.get("assistant", ""),
+                        "timestamp": h.get("timestamp", ""),
+                    }
+                    for h in compressed_qa
+                ],
+            )
+            summary_text = f"（历史摘要 #{archive_id}：用户之前的问题：" + "；".join(
+                h.get('user', '')[:60] for h in compressed_qa if h.get('user')
+            ) + "。如需查阅完整历史，请调用 read_archive 工具。）"
 
             if summary_text:
                 messages.append({'role': 'user', 'content': summary_text})
@@ -90,58 +96,13 @@ class IntegratedSystem:
                 f"压缩前 {len(compressed_qa)} 轮/{total_chars} 字符, "
                 f"压缩后 {after_chars} 字符, "
                 f"节省 {total_chars - after_chars} 字符, "
-                f"方式={mode}"
+                f"归档={archive_id}"
             )
         else:
             for h in raw:
                 self._append_history_item(messages, h)
 
         return messages
-
-    def _summarize_history(self, entries: list) -> str:
-        """用 LLM 对历史对话做语义摘要。"""
-        from rag.core.openai_client import OpenAIClient
-
-        # 构建摘要 prompt
-        turns = []
-        for h in entries:
-            u = h.get('user', '') or ''
-            a = h.get('assistant', '') or ''
-            if u:
-                turns.append(f"用户：{u[:200]}")
-            if a:
-                turns.append(f"助手：{a[:200]}")
-        if not turns:
-            return ""
-        text = "\n".join(turns)
-
-        client = OpenAIClient(
-            api_key=conf.openai_api_key, base_url=conf.openai_base_url,
-            timeout=conf.openai_timeout, max_retries=conf.openai_max_retries,
-        )
-        try:
-            resp = client.chat(
-                messages=[{
-                    "role": "system",
-                    "content": "你是一个摘要助手。将以下对话浓缩为一段话（150字以内），"
-                               "保留核心问题和关键结论，不要丢失重要数据和时间信息。"
-                }, {
-                    "role": "user",
-                    "content": f"请摘要以下对话：\n\n{text}",
-                }],
-                model=conf.summary_model,
-                stream=False,
-                temperature=0.1,
-                max_tokens=300,
-            )
-            return (resp or "").strip()
-        except Exception as e:
-            logger.warning(f"LLM 摘要失败，回退规则拼接: {e}")
-            # 回退到规则拼接
-            questions = [h.get('user', '')[:60] for h in entries if h.get('user')]
-            if questions:
-                return "用户之前的问题：" + "；".join(questions)
-            return ""
 
     @staticmethod
     def _append_history_item(messages: list, h: dict):

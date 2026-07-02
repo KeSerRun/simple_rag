@@ -20,6 +20,7 @@ class ToolContext:
     """传递给 tool handler 的运行时上下文。"""
     vector_store: VectorStore
     partition: Optional[str] = None
+    data_store: Optional[object] = None
 
 
 @dataclass

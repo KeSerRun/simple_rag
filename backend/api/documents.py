@@ -14,13 +14,13 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from base.config import conf
 from base.logger import logger
 
-from .deps import auth_required, system
+from .deps import auth_required, check_user_storage_limit, system
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
 
-def _user_tmp_dir(username: str) -> str:
-    return f"{conf.vector_store_dir}/tmp/{username}"
+def _user_upload_dir(username: str) -> str:
+    return f"{conf.vector_store_dir}/uploads/{username}"
 
 
 def _purge_files(username: str, sources: Optional[List[str]] = None):
@@ -29,21 +29,21 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
     sources=None        → 清空整个 tmp/{username}/ (含所有文件 + chunk_out/)
     sources=[...]       → 仅清掉指定文件及其对应的 chunk_out/{stem}/
     """
-    tmp_dir = _user_tmp_dir(username)
-    if not os.path.isdir(tmp_dir):
+    upload_dir = _user_upload_dir(username)
+    if not os.path.isdir(upload_dir):
         return
 
     if sources is None:
         try:
-            shutil.rmtree(tmp_dir)
-            logger.info(f"已清空用户暂存目录: {tmp_dir}")
+            shutil.rmtree(upload_dir)
+            logger.info(f"已清空用户暂存目录: {upload_dir}")
         except Exception as e:
-            logger.warning(f"清空 {tmp_dir} 失败: {e}")
+            logger.warning(f"清空 {upload_dir} 失败: {e}")
         return
 
-    chunk_root = os.path.join(tmp_dir, "chunk_out")
+    chunk_root = os.path.join(upload_dir, "chunk_out")
     for src in sources:
-        file_path = os.path.join(tmp_dir, src)
+        file_path = os.path.join(upload_dir, src)
         if os.path.isfile(file_path):
             try:
                 os.remove(file_path)
@@ -70,10 +70,10 @@ async def add_documents(request: Request):
         if not documents_path:
             raise HTTPException(status_code=400, detail="No documents provided")
         # 路径穿越防护
-        tmp_root = Path(conf.vector_store_dir) / "tmp" / username
+        upload_root = Path(conf.vector_store_dir) / "uploads" / username
         try:
-            target = (tmp_root / documents_path).resolve()
-            target.relative_to(tmp_root.resolve())
+            target = (upload_root / documents_path).resolve()
+            target.relative_to(upload_root.resolve())
         except (ValueError, OSError):
             raise HTTPException(status_code=403, detail="forbidden")
         if not target.exists():
@@ -155,18 +155,20 @@ async def upload_file(
 
         results = []
         filenames = []
+        import os
         for file in files:
             content = await file.read()
-            save_path = f"{conf.vector_store_dir}/tmp/{username}/{file.filename}"
+            basename = os.path.basename(file.filename)
+            save_path = f"{conf.vector_store_dir}/uploads/{username}/{basename}"
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             with open(save_path, "wb") as f:
                 f.write(content)
             results.append({
-                "filename": file.filename,
+                "filename": basename,
                 "size": len(content),
                 "content_type": file.content_type,
             })
-            filenames.append(file.filename)
+            filenames.append(basename)
         if filenames:
             system.data_store.insert_session_event(session_id, 'upload', filenames)
         return JSONResponse(content={"files": results})
@@ -191,11 +193,25 @@ async def upload_embeddings(
     if not session_id:
         raise HTTPException(status_code=400, detail="缺少 session_id")
 
-    # 先把所有文件内容读入内存
+    # 先把所有文件内容读入内存（需要实际大小才能检查存储上限）
     files_data = []
+    total_upload_bytes = 0
+    import os
     for file in files:
         content = await file.read()
-        files_data.append((file.filename, content, file.content_type))
+        # 丢弃目录层级，只保留文件名
+        basename = os.path.basename(file.filename)
+        files_data.append((basename, content, file.content_type))
+        total_upload_bytes += len(content)
+
+    # 检查用户存储上限（admin 不受限制）
+    role = request.state.user.get("role", "user")
+    ok, current_mb, max_mb = check_user_storage_limit(username, role, total_upload_bytes)
+    if not ok:
+        raise HTTPException(
+            status_code=413,
+            detail=f"存储空间不足：已用 {current_mb}MB / 上限 {max_mb}MB，请清理旧文档后再上传",
+        )
 
     if stream:
         return StreamingResponse(
@@ -208,7 +224,7 @@ async def upload_embeddings(
         results = []
         filenames = []
         for filename, content, _ct in files_data:
-            save_path = f"{conf.vector_store_dir}/tmp/{username}/{filename}"
+            save_path = f"{conf.vector_store_dir}/uploads/{username}/{filename}"
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             logger.info(f"准备删除同名文档旧向量: {filename}, partition={username}")
             system.vector_store.delete_documents_by_sources([filename], partition=username)
@@ -241,6 +257,26 @@ async def get_documents(request: Request, username: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/documents/storage/info")
+@auth_required
+async def get_storage_info(request: Request):
+    """获取当前用户的存储使用情况"""
+    try:
+        username = request.state.user["username"]
+        role = request.state.user.get("role", "user")
+        from .deps import check_user_storage_limit
+        ok, current_mb, max_mb = check_user_storage_limit(username, role)
+        return JSONResponse(content={
+            "current_mb": current_mb,
+            "max_mb": max_mb,
+            "limit_enabled": max_mb > 0 and role != "admin",
+            "ok": ok,
+        })
+    except Exception as e:
+        # 静默失败，不阻塞前端
+        return JSONResponse(content={"current_mb": 0, "max_mb": 0, "limit_enabled": False, "ok": True})
+
+
 @router.get("/documents/file/{filename:path}")
 @auth_required
 async def download_document(request: Request, filename: str):
@@ -249,14 +285,14 @@ async def download_document(request: Request, filename: str):
     路径穿越防护: 解析后的真实路径必须在用户暂存目录下。
     """
     username = request.state.user["username"]
-    tmp_root = Path(_user_tmp_dir(username)).resolve()
+    upload_root = Path(_user_upload_dir(username)).resolve()
     try:
-        target = (tmp_root / filename).resolve()
+        target = (upload_root / filename).resolve()
     except Exception:
         raise HTTPException(status_code=400, detail="invalid filename")
     # 必须在用户暂存目录里, 不能逃出
     try:
-        target.relative_to(tmp_root)
+        target.relative_to(upload_root)
     except ValueError:
         raise HTTPException(status_code=403, detail="forbidden")
     if not target.is_file():
@@ -292,7 +328,7 @@ async def serve_mineru_image(
         except jwt.PyJWTError:
             raise HTTPException(status_code=401, detail="invalid token")
 
-    base_dir = Path(conf.vector_store_dir) / "tmp" / "*" / "chunk_out" / doc_stem
+    base_dir = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / doc_stem
 
     # 1) 精确匹配
     candidates = glob.glob(str(base_dir / img_name))
@@ -302,7 +338,7 @@ async def serve_mineru_image(
     # 3) 容错: LLM 可能在 doc_stem 后加了 .pdf 等扩展名
     if not candidates and "." in doc_stem:
         stem_clean = doc_stem.rsplit(".", 1)[0]
-        base_dir2 = Path(conf.vector_store_dir) / "tmp" / "*" / "chunk_out" / stem_clean
+        base_dir2 = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / stem_clean
         candidates = sorted(glob.glob(str(base_dir2 / f"{img_name}*")))
     # 4) 容错: 取 images/ 目录下第一张图 (hash 被编造)
     if not candidates and "/" in img_name:
@@ -326,7 +362,7 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
         return f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
 
     for idx, (filename, content, _ct) in enumerate(files_data):
-        save_path = f"{conf.vector_store_dir}/tmp/{username}/{filename}"
+        save_path = f"{conf.vector_store_dir}/uploads/{username}/{filename}"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         yield _sse({"status": "uploading", "text": "文档上传", "file": filename})

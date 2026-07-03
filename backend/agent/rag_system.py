@@ -236,7 +236,7 @@ class RAGSystem:
                 tools=[], tool_choice="none",
                 stream=False,
                 temperature=0.3,
-                max_tokens=4096,
+                max_tokens=conf.max_output_tokens,
                 reasoning_effort=conf.chat_reasoning_effort,
             )
             improved = resp["content"].strip()
@@ -260,7 +260,7 @@ class RAGSystem:
                 resp = self.client.chat_with_tools(
                     messages=state.messages, model=self.chat_model,
                     tools=registry.schemas, tool_choice=tool_choice,
-                    stream=False, temperature=0.7, max_tokens=2048,
+                    stream=False, temperature=0.7, max_tokens=conf.max_output_tokens,
                     reasoning_effort=conf.chat_reasoning_effort,
                 )
             except Exception as e:
@@ -292,7 +292,7 @@ class RAGSystem:
             resp = self.client.chat_with_tools(
                 messages=state.messages, model=self.chat_model,
                 tools=[], tool_choice="none",
-                stream=False, temperature=0.7, max_tokens=2048,
+                stream=False, temperature=0.7, max_tokens=conf.max_output_tokens,
                 reasoning_effort=conf.chat_reasoning_effort,
             )
             return resp["content"]
@@ -324,7 +324,7 @@ class RAGSystem:
                 events = self.client.chat_with_tools(
                     messages=state.messages, model=self.chat_model,
                     tools=registry.schemas, tool_choice=tool_choice,
-                    stream=True, temperature=0.7, max_tokens=2048,
+                    stream=True, temperature=0.7, max_tokens=conf.max_output_tokens,
                     reasoning_effort=conf.chat_reasoning_effort,
                 )
                 for ev in events:
@@ -390,7 +390,7 @@ class RAGSystem:
             events = self.client.chat_with_tools(
                 messages=state.messages, model=self.chat_model,
                 tools=[], tool_choice="none",
-                stream=True, temperature=0.7, max_tokens=2048,
+                stream=True, temperature=0.7, max_tokens=conf.max_output_tokens,
                 reasoning_effort=conf.chat_reasoning_effort,
             )
             for ev in events:

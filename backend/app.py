@@ -1,5 +1,7 @@
 """FastAPI 入口:装配中间件、挂载前端构建产物、注册各业务路由"""
 import os
+import time
+import threading
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +12,34 @@ from base.config import conf
 from base.logger import logger, log_http
 
 # 注册业务路由(各文件内含 APIRouter,前缀均为 /api)
-from api import auth, documents, history, query, sessions
+from api import admin, auth, documents, history, query, sessions
 from api.auth import create_superusers
+
+
+# ─── 请求统计（内存计数器，用于 Dashboard）────────────────────
+class RequestStats:
+    """线程安全的请求统计累加器"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.total_requests = 0
+        self.total_errors = 0
+        self.by_method: dict[str, int] = {}
+        self.start_time = time.time()
+
+    def record(self, method: str, path: str, status_code: int):
+        with self._lock:
+            self.total_requests += 1
+            if status_code >= 400:
+                self.total_errors += 1
+            self.by_method[method.upper()] = self.by_method.get(method.upper(), 0) + 1
+
+
+request_stats = RequestStats()
+
+# 注入到 admin 模块供仪表盘使用
+admin.request_stats = request_stats
+
 
 # 创建 FastAPI 应用实例
 app = FastAPI()
@@ -34,9 +62,12 @@ async def log_requests(request: Request, call_next):
     if hasattr(request.state, "user") and request.state.user:
         username = request.state.user.get("username", "-")
     log_http(request.method, request.url.path, response.status_code, username)
+    # 更新请求统计（排除 admin 自身对 dashboard 的请求）
+    request_stats.record(request.method, request.url.path, response.status_code)
     return response
 
 # 注册业务路由
+app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(history.router)

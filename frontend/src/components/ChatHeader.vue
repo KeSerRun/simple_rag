@@ -53,12 +53,24 @@
         </template>
         退出登录
       </n-tooltip>
+
+      <n-tooltip v-if="userStore.role === 'admin'" placement="bottom">
+        <template #trigger>
+          <n-button quaternary circle @click="goToAdmin">
+            <template #icon>
+              <n-icon :component="SettingsOutline" />
+            </template>
+          </n-button>
+        </template>
+        管理后台
+      </n-tooltip>
     </n-space>
   </header>
 </template>
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   NButton,
   NIcon,
@@ -72,10 +84,12 @@ import {
   LibraryOutline,
   LogOutOutline,
   MenuOutline,
+  SettingsOutline,
 } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
 import axios from '@/http/interceptor'
 
+const router = useRouter()
 const userStore = useUserStore()
 
 const props = defineProps({
@@ -111,6 +125,10 @@ const styleValue = computed({
 
 const handleStyleChange = (value) => {
   userStore.answerStyle = value
+}
+
+function goToAdmin() {
+  router.push('/admin')
 }
 </script>
 

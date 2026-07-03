@@ -92,8 +92,10 @@ class Config:
 
         # 日志配置（目录路径）
         self.log_path = normalize_path(config.get('logger', 'log_path', fallback='logs'))
-        self.log_file_level = config.get('logger', 'log_file_level', fallback='INFO')
-        self.log_console_level = config.get('logger', 'log_console_level', fallback='DEBUG')
+        self.app_log_level = config.get('logger', 'app_log_level', fallback='INFO')
+        self.http_log_level = config.get('logger', 'http_log_level', fallback='INFO')
+        self.user_log_level = config.get('logger', 'user_log_level', fallback='INFO')
+        self.console_log_level = config.get('logger', 'console_log_level', fallback='DEBUG')
         self.log_file_format = '%(levelname)s %(asctime)s %(module)s:%(lineno)d : %(message)s'
         self.log_console_format = '%(levelname)s %(asctime)s %(module)s:%(lineno)d : %(message)s'
 
@@ -140,7 +142,7 @@ class Config:
 
         # Agent 配置
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=6)
-        self.summary_model = _strip_quotes(config.get('agent', 'summary_model', fallback='')) or self.chat_model
+        self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
         self.reflection_mode = config.getboolean('agent', 'reflection_mode', fallback=False)
 
         # HTML主页文件路径（相对于 backend/ 根目录）
@@ -177,6 +179,9 @@ class Config:
         self.mineru_token_name = _strip_quotes(config.get('api', 'mineru_token_name', fallback='default'))
         self.mineru_model_version = _strip_quotes(config.get('api', 'mineru_model_version', fallback='vlm'))
         self.mineru_language = _strip_quotes(config.get('api', 'mineru_language', fallback='ch'))
+
+        # 上传限制配置
+        self.max_user_storage_mb = config.getint('upload', 'max_user_storage_mb', fallback=10)
 
 # 创建全局配置实例，供其他模块使用
 conf = Config()

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from base.config import conf
 from base.logger import logger
@@ -13,6 +13,9 @@ from base.logger import logger
 from rag.core.document_process import Document
 
 from .registry import ToolContext, ToolRegistry
+
+# 系统级数据分区名（对所有用户可见）
+SYSTEM_PARTITION = "__system__"
 
 # ─── 全局注册中心 ────────────────────────────────
 
@@ -36,6 +39,12 @@ def _format_chunk(idx: int, chunk: Document) -> str:
     chunk_type = (meta.get("chunk_type") or "").strip()
     if chunk_type and chunk_type != "text":
         parts.append(chunk_type)
+    # 标注来源分区
+    partition = (meta.get("partition") or "").strip()
+    if partition == SYSTEM_PARTITION:
+        parts.append("📖 系统文档")
+    elif partition:
+        parts.append("📄 用户文档")
     header = f"【片段 {idx} | {' | '.join(parts)}】" if parts else f"【片段 {idx}】"
     body = chunk.page_content.strip()
     img_path = (meta.get("img_path") or "").strip()
@@ -64,8 +73,10 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         logger.warning("tool search_knowledge_base 被调用但未提供有效 query")
         return "(未提供任何检索 query)"
 
-    logger.info(f"tool search_knowledge_base queries={queries} partition={ctx.partition}")
-    chunks = _retrieve_and_dedup(ctx.vector_store, queries, ctx.partition)
+    search_system = args.get("search_system", True)
+    system_partitions = [SYSTEM_PARTITION] if search_system else None
+    logger.info(f"tool search_knowledge_base queries={queries} partition={ctx.partition} search_system={search_system}")
+    chunks = _retrieve_and_dedup(ctx.vector_store, queries, ctx.partition, system_partitions)
     if not chunks:
         logger.info("tool search_knowledge_base 未检索到相关内容, 返回 0 块")
         return "(知识库中未检索到相关内容)"
@@ -91,11 +102,11 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
         return "(未提供 filename 参数)"
 
     stem = Path(filename).stem
-    full_md = Path(conf.vector_store_dir) / "tmp" / (ctx.partition or "") / "chunk_out" / stem / "full.md"
+    full_md = Path(conf.vector_store_dir) / "uploads" / (ctx.partition or "") / "chunk_out" / stem / "full.md"
 
     try:
         resolved = full_md.resolve()
-        resolved.relative_to(Path(conf.vector_store_dir).resolve() / "tmp")
+        resolved.relative_to(Path(conf.vector_store_dir).resolve() / "uploads")
     except (ValueError, OSError):
         return f"(文件路径非法: {filename})"
 
@@ -215,13 +226,28 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     if not ctx.vector_store:
         return "(知识库不可用)"
     pattern = (args.get("pattern") or "").strip().lower()
-    docs = ctx.vector_store.get_documents_by_partition(partition=ctx.partition) or []
+    list_system = args.get("list_system", True)
+
+    # 获取用户分区的文档
+    user_docs = ctx.vector_store.get_documents_by_partition(partition=ctx.partition) or []
+
+    # 合并系统分区的文档
+    docs = []
+    for d in user_docs:
+        docs.append(f"📄 {d}")
+
+    if list_system:
+        system_docs = ctx.vector_store.get_documents_by_partition(partition=SYSTEM_PARTITION) or []
+        for d in system_docs:
+            label = f"📖 {d}"
+            if label not in docs:
+                docs.append(label)
 
     if pattern:
         docs = [d for d in docs if pattern in d.lower()]
 
     if not docs:
-        return "(当前分区没有匹配的文档)"
+        return "(当前没有匹配的文档)"
 
     lines = [f"- {d}" for d in sorted(docs)]
     return "当前知识库中的文档：\n" + "\n".join(lines)
@@ -254,6 +280,8 @@ registry.register(
         "在用户的知识库中检索与问题相关的文档片段。当问题涉及具体文档内容"
         "(报告、表格、专业数据、上传过的文件中提到的事实) 时调用; 闲聊 / 问候 / "
         "通用常识问题不要调用。可一次性传入多个 query 做并行检索。"
+        "知识库包含用户私有文档和系统公开文档。"
+        "如需只搜索用户自己的文档、排除系统数据，请设置 search_system=false。"
     ),
     parameters={
         "type": "object",
@@ -269,7 +297,12 @@ registry.register(
                     "查询用名词短语或简洁的检索语句, 而不是完整问句; "
                     "用户说'那份报告'之类时应用文档清单里的实际文件名替换。"
                 ),
-            }
+            },
+            "search_system": {
+                "type": "boolean",
+                "description": "是否同时搜索系统公开文档。默认为 true（搜索全部）。设为 false 则只搜索用户自己的文档。",
+                "default": True,
+            },
         },
         "required": ["queries"],
     },
@@ -330,7 +363,9 @@ registry.register(
 registry.register(
     name="list_documents",
     description=(
-        "列出当前知识库中用户上传的文档（支持按文件名过滤）。"
+        "列出当前知识库中的文档（支持按文件名过滤）。"
+        "知识库包含用户私有文档和系统公开文档，会分别标注 📄 和 📖。"
+        "如需只列用户文档，请设置 list_system=false。"
         "当用户说「那份报告」「那个文档」需要确定具体文件名时调用，"
         "或者在搜索前确认知识库中有什么文档时调用。"
     ),
@@ -340,6 +375,11 @@ registry.register(
             "pattern": {
                 "type": "string",
                 "description": "可选的文件名关键词（如「KD」「财报」），不传则列出全部。",
+            },
+            "list_system": {
+                "type": "boolean",
+                "description": "是否同时列出系统公开文档。默认为 true（列出全部）。设为 false 则只列用户自己的文档。",
+                "default": True,
             },
         },
         "required": [],
@@ -396,36 +436,59 @@ def execute_tool(name: str, args_json: str, **kwargs) -> str:
 
 
 def _retrieve_and_dedup(
-    vector_store, queries, partition,
+    vector_store, queries, partition, system_partitions: Optional[list] = None,
 ) -> List[Document]:
     if not queries:
         return []
-    if len(queries) == 1:
-        try:
-            return vector_store.search(
-                query=queries[0], top_k=conf.retrieval_top_k,
-                partition=partition,
-            )
-        except Exception as e:
-            logger.error(f"检索失败 (query={queries[0]!r}): {e}")
-            return []
 
-    per_q = max(1, conf.candidate_top_k // len(queries))
+    # 收集要搜索的所有分区（用户分区 + 系统分区）
+    search_partitions = [partition] if partition else []
+    if system_partitions:
+        search_partitions.extend(sp for sp in system_partitions if sp and sp not in search_partitions)
+
+    def _search_partition(p):
+        """在单个分区中检索并返回去重后的父块列表。"""
+        if len(queries) == 1:
+            try:
+                return vector_store.search(
+                    query=queries[0], top_k=conf.retrieval_top_k,
+                    partition=p,
+                )
+            except Exception as e:
+                logger.error(f"检索失败 (query={queries[0]!r}, partition={p}): {e}")
+                return []
+
+        per_q = max(1, conf.candidate_top_k // len(queries))
+        seen = set()
+        merged: List[Document] = []
+        for q in queries:
+            try:
+                results = vector_store.search(
+                    query=q, top_k=conf.retrieval_top_k,
+                    partition=p,
+                )
+            except Exception as e:
+                logger.error(f"检索失败 (query={q!r}, partition={p}): {e}")
+                continue
+            for c in results[:per_q]:
+                key = c.metadata.get("id") or c.page_content
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(c)
+        return merged
+
+    # 对所有分区分别检索，合并结果
     seen = set()
     merged: List[Document] = []
-    for q in queries:
-        try:
-            results = vector_store.search(
-                query=q, top_k=conf.retrieval_top_k,
-                partition=partition,
-            )
-        except Exception as e:
-            logger.error(f"检索失败 (query={q!r}): {e}")
-            continue
-        for c in results[:per_q]:
+    for p in search_partitions:
+        results = _search_partition(p)
+        for c in results:
             key = c.metadata.get("id") or c.page_content
             if key in seen:
                 continue
             seen.add(key)
             merged.append(c)
+
+    logger.info(f"多分区检索完成: partitions={search_partitions}, 合并后 {len(merged)} 块")
     return merged

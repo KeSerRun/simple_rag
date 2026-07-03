@@ -20,8 +20,8 @@ def setup_logger(log_path=None):
     # 创建控制台处理器
     console_handler = logging.StreamHandler()
     # 设置日志级别
-    file_handler.setLevel(conf.log_file_level)
-    console_handler.setLevel(conf.log_console_level)
+    file_handler.setLevel(conf.app_log_level)
+    console_handler.setLevel(conf.console_log_level)
     # 设置日志格式
     file_formatter = logging.Formatter(conf.log_file_format)
     console_formatter = logging.Formatter(conf.log_console_format)
@@ -37,7 +37,7 @@ logger = setup_logger()  # 创建全局日志记录器实例，供其他模块�
 # HTTP 请求日志专用
 _http_log_path = os.path.join(conf.log_path, 'http.log')
 _http_logger = logging.getLogger('HTTPLogger')
-_http_logger.setLevel(logging.INFO)
+_http_logger.setLevel(conf.http_log_level)
 _http_logger.propagate = False
 _http_handler = logging.FileHandler(_http_log_path, encoding='utf-8')
 _http_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
@@ -46,7 +46,7 @@ _http_logger.addHandler(_http_handler)
 # 用户 QA 问答日志专用
 _user_log_path = os.path.join(conf.log_path, 'user.log')
 _user_logger = logging.getLogger('UserLogger')
-_user_logger.setLevel(logging.INFO)
+_user_logger.setLevel(conf.user_log_level)
 _user_logger.propagate = False
 _user_handler = logging.FileHandler(_user_log_path, encoding='utf-8')
 _user_handler.setFormatter(logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))

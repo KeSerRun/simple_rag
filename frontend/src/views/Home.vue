@@ -50,6 +50,7 @@
       @close="closeDocManager"
       @delete="confirmDeleteDocs"
       @open="openDocument"
+      @refresh="fetchDocuments"
     />
   </div>
 </template>

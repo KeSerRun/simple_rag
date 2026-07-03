@@ -10,7 +10,14 @@
     @update:show="(v) => !v && $emit('close')"
   >
     <template #header-extra>
-      <n-text depth="3">{{ filteredDocs.length }} 个文档</n-text>
+      <n-space align="center" :size="12">
+        <n-text depth="3">{{ filteredDocs.length }} 个文档</n-text>
+        <n-button size="small" quaternary circle @click="$emit('refresh')" title="刷新">
+          <template #icon>
+            <n-icon :component="RefreshOutline" />
+          </template>
+        </n-button>
+      </n-space>
     </template>
 
     <div class="modal-body">
@@ -27,6 +34,19 @@
             <n-icon :component="SearchOutline" />
           </template>
         </n-input>
+      </div>
+
+      <!-- 存储用量 -->
+      <div v-if="storageLimitEnabled" class="storage-bar">
+        <n-progress
+          :percentage="storagePercent"
+          :indicator-placement="'inside'"
+          :color="storageBarColor"
+          :height="18"
+          :border-radius="4"
+        >
+          {{ storageText }}
+        </n-progress>
       </div>
 
       <n-empty
@@ -97,7 +117,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   NModal,
   NCheckbox,
@@ -110,8 +130,10 @@ import {
   NSpace,
   NText,
   NPagination,
+  NProgress,
 } from 'naive-ui'
-import { DocumentTextOutline, TrashOutline, SearchOutline } from '@vicons/ionicons5'
+import { DocumentTextOutline, TrashOutline, SearchOutline, RefreshOutline } from '@vicons/ionicons5'
+import axios from '@/http/interceptor'
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
@@ -119,12 +141,47 @@ const props = defineProps({
   isDeleting: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'delete', 'open'])
+const emit = defineEmits(['close', 'delete', 'open', 'refresh'])
 
 const selected = ref([])
 const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = 10
+
+// 存储用量
+const storageCurrent = ref(0)
+const storageMax = ref(0)
+const storageLimitEnabled = ref(false)
+
+const storagePercent = computed(() => {
+  if (!storageMax.value) return 0
+  return Math.min(100, Math.round((storageCurrent.value / storageMax.value) * 100))
+})
+
+const storageText = computed(() => {
+  return `${storageCurrent.value.toFixed(1)}MB / ${storageMax.value}MB`
+})
+
+const storageBarColor = computed(() => {
+  if (storagePercent.value >= 90) return '#e74c3c'
+  if (storagePercent.value >= 70) return '#f39c12'
+  return '#d4734e'
+})
+
+async function fetchStorageInfo() {
+  try {
+    const res = await axios.get('/api/documents/storage/info')
+    if (res.data.limit_enabled) {
+      storageCurrent.value = res.data.current_mb
+      storageMax.value = res.data.max_mb
+      storageLimitEnabled.value = true
+    } else {
+      storageLimitEnabled.value = false
+    }
+  } catch {
+    storageLimitEnabled.value = false
+  }
+}
 
 // 搜索过滤
 const filteredDocs = computed(() => {
@@ -141,9 +198,12 @@ const pagedDocs = computed(() => {
   return filteredDocs.value.slice(start, start + pageSize)
 })
 
-// 搜索或文档变化时回到第一页
+// 搜索或文档变化时回到第一页，并刷新存储容量
 watch([searchQuery, () => props.documents], () => {
   currentPage.value = 1
+  if (props.isOpen) {
+    fetchStorageInfo()
+  }
 })
 
 // 弹窗打开时重置
@@ -154,6 +214,7 @@ watch(
       selected.value = []
       searchQuery.value = ''
       currentPage.value = 1
+      fetchStorageInfo()
     }
   }
 )
@@ -218,6 +279,10 @@ const handleDelete = () => {
   display: flex;
   justify-content: center;
   padding-top: 4px;
+}
+
+.storage-bar {
+  margin: 0 2px;
 }
 
 .footer {

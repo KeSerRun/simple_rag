@@ -210,6 +210,14 @@ function handleLogout() {
 .admin-content {
   flex: 1;
   padding: 24px 28px;
-  overflow-y: auto;
+  overflow: auto; /* 允许横向和纵向滚动 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 确保内容区有一个最小的合适阅读宽度，如果窗口比这还窄，就会出横向滚动条而不是挤压内容 */
+.admin-content > :first-child {
+  min-width: 900px; /* 设为900px保证多列布局不会被挤扁 */
+  flex: 1; /* 让子页面组件能伸展填满高度（如果需要） */
 }
 </style>

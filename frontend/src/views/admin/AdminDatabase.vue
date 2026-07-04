@@ -9,8 +9,8 @@
         </div>
 
         <template v-else-if="store.dbStats?.available">
-          <n-grid :cols="3" :x-gap="16" :y-gap="16">
-            <n-gi>
+          <n-grid cols="3" :x-gap="16" :y-gap="16">
+            <n-grid-item>
               <n-card :bordered="true" size="small">
                 <n-statistic label="切块总数">
                   <template #prefix>
@@ -19,8 +19,8 @@
                   <span class="stat-value">{{ store.dbStats.total_chunks }}</span>
                 </n-statistic>
               </n-card>
-            </n-gi>
-            <n-gi>
+            </n-grid-item>
+            <n-grid-item>
               <n-card :bordered="true" size="small">
                 <n-statistic label="向量总数">
                   <template #prefix>
@@ -29,8 +29,8 @@
                   <span class="stat-value">{{ store.dbStats.total_vectors }}</span>
                 </n-statistic>
               </n-card>
-            </n-gi>
-            <n-gi>
+            </n-grid-item>
+            <n-grid-item>
               <n-card :bordered="true" size="small">
                 <n-statistic label="数据分区">
                   <template #prefix>
@@ -42,7 +42,7 @@
                   <n-text depth="3">来源文档: {{ store.dbStats.sources_count || 0 }}</n-text>
                 </template>
               </n-card>
-            </n-gi>
+            </n-grid-item>
           </n-grid>
 
           <!-- 嵌入信息 -->
@@ -245,7 +245,7 @@ import { computed, ref, onMounted, h } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAdminStore } from '@/stores/admin'
 import {
-  NCard, NGrid, NGi, NStatistic, NIcon, NText, NDescriptions,
+  NCard, NGrid, NGridItem, NStatistic, NIcon, NText, NDescriptions,
   NDescriptionsItem, NDataTable, NTabPane, NTabs, NEmpty, NSpin,
   NButton, NInput, NSelect, NSpace, NPagination, NModal, NCode, NH2, NTag,
   NUpload, NList, NListItem,
@@ -610,7 +610,7 @@ async function confirmDeleteDoc(source, partition) {
 
 <style scoped>
 .database-page {
-  max-width: 1200px;
+  width: 100%;
 }
 
 .loading-center {

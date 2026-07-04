@@ -271,7 +271,7 @@ onMounted(() => {
 
 <style scoped>
 .settings-page {
-  max-width: 800px;
+  max-width: 1200px;
 }
 
 .loading-center {

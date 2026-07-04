@@ -9,8 +9,8 @@
 
     <template v-else-if="store.dashboardData">
       <!-- 统计卡片 -->
-      <n-grid :cols="2" :x-gap="16" :y-gap="16" class="stat-grid">
-        <n-gi>
+      <n-grid cols="4" :x-gap="16" :y-gap="16" class="stat-grid">
+        <n-grid-item>
           <n-card :bordered="true" size="small">
             <n-statistic label="用户总数">
               <template #prefix>
@@ -22,8 +22,8 @@
               <n-text depth="3">管理员: {{ store.dashboardData.admin_count }}</n-text>
             </template>
           </n-card>
-        </n-gi>
-        <n-gi>
+        </n-grid-item>
+        <n-grid-item>
           <n-card :bordered="true" size="small">
             <n-statistic label="会话总数">
               <template #prefix>
@@ -32,8 +32,8 @@
               <span class="stat-value">{{ store.dashboardData.session_count }}</span>
             </n-statistic>
           </n-card>
-        </n-gi>
-        <n-gi>
+        </n-grid-item>
+        <n-grid-item>
           <n-card :bordered="true" size="small">
             <n-statistic label="文档总数">
               <template #prefix>
@@ -45,8 +45,8 @@
               <n-text depth="3">嵌入维度: {{ store.dashboardData.embedding_dim || '-' }}</n-text>
             </template>
           </n-card>
-        </n-gi>
-        <n-gi>
+        </n-grid-item>
+        <n-grid-item>
           <n-card :bordered="true" size="small">
             <n-statistic label="切块总数">
               <template #prefix>
@@ -58,12 +58,12 @@
               <n-text depth="3">模型: {{ store.dashboardData.embedding_model || '-' }}</n-text>
             </template>
           </n-card>
-        </n-gi>
+        </n-grid-item>
       </n-grid>
 
       <!-- 请求统计 + 系统运行信息 -->
-      <n-grid :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
-        <n-gi>
+      <n-grid cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+        <n-grid-item>
           <n-card title="请求统计" :bordered="true" size="small">
             <template v-if="store.dashboardData.request_stats">
               <n-descriptions label-placement="left" :column="1" size="small">
@@ -86,8 +86,8 @@
             </template>
             <n-empty v-else description="暂无请求统计" />
           </n-card>
-        </n-gi>
-        <n-gi>
+        </n-grid-item>
+        <n-grid-item>
           <n-card title="运行状态" :bordered="true" size="small">
             <n-descriptions label-placement="left" :column="1" size="small">
               <n-descriptions-item label="健康状态">
@@ -118,7 +118,7 @@
             />
             <n-empty v-else description="暂无分区数据" style="padding: 12px 0" />
           </n-card>
-        </n-gi>
+        </n-grid-item>
       </n-grid>
     </template>
 
@@ -135,9 +135,9 @@
 import { computed, onMounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
 import {
-  NButton, NCard, NStatistic, NIcon, NText, NGrid, NGi,
+  NCard, NStatistic, NIcon, NText, NGrid, NGridItem,
   NDescriptions, NDescriptionsItem, NDivider, NTag, NSpace,
-  NList, NListItem, NDataTable, NEmpty, NSpin, NH2,
+  NList, NListItem, NDataTable, NEmpty, NSpin, NH2, NButton,
 } from 'naive-ui'
 import {
   PeopleOutline, ChatbubblesOutline, DocumentTextOutline, CubeOutline,
@@ -192,7 +192,7 @@ onMounted(() => {
 
 <style scoped>
 .dashboard-page {
-  max-width: 1100px;
+  width: 100%;
 }
 
 .loading-center {

@@ -292,6 +292,6 @@ onMounted(() => {
 
 <style scoped>
 .users-page {
-  max-width: 1000px;
+  width: 100%;
 }
 </style>

@@ -2,9 +2,9 @@
   <div class="log-page">
     <n-h2>日志查看</n-h2>
 
-    <n-grid :cols="4" :x-gap="16">
+    <n-grid cols="4" :x-gap="16" :y-gap="16">
         <!-- 左侧: 文件快捷入口 -->
-        <n-gi :span="1">
+        <n-grid-item span="1">
           <n-card title="日志文件" :bordered="true" size="small" style="height: 100%">
             <n-space vertical :size="6">
               <n-button
@@ -23,10 +23,10 @@
               </n-button>
             </n-space>
           </n-card>
-        </n-gi>
+        </n-grid-item>
 
         <!-- 右侧: 日志内容 -->
-        <n-gi :span="3">
+        <n-grid-item span="3">
           <n-card :title="selectedFile || '选择日志文件'" :bordered="true" size="small">
             <!-- 控制栏 -->
             <template #header-extra>
@@ -62,7 +62,7 @@
               </div>
             </div>
           </n-card>
-        </n-gi>
+        </n-grid-item>
       </n-grid>
   </div>
 </template>
@@ -72,7 +72,7 @@ import { computed, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useAdminStore } from '@/stores/admin'
 import {
-  NCard, NGrid, NGi, NText, NEmpty, NSpin,
+  NCard, NGrid, NGridItem, NText, NEmpty, NSpin,
   NSpace, NSelect, NButton, NH2, NIcon,
 } from 'naive-ui'
 import {

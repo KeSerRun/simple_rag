@@ -120,3 +120,4 @@ desktop.ini
 data/
 dist/
 .claude/
+*.lock

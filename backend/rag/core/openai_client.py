@@ -76,9 +76,11 @@ class OpenAIClient:
             model=model,
             messages=messages,
             temperature=temperature,
-            tools=tools,
-            tool_choice=tool_choice,
         )
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+
         if reasoning_effort is not None:
             kwargs["reasoning_effort"] = reasoning_effort
         if max_tokens is not None:
@@ -100,29 +102,40 @@ class OpenAIClient:
     def _stream_chat_with_tools(self, kwargs: dict):
         resp = self.client.chat.completions.create(**kwargs)
         accumulated: dict = {}
-        for chunk in resp:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            content = getattr(delta, "content", None)
-            if content:
-                yield {"type": "content", "text": content}
-            tc_deltas = getattr(delta, "tool_calls", None)
-            if not tc_deltas:
-                continue
-            for tcd in tc_deltas:
-                idx = tcd.index
-                acc = accumulated.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-                if getattr(tcd, "id", None):
-                    acc["id"] = tcd.id
-                fn = getattr(tcd, "function", None)
-                if fn is not None:
-                    if getattr(fn, "name", None):
-                        acc["name"] = fn.name
-                    if getattr(fn, "arguments", None):
-                        acc["arguments"] += fn.arguments
-        if accumulated:
-            yield {"type": "tool_calls", "calls": list(accumulated.values())}
+        try:
+            for chunk in resp:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
+                content = getattr(delta, "content", None)
+                if content:
+                    yield {"type": "content", "text": content}
+
+                tc_deltas = getattr(delta, "tool_calls", None)
+                if tc_deltas:
+                    for i, tcd in enumerate(tc_deltas):
+                        # 如果没有 index，就使用它在数组中的序号，防止第三方接口崩溃
+                        idx = getattr(tcd, "index", i)
+                        acc = accumulated.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                        if getattr(tcd, "id", None):
+                            acc["id"] = tcd.id
+                        fn = getattr(tcd, "function", None)
+                        if fn is not None:
+                            if getattr(fn, "name", None):
+                                acc["name"] = fn.name
+                            if getattr(fn, "arguments", None):
+                                acc["arguments"] += fn.arguments
+
+                # 某些兼容接口会提前在 finish_reason 宣称工具调用完成
+                finish_reason = getattr(choice, "finish_reason", None)
+                if finish_reason == "tool_calls" and accumulated:
+                    yield {"type": "tool_calls", "calls": list(accumulated.values())}
+                    accumulated.clear()  # 防止在最终外层重复 yield
+
+        finally:
+            if accumulated:
+                yield {"type": "tool_calls", "calls": list(accumulated.values())}
 
     def embed(
         self,

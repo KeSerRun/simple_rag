@@ -3,8 +3,8 @@
     <n-card class="auth-card" :bordered="false" size="huge">
       <div class="auth-header">
         <div class="brand">
-          <n-icon :size="28" :component="ChatbubblesOutline" />
-          <span class="brand-name">RAG 助手</span>
+          <img :src="logoSvg" :alt="app.alt" class="brand-logo" />
+          <span class="brand-name">{{ app.brand }}</span>
         </div>
         <n-h2 class="auth-title">创建账号</n-h2>
         <n-text depth="3">注册一个新账号开始使用</n-text>
@@ -91,11 +91,12 @@ import {
   useMessage,
 } from 'naive-ui'
 import {
-  ChatbubblesOutline,
   PersonOutline,
   LockClosedOutline,
 } from '@vicons/ionicons5'
 import axios from '@/http/interceptor'
+import logoSvg from '@/assets/logo.svg'
+import app from '@/config/app'
 
 const router = useRouter()
 const message = useMessage()
@@ -184,9 +185,14 @@ const handleRegister = (e) => {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 16px;
   color: #d4734e;
+}
+
+.brand-logo {
+  height: 28px;
+  width: auto;
 }
 
 .brand-name {

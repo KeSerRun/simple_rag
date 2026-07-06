@@ -74,21 +74,19 @@ app.include_router(history.router)
 app.include_router(query.router)
 app.include_router(documents.router)
 
-# 前端构建产物路径（可选,前端未构建时跳过 HTML 与静态资源挂载,API 仍可独立运行）
+# ─── 前端构建产物探测（仅读取 html_content，挂载延后以避免路由被拦截）─────
 index_path = os.path.normpath(os.path.join(os.path.dirname(__file__), conf.index_file))
 dist_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "dist"))
 assets_path = os.path.join(dist_path, "assets")
 
 html_content = None
 if os.path.exists(index_path):
+    logger.info(f"找到 index.html: {index_path}")
     with open(index_path, "r", encoding="utf-8") as f:
         html_content = f.read()
-    if os.path.isdir(assets_path):
-        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
-    logger.info(f"已挂载前端构建产物: {dist_path}")
 else:
     logger.warning(
-        f"未找到前端构建产物 {index_path},/index 与 /assets 将不可用。"
+        f"未找到前端构建产物 {index_path},/index 与静态资源将不可用。"
         "运行 `cd frontend && npm run build` 后重启即可启用。"
     )
 
@@ -105,6 +103,18 @@ async def index():
     if html_content is None:
         raise HTTPException(status_code=404, detail="frontend not built; run `cd frontend && npm run build`")
     return HTMLResponse(content=html_content, status_code=200)
+
+
+# ─── 挂载前端静态资源（放在所有路由之后，避免 / 挂载截胡已注册的路由）──────
+if html_content is not None and os.path.isdir(assets_path):
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+    app.mount("/", StaticFiles(directory=dist_path, html=False), name="frontend_root")
+    logger.info(f"已挂载前端构建产物: {dist_path}")
+elif html_content is not None:
+    logger.warning(
+        f"未找到前端构建产物 {dist_path} 下的 assets 目录,静态资源将不可用。"
+        "运行 `cd frontend && npm run build` 后重启即可启用。"
+    )
 
 
 if __name__ == "__main__":

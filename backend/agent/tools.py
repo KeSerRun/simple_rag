@@ -127,7 +127,7 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
 
 
 def _exec_web_search(args: dict, ctx: ToolContext) -> str:
-    """搜索互联网，支持多后端 (duckduckgo / searxng)。"""
+    """搜索互联网，支持多后端 (duckduckgo / searxng / bocha / bing)。"""
     query = (args.get("query") or "").strip()
     if not query:
         return "(未提供搜索 query)"
@@ -145,6 +145,10 @@ def _exec_web_search(args: dict, ctx: ToolContext) -> str:
     backend = conf.search_backend or "duckduckgo"
     if backend == "searxng":
         results = _search_searxng(query, max_results)
+    elif backend == "bocha":
+        results = _search_bocha(query, max_results)
+    elif backend == "bing":
+        results = _search_bing(query, max_results)
     else:
         results = _search_duckduckgo(query, max_results)
     if results is None:
@@ -221,6 +225,97 @@ def _search_searxng(query: str, max_results: int) -> list | None:
     return out
 
 
+def _search_bocha(query: str, max_results: int) -> list | None:
+    """通过博查 AI Search API 搜索（国内可用，无需 VPN）。"""
+    api_key = conf.bocha_api_key
+    if not api_key:
+        logger.warning("[tool] bocha_api_key 未配置")
+        return None
+
+    try:
+        import requests as _req
+
+        # 博查 Web Search API — 支持 POST JSON
+        resp = _req.post(
+            "https://api.bochaai.com/v1/web-search",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "query": query,
+                "count": max_results,
+                "summary": True,
+                "freshness": "noLimit",
+            },
+            timeout=conf.search_timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.warning(f"tool Bocha 搜索失败: {e}")
+        return None
+
+    # 尝试多种可能的响应路径
+    raw = data.get("data") or data
+    items = (
+        raw.get("webPages", {}).get("value")
+        or raw.get("items")
+        or raw.get("results")
+        or raw.get("data")
+    )
+    if not items or not isinstance(items, list):
+        logger.warning(f"tool Bocha 返回格式异常: {str(data)[:300]}")
+        return None
+
+    out = []
+    for r in items[:max_results]:
+        out.append({
+            "title": r.get("name") or r.get("title") or "",
+            "body": r.get("snippet") or r.get("content") or r.get("summary") or "",
+            "href": r.get("url") or r.get("link") or "",
+        })
+    return out
+
+
+def _search_bing(query: str, max_results: int) -> list | None:
+    """通过 Bing Web Search API v7 搜索（国内可用，需申请 Azure 密钥）。"""
+    api_key = conf.bing_api_key
+    if not api_key:
+        logger.warning("[tool] bing_api_key 未配置")
+        return None
+
+    try:
+        import requests as _req
+
+        resp = _req.get(
+            "https://api.bing.microsoft.com/v7.0/search",
+            headers={"Ocp-Apim-Subscription-Key": api_key},
+            params={
+                "q": query,
+                "count": max_results,
+                "mkt": "zh-CN",
+            },
+            timeout=conf.search_timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.warning(f"tool Bing 搜索失败: {e}")
+        return None
+
+    pages = data.get("webPages") or {}
+    items = pages.get("value") or []
+    out = []
+    for r in items[:max_results]:
+        out.append({
+            "title": r.get("name", ""),
+            "body": r.get("snippet", ""),
+            "href": r.get("url", ""),
+        })
+    return out
+
+
 def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     """列出当前知识库中的文档，支持按文件名过滤。"""
     if not ctx.vector_store:
@@ -272,7 +367,36 @@ def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
         return f"(读取归档失败: {e})"
 
 
+def _exec_ask_clarification(args: dict, ctx: ToolContext) -> str:
+    """这是一个虚拟工具，它不会在后端执行真实逻辑。
+    当 LLM 调用此工具时，外部 agent 循环应该捕获并直接返回内容给用户，中止后续生成。"""
+    question = args.get("question", "需要您提供更多信息。")
+    logger.info(f"tool ask_user_for_clarification: LLM 请求澄清: {question}")
+    return question
+
+
 # ─── 注册内建工具 ───────────────────────────────────
+
+registry.register(
+    name="ask_user_for_clarification",
+    description=(
+        "当用户的请求非常模糊（如未指定具体文档、指代不清）且你无法通过已有的检索结果自行推理出正确答案时调用此工具。"
+        "调用此工具后，对话会立即中断并将你设置的 question 抛给用户等待补充。"
+        "除非别无他法，否则请尽量利用知识库和其他工具完成任务。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "question": {
+                "type": "string",
+                "description": "你需要向用户询问的具体问题，比如'请问您指的是本季度的哪一份财报？'",
+            },
+        },
+        "required": ["question"],
+    },
+    handler=_exec_ask_clarification,
+    source=__name__,
+)
 
 registry.register(
     name="search_knowledge_base",

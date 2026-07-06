@@ -37,10 +37,13 @@ class AgentState:
     messages: List[dict] = field(default_factory=list)
     iteration: int = 0
     max_iterations: int = MAX_TOOL_ITER
+    max_calls_per_tool: int = None
     partition: Optional[str] = None
     style: Optional[str] = None
     short_term_tasks: List[str] = field(default_factory=list)
     long_term_tasks: List[str] = field(default_factory=list)
+    _called_tools_history: set = field(default_factory=set)
+    _tool_call_counts: dict = field(default_factory=dict)
 
     def should_continue(self) -> bool:
         """循环条件: 未达上限。"""
@@ -68,3 +71,30 @@ class AgentState:
             "tool_call_id": tool_call_id,
             "content": content,
         })
+
+    def check_and_record_tool_call(self, name: str, arguments: str) -> tuple[bool, str]:
+        """检查工具调用是否合法。
+        返回: (是否被拦截, 拦截原因或空字符串)
+        """
+        import json
+        limit = self.max_calls_per_tool if self.max_calls_per_tool is not None else conf.max_calls_per_tool
+
+        try:
+            parsed_args = json.loads(arguments) if arguments else {}
+            norm_args = json.dumps(parsed_args, sort_keys=True)
+        except Exception:
+            norm_args = arguments
+
+        # 1. 检查调用次数上限 (防换词死循环)
+        self._tool_call_counts.setdefault(name, 0)
+        self._tool_call_counts[name] += 1
+        if self._tool_call_counts[name] > limit:
+            return True, f"(系统警告：为了防止死循环，工具 {name} 在本轮回答中已达到最大调用次数 {limit} 次上限。请停止搜索，立刻根据已有信息进行总结作答，若无答案请直接承认。)"
+
+        # 2. 检查完全重复调用 (防原地打转)
+        sig = f"{name}::{norm_args}"
+        if sig in self._called_tools_history:
+            return True, "(系统警告：您刚刚已经使用过完全相同的参数调用了此工具并获得了相同结果。请停止尝试，直接进行总结回答。)"
+
+        self._called_tools_history.add(sig)
+        return False, ""

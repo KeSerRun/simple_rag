@@ -1,6 +1,8 @@
 ---
 name: Autoplan
 description: 规划工作流 —— 需要分解任务、制定计划、按序执行的复杂任务
+max_tool_iter: 30
+max_calls_per_tool: 15
 ---
 
 ## ⚠️ 规划工作流

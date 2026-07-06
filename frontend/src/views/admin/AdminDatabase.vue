@@ -166,6 +166,89 @@
         </n-modal>
       </n-tab-pane>
 
+      <!-- 完整性检查 -->
+      <n-tab-pane name="integrity" tab="完整性检查">
+        <div v-if="!integrityResult" style="text-align:center;padding:60px 0">
+          <n-text depth="3">点击下方按钮，检查所有文档的文件完整性</n-text>
+          <div style="margin-top:20px">
+            <n-button type="primary" size="large" :loading="checking" @click="runIntegrityCheck">
+              开始检查
+            </n-button>
+          </div>
+        </div>
+
+        <template v-else-if="integrityResult.available">
+          <n-grid cols="4" :x-gap="16" :y-gap="16" style="margin-bottom:16px">
+            <n-grid-item>
+              <n-card :bordered="true" size="small">
+                <n-statistic label="文档总数">
+                  <span class="stat-value">{{ integrityResult.total_documents }}</span>
+                </n-statistic>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card :bordered="true" size="small">
+                <n-statistic label="健康">
+                  <span class="stat-value" style="color:#18a058">{{ integrityResult.healthy }}</span>
+                </n-statistic>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card :bordered="true" size="small">
+                <n-statistic label="存在问题">
+                  <span class="stat-value" :style="{color: integrityResult.problematic > 0 ? '#d03050' : '#18a058'}">{{ integrityResult.problematic }}</span>
+                </n-statistic>
+              </n-card>
+            </n-grid-item>
+            <n-grid-item>
+              <n-card :bordered="true" size="small">
+                <n-statistic label="切块总数">
+                  <span class="stat-value">{{ integrityResult.total_chunks }}</span>
+                </n-statistic>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
+
+          <n-card title="图片完整性" :bordered="true" size="small" style="margin-bottom: 16px">
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+              <n-text>共 {{ integrityResult.total_images }} 张图片</n-text>
+              <n-text style="color:#18a058">健康 {{ integrityResult.healthy_images }}</n-text>
+              <n-text v-if="integrityResult.missing_images > 0" style="color:#d03050">缺失 {{ integrityResult.missing_images }}</n-text>
+            </div>
+            <n-progress
+              type="line"
+              :percentage="integrityResult.total_images > 0 ? Math.round(integrityResult.healthy_images / integrityResult.total_images * 100) : 0"
+              :color="integrityResult.missing_images > 0 ? '#d03050' : '#18a058'"
+              :height="20"
+              :border-radius="4"
+            />
+            <n-text depth="3" style="font-size:12px;display:block;margin-top:4px">
+              {{ integrityResult.healthy_images }} / {{ integrityResult.total_images }} 图片完好
+            </n-text>
+          </n-card>
+
+          <n-card title="问题文档详情" :bordered="true" size="small">
+            <template v-if="integrityResult.issues.length > 0">
+              <n-data-table
+                :columns="integrityColumns"
+                :data="integrityResult.issues"
+                :bordered="false"
+                :single-line="true"
+                size="small"
+                :pagination="{ pageSize: 20 }"
+              />
+            </template>
+            <n-empty v-else description="所有文档均完整" style="padding:20px 0" />
+          </n-card>
+
+          <n-space style="margin-top:16px">
+            <n-button @click="runIntegrityCheck" :loading="checking">重新检查</n-button>
+          </n-space>
+        </template>
+
+        <n-empty v-else description="向量存储未初始化" style="margin-top:60px" />
+      </n-tab-pane>
+
       <!-- 系统数据 -->
       <n-tab-pane name="system" tab="系统数据">
         <!-- 上传区域 -->
@@ -224,16 +307,25 @@
 
         <!-- 系统文档列表 -->
         <n-card title="系统文档列表" :bordered="true" size="small">
+          <template #header-extra>
+            <n-input
+              v-model:value="systemDocQuery"
+              placeholder="搜索文档名..."
+              clearable
+              style="width: 260px"
+              size="small"
+            />
+          </template>
           <n-data-table
-            v-if="store.systemDocs.length > 0"
+            v-if="filteredSystemDocs.length > 0"
             :columns="systemDocColumns"
-            :data="store.systemDocs"
+            :data="filteredSystemDocs"
             :bordered="false"
             :single-line="true"
             size="small"
             :pagination="{ pageSize: 15 }"
           />
-          <n-empty v-else description="暂无系统文档" style="padding: 20px 0" />
+          <n-empty v-else description="暂无匹配的系统文档" style="padding: 20px 0" />
         </n-card>
       </n-tab-pane>
     </n-tabs>
@@ -248,7 +340,7 @@ import {
   NCard, NGrid, NGridItem, NStatistic, NIcon, NText, NDescriptions,
   NDescriptionsItem, NDataTable, NTabPane, NTabs, NEmpty, NSpin,
   NButton, NInput, NSelect, NSpace, NPagination, NModal, NCode, NH2, NTag,
-  NUpload, NList, NListItem,
+  NUpload, NList, NListItem, NProgress,
 } from 'naive-ui'
 import axios from '@/http/interceptor'
 import {
@@ -587,6 +679,14 @@ const systemDocColumns = [
   },
 ]
 
+// 系统文档搜索
+const systemDocQuery = ref('')
+const filteredSystemDocs = computed(() => {
+  const q = systemDocQuery.value.trim().toLowerCase()
+  if (!q) return store.systemDocs
+  return store.systemDocs.filter(doc => doc.name.toLowerCase().includes(q))
+})
+
 async function confirmDeleteDoc(source, partition) {
   dialog.warning({
     title: '确认删除',
@@ -605,6 +705,73 @@ async function confirmDeleteDoc(source, partition) {
       }
     },
   })
+}
+
+// ─── 完整性检查 ────────────────────────────────────
+const checking = ref(false)
+const integrityResult = ref(null)
+
+const integrityColumns = [
+  {
+    title: '文档名',
+    key: 'source',
+    width: 300,
+    ellipsis: { tooltip: true },
+  },
+  {
+    title: '分区',
+    key: 'partition',
+    width: 120,
+    render(row) {
+      return h(NTag, {
+        type: row.partition === '__system__' ? 'success' : 'info',
+        size: 'tiny',
+        bordered: false,
+      }, { default: () => formatPartition(row.partition) })
+    },
+  },
+  {
+    title: '切块',
+    key: 'chunks',
+    width: 70,
+  },
+  {
+    title: '图片',
+    key: 'image_count',
+    width: 70,
+  },
+  {
+    title: '严重级别',
+    key: 'severity',
+    width: 100,
+    render(row) {
+      const map = { critical: { label: '严重', color: '#d03050' }, warning: { label: '警告', color: '#f0a020' }, healthy: { label: '正常', color: '#18a058' } }
+      const s = map[row.severity] || { label: row.severity, color: 'grey' }
+      return h(NTag, { color: { text: '#fff', border: s.color, color: s.color }, size: 'small', bordered: false }, { default: () => s.label })
+    },
+  },
+  {
+    title: '问题详情',
+    key: 'issues',
+    ellipsis: { tooltip: true },
+    render(row) {
+      return h('div', { style: 'font-size:12px;line-height:1.6' },
+        row.issues.map(i => h('div', { style: 'color:' + (i.includes('缺失') && !i.includes('不精确') ? '#d03050' : '#f0a020') }, i))
+      )
+    },
+  },
+]
+
+async function runIntegrityCheck() {
+  checking.value = true
+  try {
+    const res = await store.fetchIntegrityCheck()
+    integrityResult.value = res
+  } catch (e) {
+    message.error('完整性检查失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    checking.value = false
+  }
 }
 </script>
 

@@ -90,11 +90,11 @@
           <n-form-item label="最大工具迭代次数">
             <n-input-number v-model:value="form.max_tool_iter" :min="1" :max="30" style="width:120px" />
           </n-form-item>
+          <n-form-item label="单个工具最大调用次数">
+            <n-input-number v-model:value="form.max_calls_per_tool" :min="1" :max="10" style="width:120px" />
+          </n-form-item>
           <n-form-item label="最大输出 Token">
             <n-input-number v-model:value="form.max_output_tokens" :min="512" :max="65536" :step="1024" style="width:140px" />
-          </n-form-item>
-          <n-form-item label="反思模式">
-            <n-switch v-model:value="form.reflection_mode" />
           </n-form-item>
         </n-form>
       </n-card>
@@ -104,8 +104,14 @@
           <n-form-item label="搜索后端">
             <n-select v-model:value="form.search_backend" :options="searchBackendOptions" style="width:160px" />
           </n-form-item>
-          <n-form-item label="SearXNG 地址">
+          <n-form-item v-if="form.search_backend === 'searxng'" label="SearXNG 地址">
             <n-input v-model:value="form.searxng_url" placeholder="仅 backend=searxng 时使用" />
+          </n-form-item>
+          <n-form-item v-if="form.search_backend === 'bocha'" label="博查 API Key">
+            <n-input v-model:value="form.bocha_api_key" type="password" show-password-on="click" placeholder="backend=bocha 时必填" />
+          </n-form-item>
+          <n-form-item v-if="form.search_backend === 'bing'" label="Bing API Key">
+            <n-input v-model:value="form.bing_api_key" type="password" show-password-on="click" placeholder="backend=bing 时必填" />
           </n-form-item>
           <n-form-item label="搜索超时(秒)">
             <n-input-number v-model:value="form.search_timeout" :min="5" :max="60" style="width:120px" />
@@ -172,7 +178,7 @@ import { useMessage } from 'naive-ui'
 import { useAdminStore } from '@/stores/admin'
 import {
   NButton, NCard, NForm, NFormItem, NInput, NInputNumber,
-  NSelect, NSwitch, NText, NSpace, NEmpty, NSpin, NH2,
+  NSelect, NText, NSpace, NEmpty, NSpin, NH2,
 } from 'naive-ui'
 
 const store = useAdminStore()
@@ -200,10 +206,12 @@ const form = reactive({
   retrieval_top_k: 20,
   candidate_top_k: 5,
   max_tool_iter: 8,
+  max_calls_per_tool: 3,
   max_output_tokens: 8192,
-  reflection_mode: true,
   search_backend: 'duckduckgo',
   searxng_url: '',
+  bocha_api_key: '',
+  bing_api_key: '',
   search_timeout: 15,
   max_history_length: 200,
   max_history_chars: 100000,
@@ -236,6 +244,8 @@ const mineruModelOptions = [
 const searchBackendOptions = [
   { label: 'DuckDuckGo', value: 'duckduckgo' },
   { label: 'SearXNG', value: 'searxng' },
+  { label: '博查 AI', value: 'bocha' },
+  { label: 'Bing', value: 'bing' },
 ]
 
 function applyConfig(data) {

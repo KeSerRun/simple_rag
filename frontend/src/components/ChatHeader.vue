@@ -4,9 +4,9 @@
       <n-button
         class="menu-btn"
         quaternary
-        circle
         size="small"
         @click="$emit('toggle-sidebar')"
+        style="padding: 0 4px; font-size: 20px"
       >
         <template #icon>
           <n-icon :component="MenuOutline" />
@@ -15,29 +15,29 @@
       <n-h3 class="title">{{ title }}</n-h3>
     </div>
 
-    <n-space :size="6" align="center" class="header-actions">
+    <n-space :size="4" align="center" class="header-actions" :wrap="false">
       <!-- 回答风格选择器 -->
       <n-select
         v-model:value="styleValue"
         :options="styleOptions"
         :loading="styleLoading"
         size="small"
-        style="width: 112px"
+        class="style-select"
         placeholder="风格"
         @update:value="handleStyleChange"
       />
 
-      <n-button quaternary @click="$emit('open-doc-manager')">
+      <n-button quaternary @click="$emit('open-doc-manager')" class="doc-btn" size="small">
         <template #icon>
           <n-icon :component="LibraryOutline" />
         </template>
-        管理文档
+        <span class="doc-btn-text">管理文档</span>
         <n-tag
           v-if="documentCount > 0"
           round
           size="small"
           :bordered="false"
-          style="margin-left: 6px"
+          style="margin-left: 2px; padding: 0 4px"
         >
           {{ documentCount }}
         </n-tag>
@@ -45,7 +45,7 @@
 
       <n-tooltip placement="bottom">
         <template #trigger>
-          <n-button quaternary circle @click="$emit('logout')">
+          <n-button quaternary circle size="small" @click="$emit('logout')">
             <template #icon>
               <n-icon :component="LogOutOutline" />
             </template>
@@ -56,7 +56,7 @@
 
       <n-tooltip v-if="userStore.role === 'admin'" placement="bottom">
         <template #trigger>
-          <n-button quaternary circle @click="goToAdmin">
+          <n-button quaternary circle size="small" @click="goToAdmin">
             <template #icon>
               <n-icon :component="SettingsOutline" />
             </template>
@@ -149,7 +149,7 @@ function goToAdmin() {
   align-items: center;
   min-width: 0;
   flex: 1 1 auto;
-  gap: 6px;
+  gap: 2px;
 }
 
 /* 汉堡菜单按钮 */
@@ -164,12 +164,58 @@ function goToAdmin() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1 1 auto;
+  flex: 0 1 auto; /* 允许收缩，不要强行占据空间 */
   min-width: 0;
+  padding-left: 2px;
 }
 
 /* 右侧操作区保持固定宽度 */
 .header-actions {
   flex-shrink: 0;
+  display: flex;
+  flex-wrap: nowrap !important;
+}
+
+.style-select {
+  width: 112px;
+}
+
+/* 移动端/窄屏响应式 */
+@media (max-width: 600px) {
+  .chat-header {
+    padding: 10px 8px; /* 窄屏减少两侧 padding */
+    gap: 4px;
+  }
+
+  .style-select {
+    width: 68px; /* 收窄选择器避免和后续按钮重叠 */
+    margin-right: 8px; /* 向左推，拉开和右边按钮的距离（增加 4px） */
+  }
+
+  /* Naive UI Select 的内部 padding 在窄屏也缩一下 */
+  :deep(.n-base-selection) {
+    padding: 0 4px;
+    min-height: 28px;
+  }
+  :deep(.n-base-selection-input) {
+    font-size: 12px;
+  }
+  :deep(.n-base-selection-placeholder) {
+    font-size: 12px;
+  }
+
+  /* 窄屏隐藏"管理文档"文字，只留图标和数字标签 */
+  .doc-btn-text {
+    display: none;
+  }
+
+  .doc-btn {
+    padding: 0 !important;
+    min-width: 32px;
+  }
+
+  .header-actions {
+    gap: 4px !important;
+  }
 }
 </style>

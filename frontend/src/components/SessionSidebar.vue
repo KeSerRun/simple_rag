@@ -11,8 +11,8 @@
   <aside :class="['session-sidebar', { 'drawer-open': drawerOpen }]">
     <div class="sidebar-header">
       <div class="brand">
-        <n-icon :size="22" :component="ChatbubblesOutline" />
-        <span class="brand-name">RAG 助手</span>
+        <img :src="logoSvg" :alt="app.alt" class="brand-logo" />
+        <span class="brand-name">{{ app.sidebar }}</span>
       </div>
       <n-button
         quaternary
@@ -93,11 +93,12 @@ import {
   NEmpty,
 } from 'naive-ui'
 import {
-  ChatbubblesOutline,
   ChatbubbleEllipsesOutline,
   AddOutline,
   CloseOutline,
 } from '@vicons/ionicons5'
+import logoSvg from '@/assets/logo.svg'
+import app from '@/config/app'
 
 const props = defineProps({
   sessions: { type: Array, required: true },
@@ -188,9 +189,14 @@ const selectSession = (id) => {
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   color: #d4734c;
   padding: 0 4px;
+}
+
+.brand-logo {
+  height: 24px;
+  width: auto;
 }
 
 .brand-name {

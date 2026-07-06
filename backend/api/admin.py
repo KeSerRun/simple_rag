@@ -1,9 +1,11 @@
 """管理后台 API:仪表盘 / 配置 / 用户管理 / 日志 / 数据库"""
 
+import glob
 import json
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -50,7 +52,8 @@ def _get_config_dict(masked: bool = True) -> dict:
     # 对敏感字段脱敏
     if masked:
         for secret_key in ("openai_api_key", "embedding_api_key", "mineru_api_key",
-                           "jwt_secret_key", "superuser_usernames", "superuser_passwords"):
+                           "jwt_secret_key", "superuser_usernames", "superuser_passwords",
+                           "bocha_api_key", "bing_api_key"):
             if secret_key in d:
                 if isinstance(d[secret_key], str):
                     d[secret_key] = _mask_secret(d[secret_key])
@@ -95,11 +98,14 @@ def _write_config_ini(updates: dict) -> bool:
         "mineru_language": ("api", "mineru_language"),
         # agent
         "max_tool_iter": ("agent", "max_tool_iter"),
+        "max_calls_per_tool": ("agent", "max_calls_per_tool"),
         "max_output_tokens": ("agent", "max_output_tokens"),
         "reflection_mode": ("agent", "reflection_mode"),
         # search
         "search_backend": ("search", "backend"),
         "searxng_url": ("search", "searxng_url"),
+        "bocha_api_key": ("search", "bocha_api_key"),
+        "bing_api_key": ("search", "bing_api_key"),
         "search_timeout": ("search", "timeout"),
         # conversation_history
         "max_history_length": ("conversation_history", "max_history_length"),
@@ -660,6 +666,132 @@ async def get_partitions(request: Request):
         return JSONResponse(content={"partitions": result})
     except Exception as e:
         logger.error(f"获取分区列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/database/check_integrity")
+@auth_required
+@admin_required
+async def check_integrity(request: Request):
+    """检查文档完整性：验证元数据中的文件/图片是否真实存在于磁盘。"""
+    try:
+        vs = system.vector_store
+        if not vs or not vs.metadata:
+            return JSONResponse(content={
+                "available": False,
+                "message": "向量存储未初始化或无数据",
+            })
+
+        metadata = vs.metadata
+        uploads_base = Path(conf.vector_store_dir) / "uploads"
+
+        # 按 (partition, source) 分组统计
+        docs: dict[tuple[str, str], dict] = {}
+        for m in metadata:
+            key = (m.get("partition", "") or "", m.get("source", "") or "")
+            if not key[1]:  # 跳过无 source 的条目
+                continue
+            if key not in docs:
+                docs[key] = {"chunks": 0, "images": 0, "image_records": [], "text_chunks": 0}
+            docs[key]["chunks"] += 1
+            ct = (m.get("chunk_type") or "").strip()
+            ip = (m.get("img_path") or "").strip()
+            if ct in ("image", "chart") and ip:
+                docs[key]["images"] += 1
+                docs[key]["image_records"].append(ip)
+            else:
+                docs[key]["text_chunks"] += 1
+
+        total_images = 0
+        healthy_images = 0
+        missing_images = 0
+        issues = []
+        healthy_docs = 0
+
+        for (partition, source), info in docs.items():
+            stem = Path(source).stem
+            doc_issues = []
+
+            # ① 原文件是否存在
+            source_file = uploads_base / partition / source
+            source_exists = source_file.exists()
+            if not source_exists:
+                doc_issues.append(f"原文件缺失")
+
+            # ② chunk_out 目录是否存在
+            chunk_dir = uploads_base / partition / "chunk_out" / stem
+            chunk_exists = chunk_dir.is_dir()
+            if not chunk_exists:
+                # 尝试用 glob 模糊匹配（目录名可能多了 _ 等后缀）
+                fuzzy_dirs = sorted(glob.glob(str(uploads_base / partition / "chunk_out" / f"{stem}*")))
+                if fuzzy_dirs:
+                    chunk_dir = Path(fuzzy_dirs[0])
+                    chunk_exists = True
+                    doc_issues.append(f"chunk_out 目录名不精确 (实际: {chunk_dir.name})")
+                else:
+                    doc_issues.append(f"chunk_out 目录缺失")
+
+            # ③ 图片文件完整性
+            img_missing_count = 0
+            img_hash_mismatch = 0
+            for img_path in info["image_records"]:
+                total_images += 1
+                if not chunk_exists:
+                    missing_images += 1
+                    continue
+
+                expected = chunk_dir / img_path
+                # 精确匹配
+                candidates = glob.glob(str(expected))
+                # 前缀匹配
+                if not candidates:
+                    candidates = sorted(glob.glob(str(expected) + "*"))
+                if candidates:
+                    healthy_images += 1
+                    # 检查文件名是否完全匹配
+                    if Path(candidates[0]).name != Path(img_path).name:
+                        img_hash_mismatch += 1
+                else:
+                    # 彻底不存在
+                    missing_images += 1
+                    img_missing_count += 1
+
+            # 严重级别
+            severity = "healthy"
+            if doc_issues:
+                has_critical = any("缺失" in i and "不精确" not in i for i in doc_issues)
+                severity = "critical" if has_critical else "warning"
+
+            if doc_issues:
+                issues.append({
+                    "source": source,
+                    "partition": partition,
+                    "chunks": info["chunks"],
+                    "text_chunks": info["text_chunks"],
+                    "image_count": info["images"],
+                    "severity": severity,
+                    "source_exists": source_exists,
+                    "chunk_exists": chunk_exists,
+                    "img_missing_count": img_missing_count,
+                    "img_hash_mismatch": img_hash_mismatch,
+                    "issues": doc_issues,
+                })
+            else:
+                healthy_docs += 1
+
+        return JSONResponse(content={
+            "available": True,
+            "total_documents": len(docs),
+            "healthy": healthy_docs,
+            "problematic": len(issues),
+            "total_chunks": len(metadata),
+            "total_images": total_images,
+            "healthy_images": healthy_images,
+            "missing_images": missing_images,
+            "issues": issues,
+        })
+    except Exception as e:
+        logger.error(f"完整性检查失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

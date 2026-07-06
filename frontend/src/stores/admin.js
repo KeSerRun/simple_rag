@@ -198,6 +198,7 @@ export const useAdminStore = defineStore('admin', () => {
   const dbStats = ref(null)
   const dbChunks = ref({ total: 0, items: [] })
   const dbPartitions = ref({ partitions: [] })
+  const dbIntegrity = ref(null)
 
   async function fetchDatabaseStats() {
     loading.value = true
@@ -236,6 +237,21 @@ export const useAdminStore = defineStore('admin', () => {
     try {
       const res = await axios.get('/api/admin/database/partitions')
       dbPartitions.value = res.data
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchIntegrityCheck() {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await axios.get('/api/admin/database/check_integrity')
+      dbIntegrity.value = res.data
       return res.data
     } catch (e) {
       error.value = e.response?.data?.detail || e.message
@@ -317,7 +333,7 @@ export const useAdminStore = defineStore('admin', () => {
     // logs
     logsData, logContent, fetchLogFiles, fetchLogContent, downloadLogFile,
     // database
-    dbStats, dbChunks, dbPartitions, fetchDatabaseStats, fetchChunks, fetchPartitions,
+    dbStats, dbChunks, dbPartitions, dbIntegrity, fetchDatabaseStats, fetchChunks, fetchPartitions, fetchIntegrityCheck,
     // system data
     systemDocs, fetchSystemDocs, uploadSystemData, deleteDocument,
     uploadStatus, setUploadStatus, isUploading,

@@ -340,12 +340,81 @@ async def serve_mineru_image(
         stem_clean = doc_stem.rsplit(".", 1)[0]
         base_dir2 = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / stem_clean
         candidates = sorted(glob.glob(str(base_dir2 / f"{img_name}*")))
-    # 4) 容错: 取 images/ 目录下第一张图 (hash 被编造)
+    # 4) 容错: 实际目录名比 doc_stem 多了下划线等后缀
+    if not candidates:
+        base_dir_fuzzy = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{doc_stem}*"
+        candidates = sorted(glob.glob(str(base_dir_fuzzy / img_name)))
+        if not candidates:
+            candidates = sorted(glob.glob(str(base_dir_fuzzy / f"{img_name}*")))
+        # 容错: doc_stem 带扩展名时去掉扩展名再试
+        if not candidates and "." in doc_stem:
+            stem_clean = doc_stem.rsplit(".", 1)[0]
+            base_dir_fuzzy2 = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{stem_clean}*"
+            candidates = sorted(glob.glob(str(base_dir_fuzzy2 / img_name)))
+            if not candidates:
+                candidates = sorted(glob.glob(str(base_dir_fuzzy2 / f"{img_name}*")))
+    # 5) 容错: 取 images/ 目录下第一张图 (hash 被编造)
     if not candidates and "/" in img_name:
         prefix = img_name.rsplit("/", 1)[0]
         candidates = sorted(glob.glob(str(base_dir / prefix / "*")))
+        if not candidates:
+            # 结合目录模糊匹配
+            base_dir_fuzzy = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{doc_stem}*"
+            candidates = sorted(glob.glob(str(base_dir_fuzzy / prefix / "*")))
+        # 容错: doc_stem 带扩展名(如 .pdf)时去掉扩展名再试
+        if not candidates and "." in doc_stem:
+            stem_clean = doc_stem.rsplit(".", 1)[0]
+            base_dir_extless = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / stem_clean
+            candidates = sorted(glob.glob(str(base_dir_extless / prefix / "*")))
+            if not candidates:
+                base_dir_fuzzy2 = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{stem_clean}*"
+                candidates = sorted(glob.glob(str(base_dir_fuzzy2 / prefix / "*")))
     if not candidates:
         raise HTTPException(status_code=404, detail="image not found")
+    target = Path(candidates[0]).resolve()
+    media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+    return FileResponse(path=str(target), media_type=media_type, filename=target.name, content_disposition_type="inline")
+
+
+@router.get("/documents/image/{img_name:path}")
+async def serve_mineru_image_global(
+    request: Request,
+    img_name: str,
+    token: str = Query(None),
+):
+    """全局搜索 MinerU 图片。当前端无法提供正确的 doc_stem，仅有图片 hash 时使用。"""
+    # 验证 token: header 优先, query param 兜底
+    auth_token = token
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        auth_token = auth_header.split(" ", 1)[1]
+    if auth_token:
+        try:
+            payload = jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
+            request.state.user = payload
+        except jwt.PyJWTError:
+            raise HTTPException(status_code=401, detail="invalid token")
+
+    # 移除末尾可能的斜杠
+    img_name = img_name.rstrip("/")
+    # 如果 img_name 里面带了 "images/" 前缀，先去掉以便统一处理
+    if img_name.startswith("images/"):
+        img_name = img_name[7:]
+
+    # 全局搜索该图片
+    # pattern: uploads/*/chunk_out/*/images/{img_name}
+    search_pattern = str(Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / img_name)
+    candidates = sorted(glob.glob(search_pattern))
+
+    if not candidates:
+        # 尝试去掉扩展名进行前缀匹配 (hash 可能被截断)
+        name_without_ext = img_name.rsplit(".", 1)[0] if "." in img_name else img_name
+        search_pattern_fuzzy = str(Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / f"{name_without_ext}*")
+        candidates = sorted(glob.glob(search_pattern_fuzzy))
+
+    if not candidates:
+        raise HTTPException(status_code=404, detail="image not found")
+
     target = Path(candidates[0]).resolve()
     media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
     return FileResponse(path=str(target), media_type=media_type, filename=target.name, content_disposition_type="inline")

@@ -67,6 +67,13 @@ def _coerce_bool(s: str):
         return True
     if low in ("false", "no", "off"):
         return False
+    # 尝试转为数字
+    try:
+        if "." in low:
+            return float(low)
+        return int(low)
+    except (ValueError, TypeError):
+        pass
     return s
 
 

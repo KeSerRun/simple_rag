@@ -158,8 +158,10 @@ class RAGSystem:
 
         # ── Workflow 路由注入 ─────────────────────────────────────────
         wf_name = self.workflow_router.match(query)
+        wf_config = {}
         if wf_name:
             wf_content = self.workflow_router.get_workflow_content(wf_name)
+            wf_config = self.workflow_router.get_workflow_config(wf_name)
             if wf_content:
                 system_msg += (
                     f"\n\n---\n## ⚠️ 必须遵守的工作流：{wf_name}\n"
@@ -172,82 +174,65 @@ class RAGSystem:
             messages.extend(history)
         messages.append({"role": "user", "content": query})
 
+        # 动态应用 Workflow 的特殊配置（如果有的话）
+        max_iter_val = wf_config.get("max_tool_iter")
+        max_calls_val = wf_config.get("max_calls_per_tool")
+        max_iter = int(max_iter_val) if max_iter_val is not None else conf.max_tool_iter
+        max_calls = int(max_calls_val) if max_calls_val is not None else conf.max_calls_per_tool
+
         state = AgentState(
             messages=messages,
             partition=partition,
             style=style,
             short_term_tasks=short_term_tasks or [],
             long_term_tasks=long_term_tasks or [],
+            max_iterations=max_iter,
+            max_calls_per_tool=max_calls,
         )
 
         if stream:
             return self._run_tool_loop_stream(state, force_retrieve)
 
-        # 非流式：tool loop → 可选反思
-        answer = self._run_tool_loop(state, force_retrieve)
-        if conf.reflection_mode:
-            answer = self._reflection_pass(query, history, state.messages, answer)
-        return answer
+        # 非流式：直接返回 tool loop 生成的最终答案
+        return self._run_tool_loop(state, force_retrieve)
 
-    # ─── 反思模式 ────────────────────────────────
+    def _truncate_messages(self, messages: List[dict], max_chars: int = 40000) -> List[dict]:
+        """按需裁剪消息长度。保留首尾（system, 最新用户提问），裁剪中间的检索结果。"""
+        # 简单粗暴的字符长度计算 (1 token ~ 2 汉字 / 4 英文字符，40000字符约合 1~2 万 token)
+        total_len = sum(len(str(m.get("content", ""))) for m in messages)
+        if total_len <= max_chars:
+            return messages
 
-    def _reflection_pass(
-        self,
-        query: str,
-        history: Optional[list],
-        messages: List[dict],
-        draft_answer: str,
-    ) -> str:
-        """让 LLM 自我审查回答质量，发现不足时改进。
+        logger.warning(f"上下文总长度({total_len})超过阈值({max_chars})，进行截断...")
 
-        仅在 reflection_mode = true 时调用，会增加一次额外 LLM 调用。
-        检查维度：是否回答了用户问题、引用是否准确、逻辑是否完整。
-        """
-        import json as _json
+        new_messages = []
+        # 始终保留 system 提示（必须是第一个）和最后一个用户的问题及周边
+        system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
 
-        logger.info("反思模式: 审查回答质量")
+        # 找出哪些可以压缩（优先压缩中间的 tool 结果，或者老旧的历史）
+        for idx, m in enumerate(messages):
+            if idx == 0 and system_msg:
+                new_messages.append(m)
+                continue
 
-        system_msg = (
-            "你是一个严格的回答质量审查员。检查下面的对话和回答，逐项评估：\n\n"
-            "1. **完整性**：是否直接回答了用户的提问？有没有遗漏关键点？\n"
-            "2. **准确性**：引用和数据的出处是否明确标注了来源？\n"
-            "3. **逻辑性**：推理链条是否清晰？有没有自相矛盾的地方？\n"
-            "4. **可读性**：格式是否清晰（表格、排版、公式）？\n\n"
-            "如果有需要改进的地方，输出优化后的完整回答。\n"
-            "如果没有问题，直接原样输出原始回答。\n"
-            "不要输出评估过程，只输出最终回答。"
-        )
+            # 最后一个 message 总是保留完整
+            if idx == len(messages) - 1:
+                new_messages.append(m)
+                continue
 
-        ref_messages = [{"role": "system", "content": system_msg}]
-        if history:
-            # 只取最近 2 轮历史
-            ref_messages.extend(history[-4:])
-        ref_messages.append({"role": "user", "content": query})
-        ref_messages.append({"role": "assistant", "content": draft_answer})
-        ref_messages.append({
-            "role": "user",
-            "content": "请审查以上回答，必要时改进后重新输出。只输出改进后的回答内容本身，不要输出审查过程。",
-        })
+            # 中间的 message，如果是 tool role 且过长，则截断
+            if m.get("role") == "tool" and len(str(m.get("content", ""))) > 3000:
+                truncated_content = m["content"][:1500] + "\n...(部分检索内容已因超长被系统截断)...\n" + m["content"][-1500:]
+                m_copy = m.copy()
+                m_copy["content"] = truncated_content
+                new_messages.append(m_copy)
+            else:
+                new_messages.append(m)
 
-        try:
-            resp = self.client.chat_with_tools(
-                messages=ref_messages,
-                model=self.chat_model,
-                tools=[], tool_choice="none",
-                stream=False,
-                temperature=0.3,
-                max_tokens=conf.max_output_tokens,
-                reasoning_effort=conf.chat_reasoning_effort,
-            )
-            improved = resp["content"].strip()
-            if improved and len(improved) >= len(draft_answer) * 0.5:
-                logger.info(f"反思完成: {len(draft_answer)} → {len(improved)} 字符")
-                return improved
-            logger.info("反思未产生改进，使用原始回答")
-            return draft_answer
-        except Exception as e:
-            logger.error(f"反思过程出错: {e}，使用原始回答")
-            return draft_answer
+        # 再次检查
+        new_len = sum(len(str(m.get("content", ""))) for m in new_messages)
+        logger.info(f"截断后上下文总长度为: {new_len}")
+        return new_messages
 
     # ─── Tool-call 循环 (非流式) ─────────────────
 
@@ -256,9 +241,13 @@ class RAGSystem:
 
         while state.should_continue():
             _log_input(state.messages, round=state.iteration)
+
+            # 发送前裁剪
+            truncated_messages = self._truncate_messages(state.messages)
+
             try:
                 resp = self.client.chat_with_tools(
-                    messages=state.messages, model=self.chat_model,
+                    messages=truncated_messages, model=self.chat_model,
                     tools=registry.schemas, tool_choice=tool_choice,
                     stream=False, temperature=0.7, max_tokens=conf.max_output_tokens,
                     reasoning_effort=conf.chat_reasoning_effort,
@@ -273,29 +262,65 @@ class RAGSystem:
             logger.info(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
             state.add_assistant_response(resp["content"], resp["tool_calls"])
 
-            for tc in resp["tool_calls"]:
-                result = registry.dispatch(
-                    tc["name"], tc["arguments"],
-                    ctx=ToolContext(
-                        vector_store=self.vector_store,
-                        partition=state.partition,
-                        data_store=self.data_store,
+            import concurrent.futures
+
+            def _dispatch_task(tc):
+                # 防止重复调用或单工具超限
+                is_blocked, block_msg = state.check_and_record_tool_call(tc["name"], tc["arguments"])
+                if is_blocked:
+                    logger.warning(f"工具调用被拦截: {tc['name']} 原因: {block_msg}")
+                    return tc["id"], block_msg
+
+                try:
+                    res = registry.dispatch(
+                        tc["name"], tc["arguments"],
+                        ctx=ToolContext(
+                            vector_store=self.vector_store,
+                            partition=state.partition,
+                            data_store=self.data_store,
+                        )
                     )
-                )
-                state.add_tool_result(tc["id"], result)
+                    return tc["id"], res
+                except Exception as e:
+                    logger.error(f"工具 {tc['name']} 执行发生严重异常: {e}", exc_info=True)
+                    return tc["id"], f"(系统提示: 执行工具 {tc['name']} 时发生了严重错误: {e}，请尝试使用其他工具或根据现有信息回答)"
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(resp["tool_calls"])) as executor:
+                futures = [executor.submit(_dispatch_task, tc) for tc in resp["tool_calls"]]
+                for future in concurrent.futures.as_completed(futures):
+                    tc_id, result = future.result()
+                    state.add_tool_result(tc_id, result)
+
+            # 提前退出检查：如果包含 ask_user_for_clarification，则终止并抛出问题
+            for tc in resp["tool_calls"]:
+                if tc["name"] == "ask_user_for_clarification":
+                    import json
+                    try:
+                        q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")
+                    except:
+                        q = "我需要您提供更多背景信息。"
+                    logger.info("提前中断工具循环：LLM 需要澄清")
+                    return q
 
             tool_choice = "auto"  # 首轮过后不再强制
 
         # ── 达上限: 用已收集的信息生成最终答案 ──────────
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")
+
+        # 强制切断模型对工具的执念
+        final_messages = list(state.messages)
+        final_messages.append({
+            "role": "user",
+            "content": "（系统指令：为保证对话效率，当前任务的检索环节已结束，不再允许调用任何工具。请立刻以自然语言回复用户。要求：1. 尽力综合已获取的信息提供有价值的答案；2. 如果信息相互矛盾或不完整，请客观指出，并用友善的语气主动引导用户补充更详细的条件或线索；3. 不要向用户提及“系统切断连接”或“调用次数达上限”等内部机制设定。）"
+        })
+
         try:
-            resp = self.client.chat_with_tools(
-                messages=state.messages, model=self.chat_model,
-                tools=[], tool_choice="none",
+            resp = self.client.chat(
+                messages=final_messages, model=self.chat_model,
                 stream=False, temperature=0.7, max_tokens=conf.max_output_tokens,
                 reasoning_effort=conf.chat_reasoning_effort,
             )
-            return resp["content"]
+            return resp
         except Exception as e:
             logger.error(f"最终回答生成失败: {e}")
             return "抱歉，生成最终回答时发生了错误。"
@@ -320,9 +345,13 @@ class RAGSystem:
             # 通知前端开始思考
             yield {"type": "status", "status": "thinking"}
             _log_input(state.messages, round=it)
+
+            # 发送前裁剪
+            truncated_messages = self._truncate_messages(state.messages)
+
             try:
                 events = self.client.chat_with_tools(
-                    messages=state.messages, model=self.chat_model,
+                    messages=truncated_messages, model=self.chat_model,
                     tools=registry.schemas, tool_choice=tool_choice,
                     stream=True, temperature=0.7, max_tokens=conf.max_output_tokens,
                     reasoning_effort=conf.chat_reasoning_effort,
@@ -344,8 +373,9 @@ class RAGSystem:
             logger.info(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")
             state.add_assistant_response(accumulated_content, tool_calls)
 
-            for tc in tool_calls:
-                # 通知前端正在调工具
+            import concurrent.futures
+
+            def _dispatch_task_stream(tc):
                 import json as _json
                 tool_info = {"tool": tc["name"]}
                 try:
@@ -358,44 +388,95 @@ class RAGSystem:
                         tool_info["query"] = [_args["query"]]
                 except Exception:
                     pass
-                yield {"type": "status", "status": "calling_tool", **tool_info}
 
-                result = registry.dispatch(
-                    tc["name"], tc["arguments"],
-                    ctx=ToolContext(
-                        vector_store=self.vector_store,
-                        partition=state.partition,
-                        data_store=self.data_store,
+                # 防重检测与单工具超限
+                is_blocked, block_msg = state.check_and_record_tool_call(tc["name"], tc["arguments"])
+                if is_blocked:
+                    logger.warning(f"工具调用被拦截: {tc['name']} 原因: {block_msg}")
+                    return tc["id"], tool_info, block_msg
+
+                try:
+                    res = registry.dispatch(
+                        tc["name"], tc["arguments"],
+                        ctx=ToolContext(
+                            vector_store=self.vector_store,
+                            partition=state.partition,
+                            data_store=self.data_store,
+                        )
                     )
-                )
-                state.add_tool_result(tc["id"], result)
+                except Exception as e:
+                    logger.error(f"工具 {tc['name']} 异常: {e}", exc_info=True)
+                    res = f"(系统提示: 执行工具 {tc['name']} 发生错误: {e}，请尝试其他策略)"
 
-                # 通知前端工具完成，附结果摘要
-                import re as _re
-                if tc["name"] == "search_knowledge_base":
-                    _cnt = len(_re.findall(r"【片段 \d+", result))
-                    if _cnt:
-                        tool_info["chunks"] = _cnt
-                elif tc["name"] == "web_search":
-                    _cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))
-                    if _cnt:
-                        tool_info["chunks"] = _cnt
-                yield {"type": "status", "status": "tool_result", **tool_info}
+                return tc["id"], tool_info, res
+
+            # 先通知前端正在调用的所有工具
+            for tc in tool_calls:
+                 # 这部分提取太重了，这里为了简便直接提取参数通知
+                 import json as _json
+                 tmp_info = {"tool": tc["name"]}
+                 try:
+                     _args = _json.loads(tc.get("arguments") or "{}")
+                     if "queries" in _args:
+                         tmp_info["query"] = _args["queries"]
+                     if "filename" in _args:
+                         tmp_info["filename"] = _args["filename"]
+                     if "query" in _args:
+                         tmp_info["query"] = [_args["query"]]
+                 except Exception:
+                     pass
+                 yield {"type": "status", "status": "calling_tool", **tmp_info}
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(tool_calls)) as executor:
+                futures = [executor.submit(_dispatch_task_stream, tc) for tc in tool_calls]
+                for future in concurrent.futures.as_completed(futures):
+                    tc_id, tool_info, result = future.result()
+                    state.add_tool_result(tc_id, result)
+
+                    # 收到结果，通知前端该工具完成并附上摘要
+                    import re as _re
+                    if tool_info.get("tool") == "search_knowledge_base":
+                        _cnt = len(_re.findall(r"【片段 \d+", result))
+                        if _cnt:
+                            tool_info["chunks"] = _cnt
+                    elif tool_info.get("tool") == "web_search":
+                        _cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))
+                        if _cnt:
+                            tool_info["chunks"] = _cnt
+                    yield {"type": "status", "status": "tool_result", **tool_info}
+
+            # 提前退出检查：流式模式下
+            for tc in tool_calls:
+                if tc["name"] == "ask_user_for_clarification":
+                    import json
+                    try:
+                        q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")
+                    except:
+                        q = "我需要您提供更多背景信息。"
+                    logger.info("流式提前中断工具循环：LLM 需要澄清")
+                    yield {"type": "token", "text": "\n\n" + q}
+                    return
 
             tool_choice = "auto"
 
         # ── 达上限: 用已收集的信息生成最终答案 ──────────
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")
+
+        # 强制切断模型对工具的执念
+        final_messages = list(state.messages)
+        final_messages.append({
+            "role": "user",
+            "content": "（系统指令：为保证对话效率，当前任务的检索环节已结束，不再允许调用任何工具。请立刻以自然语言回复用户。要求：1. 尽力综合已获取的信息提供有价值的答案；2. 如果信息相互矛盾或不完整，请客观指出，并用友善的语气主动引导用户补充更详细的条件或线索；3. 不要向用户提及“系统切断连接”或“调用次数达上限”等内部机制设定。）"
+        })
+
         try:
-            events = self.client.chat_with_tools(
-                messages=state.messages, model=self.chat_model,
-                tools=[], tool_choice="none",
+            events = self.client.chat(
+                messages=final_messages, model=self.chat_model,
                 stream=True, temperature=0.7, max_tokens=conf.max_output_tokens,
                 reasoning_effort=conf.chat_reasoning_effort,
             )
-            for ev in events:
-                if ev["type"] == "content":
-                    yield {"type": "token", "text": ev["text"]}
+            for text in events:
+                yield {"type": "token", "text": text}
         except Exception as e:
             logger.error(f"最终回答流式生成失败: {e}")
             yield {"type": "token", "text": "\n\n抱歉，生成最终回答时发生了错误。"}

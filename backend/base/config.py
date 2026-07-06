@@ -138,12 +138,22 @@ class Config:
         # 联网搜索配置
         self.search_backend = _strip_quotes(config.get('search', 'backend', fallback='duckduckgo'))
         self.searxng_url = _strip_quotes(config.get('search', 'searxng_url', fallback=''))
+        self.bocha_api_key = (
+            env('BOCHA_API_KEY')
+            or _strip_quotes(config.get('search', 'bocha_api_key', fallback=''))
+            or None
+        )
+        self.bing_api_key = (
+            env('BING_API_KEY')
+            or _strip_quotes(config.get('search', 'bing_api_key', fallback=''))
+            or None
+        )
         self.search_timeout = config.getfloat('search', 'timeout', fallback=15)
 
         # Agent 配置
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=6)
+        self.max_calls_per_tool = config.getint('agent', 'max_calls_per_tool', fallback=3)
         self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
-        self.reflection_mode = config.getboolean('agent', 'reflection_mode', fallback=False)
 
         # HTML主页文件路径（相对于 backend/ 根目录）
         self.index_file = normalize_path("dist/index.html")

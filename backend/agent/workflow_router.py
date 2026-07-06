@@ -87,6 +87,8 @@ class WorkflowRouter:
                     "template": body.strip(),
                     "description": str(meta.get("description", "")),
                     "source": str(wf_file.resolve()),
+                    "max_tool_iter": meta.get("max_tool_iter"),
+                    "max_calls_per_tool": meta.get("max_calls_per_tool"),
                 }
 
                 # 注册关键词
@@ -191,6 +193,16 @@ class WorkflowRouter:
             logger.warning(f"Workflow '{name}' 不存在")
             return None
         return wf["template"]
+
+    def get_workflow_config(self, name: str) -> dict:
+        """获取工作流的特殊配置参数（如最大调用次数等）。"""
+        wf = self._workflows.get(name)
+        if not wf:
+            return {}
+        return {
+            "max_tool_iter": wf.get("max_tool_iter"),
+            "max_calls_per_tool": wf.get("max_calls_per_tool"),
+        }
 
     def list_workflows(self) -> dict:
         """列出所有已加载的工作流及其元信息。"""

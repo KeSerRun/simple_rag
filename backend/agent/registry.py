@@ -21,6 +21,7 @@ class ToolContext:
     vector_store: VectorStore
     partition: Optional[str] = None
     data_store: Optional[object] = None
+    reranker: Optional[object] = None  # LLMReranker 实例，用于 rerank 检索结果
 
 
 @dataclass

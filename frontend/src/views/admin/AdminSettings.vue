@@ -82,6 +82,9 @@
           <n-form-item label="候选 Top-K">
             <n-input-number v-model:value="form.candidate_top_k" :min="1" :max="50" style="width:120px" />
           </n-form-item>
+          <n-form-item label="LLM Rerank">
+            <n-switch v-model:value="form.enable_llm_rerank" />
+          </n-form-item>
         </n-form>
       </n-card>
 
@@ -178,7 +181,7 @@ import { useMessage } from 'naive-ui'
 import { useAdminStore } from '@/stores/admin'
 import {
   NButton, NCard, NForm, NFormItem, NInput, NInputNumber,
-  NSelect, NText, NSpace, NEmpty, NSpin, NH2,
+  NSelect, NSwitch, NText, NSpace, NEmpty, NSpin, NH2,
 } from 'naive-ui'
 
 const store = useAdminStore()
@@ -205,6 +208,7 @@ const form = reactive({
   chunk_overlap: 20,
   retrieval_top_k: 20,
   candidate_top_k: 5,
+  enable_llm_rerank: false,
   max_tool_iter: 8,
   max_calls_per_tool: 3,
   max_output_tokens: 8192,

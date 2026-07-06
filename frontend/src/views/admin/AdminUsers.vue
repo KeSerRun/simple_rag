@@ -28,10 +28,10 @@
     <n-modal v-model:show="showAddModal" title="新增用户" preset="card" style="width: 420px">
       <n-form ref="addFormRef" :model="addForm" :rules="addRules" label-placement="top" size="medium">
         <n-form-item label="用户名" path="username">
-          <n-input v-model:value="addForm.username" placeholder="至少 3 位" />
+          <n-input v-model:value="addForm.username" placeholder="6 位以上的英文字母或数字" />
         </n-form-item>
         <n-form-item label="密码" path="password">
-          <n-input v-model:value="addForm.password" type="password" placeholder="至少 6 位" show-password-on="click" />
+          <n-input v-model:value="addForm.password" type="password" placeholder="至少 6 位,含大小写字母与数字" show-password-on="click" />
         </n-form-item>
         <n-form-item label="角色" path="role">
           <n-radio-group v-model:value="addForm.role">
@@ -119,6 +119,10 @@ const pwdRules = {
   password: [
     { required: true, message: '请输入新密码' },
     { min: 6, message: '密码长度至少 6 位' },
+    {
+      pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{6,}$/,
+      message: '密码必须同时包含大写、小写字母和数字',
+    },
   ],
   confirm: [
     { required: true, message: '请再次输入新密码' },
@@ -134,11 +138,19 @@ const addForm = reactive({ username: '', password: '', role: 'user' })
 const addRules = {
   username: [
     { required: true, message: '请输入用户名' },
-    { min: 3, message: '用户名至少 3 位' },
+    { min: 6, message: '用户名长度至少为 6 位' },
+    {
+      pattern: /^[a-zA-Z0-9]+$/,
+      message: '用户名只能包含英文字母和数字',
+    },
   ],
   password: [
     { required: true, message: '请输入密码' },
-    { min: 6, message: '密码至少 6 位' },
+    { min: 6, message: '密码长度至少为 6 位' },
+    {
+      pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{6,}$/,
+      message: '密码必须同时包含大写、小写字母和数字',
+    },
   ],
 }
 

@@ -89,6 +89,7 @@ class Config:
         self.chunk_overlap = config.getint('retrieval', 'chunk_overlap', fallback=10)
         self.retrieval_top_k = config.getint('retrieval', 'retrieval_top_k', fallback=10)
         self.candidate_top_k = config.getint('retrieval', 'candidate_top_k', fallback=5)
+        self.enable_llm_rerank = config.getboolean('retrieval', 'enable_llm_rerank', fallback=False)
 
         # 日志配置（目录路径）
         self.log_path = normalize_path(config.get('logger', 'log_path', fallback='logs'))

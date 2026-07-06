@@ -80,6 +80,7 @@ def _write_config_ini(updates: dict) -> bool:
         "chunk_overlap": ("retrieval", "chunk_overlap"),
         "retrieval_top_k": ("retrieval", "retrieval_top_k"),
         "candidate_top_k": ("retrieval", "candidate_top_k"),
+        "enable_llm_rerank": ("retrieval", "enable_llm_rerank"),
         # api
         "openai_api_key": ("api", "chat_api_key"),
         "openai_base_url": ("api", "chat_base_url"),

@@ -11,6 +11,7 @@ const AdminSettings = () => import('@/views/admin/AdminSettings.vue')
 const AdminUsers = () => import('@/views/admin/AdminUsers.vue')
 const AdminLog = () => import('@/views/admin/AdminLog.vue')
 const AdminDatabase = () => import('@/views/admin/AdminDatabase.vue')
+const AdminEval = () => import('@/views/admin/AdminEval.vue')
 
 // 定义路由
 const routes = [
@@ -29,6 +30,7 @@ const routes = [
             { path: 'users', component: AdminUsers, meta: { title: '用户管理' } },
             { path: 'logs', component: AdminLog, meta: { title: '日志查看' } },
             { path: 'database', component: AdminDatabase, meta: { title: '数据管理' } },
+            { path: 'eval', component: AdminEval, meta: { title: '检索评估' } },
         ],
     },
 ]

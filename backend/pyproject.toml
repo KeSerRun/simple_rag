@@ -1,9 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
 [project]
-name = "backend"
-version = "0.1.0"
-description = "轻量 RAG 问答系统：FastAPI + OpenAI SDK + FAISS,无 LangChain / 无本地推理模型"
+name = "rag-simple-backend"
+version = "0.2.0"
+description = "智能 RAG Agent 问答系统后端：Tool-calling 循环 + LLM Listwise Rerank + 工作流路由，无 LangChain 依赖"
 readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "RAG-Simple Contributors"},
+]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     # Web 服务
     "fastapi>=0.115",
@@ -29,3 +43,21 @@ dependencies = [
     "duckduckgo-search>=8.1.1",
     "ddgs>=9.14.4",
 ]
+
+[tool.setuptools.packages.find]
+include = ["rag_simple_backend*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+

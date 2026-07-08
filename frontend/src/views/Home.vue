@@ -556,7 +556,7 @@ const handleFileUpload = async (file) => {
             if (data.status === 'done') {
               uploadDone = true
               fileResult = data.files
-              uploadStatus.value = { visible: true, text: '上传完成' }
+              uploadStatus.value = { visible: true, text: data.text || '上传完成' }
               continue
             }
             if (data.text) {
@@ -572,10 +572,13 @@ const handleFileUpload = async (file) => {
     })
 
     // 等待 done 事件或直接完成
-    if (fileResult || uploadDone) {
+    if (fileResult && fileResult.length > 0) {
       message.success(`${file.name} 上传成功`)
       await fetchDocuments()
       loadingBar.finish()
+    } else if (uploadDone) {
+      message.warning('文件处理失败，请检查 MinerU 服务是否正常')
+      loadingBar.error()
     } else {
       loadingBar.error()
       message.error('上传失败')

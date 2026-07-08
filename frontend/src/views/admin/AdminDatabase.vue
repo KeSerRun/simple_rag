@@ -142,28 +142,6 @@
           />
         </n-space>
 
-        <!-- 父块详情弹窗 -->
-        <n-modal
-          v-model:show="showParentModal"
-          title="父块切块详情"
-          preset="card"
-          style="width: 800px; max-width: 92vw"
-          :segmented="{ content: true }"
-        >
-          <template v-if="parentInfo.source">
-            <n-text depth="3" style="font-size: 12px; margin-bottom: 12px; display: block">
-              来源: {{ parentInfo.source }} · 父块共切分为 {{ parentInfo.childCount }} 个子块
-            </n-text>
-            <n-data-table
-              :columns="parentChildColumns"
-              :data="parentChildren"
-              :bordered="false"
-              :single-line="true"
-              size="small"
-              :max-height="400"
-            />
-          </template>
-        </n-modal>
       </n-tab-pane>
 
       <!-- 完整性检查 -->
@@ -481,22 +459,12 @@ const chunkColumns = [
   },
   { title: '类型', key: 'chunk_type', width: 80 },
   { title: '页面', key: 'page', width: 60 },
-  { title: '父块长度', key: 'parent_chunk_size', width: 90 },
   {
     title: '操作',
     key: 'actions',
     width: 160,
     render(row) {
       const buttons = []
-      if (row.parent_id) {
-        buttons.push(h(NButton, {
-          size: 'tiny',
-          type: 'primary',
-          secondary: true,
-          style: 'margin-right: 4px',
-          onClick: () => openParentDetail(row),
-        }, { default: () => '父块' }))
-      }
       if (row.source && row.partition) {
         buttons.push(h(NButton, {
           size: 'tiny',
@@ -510,38 +478,6 @@ const chunkColumns = [
   },
 ]
 
-// 父块详情
-const showParentModal = ref(false)
-const parentInfo = ref({ parent_id: '', source: '', childCount: 0 })
-const parentChildren = ref([])
-const parentChildColumns = [
-  { title: '内容', key: 'text', ellipsis: { tooltip: true }, width: 350 },
-  { title: '类型', key: 'chunk_type', width: 70 },
-  { title: '页面', key: 'page', width: 60 },
-]
-
-async function openParentDetail(row) {
-  parentInfo.value = {
-    parent_id: row.parent_id || '',
-    source: row.source || '',
-    childCount: 0,
-  }
-  showParentModal.value = true
-  try {
-    const res = await axios.get('/api/admin/database/chunks', {
-      params: { parent_id: row.parent_id, page_size: 200 },
-    })
-    if (res.data?.items) {
-      parentChildren.value = res.data.items.map(item => ({
-        ...item,
-        text: (item.text || '').substring(0, 200),
-      }))
-      parentInfo.value.childCount = res.data.total
-    }
-  } catch (e) {
-    parentChildren.value = []
-  }
-}
 
 function searchChunks() {
   chunkPage.value = 1

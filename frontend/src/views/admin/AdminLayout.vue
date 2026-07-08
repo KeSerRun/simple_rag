@@ -100,6 +100,7 @@ import {
   PeopleOutline,
   DocumentTextOutline,
   ServerOutline,
+  AnalyticsOutline,
   ArrowBackOutline,
   LogOutOutline,
   MenuOutline,
@@ -120,6 +121,7 @@ const menuItems = [
   { path: '/admin/users', label: '用户管理', icon: PeopleOutline },
   { path: '/admin/logs', label: '日志查看', icon: DocumentTextOutline },
   { path: '/admin/database', label: '数据管理', icon: ServerOutline },
+  { path: '/admin/eval', label: '检索评估', icon: AnalyticsOutline },
 ]
 
 const currentTitle = computed(() => {

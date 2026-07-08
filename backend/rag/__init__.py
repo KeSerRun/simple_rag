@@ -1,4 +1,6 @@
-"""RAG 核心模块：向量检索、文档嵌入、文档处理"""
-from .core.local_vector_store import VectorStore
+"""RAG 核心：向量检索 → 文档处理 → LLM 客户端 → Rerank → MinerU 解析"""
+from .vector_store import VectorStore, Document, process_documents_from_dir
+from .llm_client import OpenAIClient
+from .pdf_parser import MinerUPDFLoader
 
-__all__ = ["VectorStore"]
+__all__ = ["VectorStore", "Document", "process_documents_from_dir", "OpenAIClient", "MinerUPDFLoader"]

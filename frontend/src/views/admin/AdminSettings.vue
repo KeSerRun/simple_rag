@@ -67,15 +67,6 @@
 
       <n-card title="检索配置" :bordered="true" size="small" style="margin-bottom: 16px">
         <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="父块大小(字符)">
-            <n-input-number v-model:value="form.parent_chunk_size" :min="20" :max="2000" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="子块大小(字符)">
-            <n-input-number v-model:value="form.child_chunk_size" :min="10" :max="500" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="块重叠(字符)">
-            <n-input-number v-model:value="form.chunk_overlap" :min="0" :max="200" style="width:120px" />
-          </n-form-item>
           <n-form-item label="检索 Top-K">
             <n-input-number v-model:value="form.retrieval_top_k" :min="1" :max="100" style="width:120px" />
           </n-form-item>
@@ -84,6 +75,9 @@
           </n-form-item>
           <n-form-item label="LLM Rerank">
             <n-switch v-model:value="form.enable_llm_rerank" />
+          </n-form-item>
+          <n-form-item label="文本停用词">
+            <n-input v-model:value="form.stop_words" placeholder="用逗号分隔" type="textarea" :rows="3" />
           </n-form-item>
         </n-form>
       </n-card>
@@ -203,12 +197,10 @@ const form = reactive({
   mineru_token_name: 'default',
   mineru_model_version: 'vlm',
   mineru_language: 'ch',
-  parent_chunk_size: 200,
-  child_chunk_size: 50,
-  chunk_overlap: 20,
   retrieval_top_k: 20,
   candidate_top_k: 5,
   enable_llm_rerank: false,
+  stop_words: '',
   max_tool_iter: 8,
   max_calls_per_tool: 3,
   max_output_tokens: 8192,

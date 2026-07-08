@@ -322,6 +322,72 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  // ─── 评估 ──────────────────────────────────────────
+  const evalStatus = ref(null)
+  const evalResults = ref(null)
+  const evalReport = ref(null)
+
+  async function runEval() {
+    loading.value = true
+    error.value = null
+    evalResults.value = null
+    evalReport.value = null
+    try {
+      const res = await axios.post('/api/admin/eval/run')
+      evalStatus.value = res.data
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchEvalStatus(taskId) {
+    error.value = null
+    try {
+      const res = await axios.get(`/api/admin/eval/status/${taskId}`)
+      evalStatus.value = res.data
+      if (res.data.status === 'finished') {
+        evalResults.value = res.data.results
+        evalReport.value = res.data.report
+      }
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    }
+  }
+
+  async function fetchEvalQueries() {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await axios.get('/api/admin/eval/queries')
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function updateEvalQueries(queries) {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await axios.put('/api/admin/eval/queries', { queries })
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     loading, error,
     // dashboard
@@ -337,5 +403,7 @@ export const useAdminStore = defineStore('admin', () => {
     // system data
     systemDocs, fetchSystemDocs, uploadSystemData, deleteDocument,
     uploadStatus, setUploadStatus, isUploading,
+    // eval
+    evalStatus, evalResults, evalReport, runEval, fetchEvalStatus, fetchEvalQueries, updateEvalQueries,
   }
 })

@@ -40,7 +40,7 @@ async def list_logs(request: Request):  # 定义一个异步函数list_logs，�
         files.sort(key=lambda x: x["modified"], reverse=True)  # 对文件列表按修改时间倒序排序，最新的文件排在最前面
         return JSONResponse(content={"files": files, "log_path": log_dir})  # 返回JSON格式的响应，包含文件列表和日志目录路径
     except Exception as e:  # 如果在try代码块中发生了任何异常，将异常对象赋值给变量e
-        logger.error(f"获取日志列表失败: {e}")  # 使用logger记录错误信息到日志文件，方便开发者查看错误原因
+        logger.error(f"获取日志列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 抛出一个HTTP 500错误（服务器内部错误），并将错误详情作为detail返回给前端
 
 
@@ -72,7 +72,7 @@ async def download_log(request: Request, log_file: str):  # 定义异步函数do
     except HTTPException:  # 如果捕获到的是HTTPException类型的异常
         raise  # 直接重新抛出，不做额外处理（因为HTTPException本身就是正常的错误响应）
     except Exception as e:  # 如果捕获到其他类型的异常
-        logger.error(f"下载日志失败: {e}")  # 记录错误日志
+        logger.error(f"下载日志失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 抛出500服务器内部错误
 
 
@@ -137,5 +137,5 @@ async def read_log(  # 定义异步函数read_log，用于读取日志文件的�
     except HTTPException:  # 如果捕获到HTTPException异常
         raise  # 直接重新抛出，不做额外封装
     except Exception as e:  # 如果捕获到其他异常
-        logger.error(f"读取日志失败: {e}")  # 记录错误日志
+        logger.error(f"读取日志失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 抛出500服务器内部错误

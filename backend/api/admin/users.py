@@ -59,7 +59,7 @@ async def list_users(
         })
     # 如果在 try 块中发生了任何异常，用 except 捕获异常对象 e
     except Exception as e:
-        # 使用 logger.error() 记录错误日志，方便程序员排查问题
+      
         logger.error(f"获取用户列表失败: {e}")
         # 抛出 HTTP 异常，状态码 500 表示服务器内部错误，detail 是给前端的错误描述
         raise HTTPException(status_code=500, detail=str(e))
@@ -108,7 +108,7 @@ async def create_user(request: Request):
         if not success:
             # 抛出 409 异常（Conflict 冲突），提示用户名已存在
             raise HTTPException(status_code=409, detail="用户名已存在")
-        # 使用 logger.info() 记录一条信息级别的日志，记录管理员创建了哪个用户
+      
         logger.info(f"管理员创建用户: username={username}, role={role}")
         # 返回 JSON 响应，状态码 201 表示资源创建成功，message 是给前端看的成功提示
         return JSONResponse(content={"message": f"用户 '{username}' 创建成功"}, status_code=201)
@@ -118,7 +118,7 @@ async def create_user(request: Request):
         raise
     # 捕获其他所有未知类型的异常（比如数据库连接失败等）
     except Exception as e:
-        # 记录错误日志
+      
         logger.error(f"创建用户失败: {e}")
         # 抛出 500 服务器内部错误，并附带错误详情
         raise HTTPException(status_code=500, detail=str(e))
@@ -158,7 +158,7 @@ async def delete_user(request: Request, username: str):
         raise
     # 捕获其他未知异常
     except Exception as e:
-        # 记录错误日志
+      
         logger.error(f"删除用户失败: {e}")
         # 抛出 500 服务器内部错误
         raise HTTPException(status_code=500, detail=str(e))
@@ -205,7 +205,7 @@ async def change_user_role(request: Request, username: str):
         raise
     # 捕获其他未知异常
     except Exception as e:
-        # 记录错误日志
+      
         logger.error(f"变更用户角色失败: {e}")
         # 抛出 500 服务器内部错误
         raise HTTPException(status_code=500, detail=str(e))
@@ -250,7 +250,7 @@ async def reset_password(request: Request, username: str):
         raise
     # 捕获其他未知异常
     except Exception as e:
-        # 记录错误日志
+      
         logger.error(f"重置密码失败: {e}")
         # 抛出 500 服务器内部错误
         raise HTTPException(status_code=500, detail=str(e))

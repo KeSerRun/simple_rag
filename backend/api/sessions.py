@@ -65,15 +65,12 @@ async def create_session(request: Request):
     # ===== 异常处理区域 =====
     except json.JSONDecodeError:  # 捕获 JSON 解析错误（请求体不是合法的 JSON 格式时触发）
         # 使用日志记录器记录错误信息，方便排查问题
-        logger.error("Invalid JSON format in create_session request")
-        # 向客户端返回 400 错误，提示 JSON 格式不合法
+        logger.error("创建会话请求 JSON 格式无效")
         raise HTTPException(status_code=400, detail="Invalid JSON format")
-    except HTTPException:  # 捕获我们自己抛出的 HTTPException（不做额外处理，直接继续抛出）
-        raise  # 直接重新抛出，让 FastAPI 的异常处理器去处理它
-    except Exception as e:  # 捕获所有其他未预料到的异常，防止服务器崩溃
-        # 记录详细错误信息到日志
-        logger.error(f"Error in create_session: {str(e)}")
-        # 返回 500 内部服务器错误，并把错误详情告知客户端
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"创建会话失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -108,8 +105,7 @@ async def get_sessions(request: Request, username: str):
 
     except Exception as e:  # 捕获所有未预料到的异常
         # 记录错误日志
-        logger.error(f"Error in get_sessions: {str(e)}")
-        # 返回 500 内部服务器错误
+        logger.error(f"获取会话列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -159,6 +155,5 @@ async def delete_session(request: Request, session_id: str):
         raise  # 直接重新抛出，不做额外处理
     except Exception as e:  # 捕获所有其他未预料到的异常
         # 记录错误日志
-        logger.error(f"Error in delete_session: {str(e)}")
-        # 返回 500 内部服务器错误
+        logger.error(f"删除会话失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))

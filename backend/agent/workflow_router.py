@@ -226,7 +226,7 @@ class WorkflowRouter:
                 # 成功加载的工作流计数器加 1。
                 loaded += 1
                 # 记录一条 info 级别的日志，说明成功加载了哪个工作流以及注册了多少个关键词。
-                logger.info(
+                logger.debug(
                     f"已加载 workflow [{wf_name}] {_added} 个关键词"
                     f" ({wf_file.name})"
                 )
@@ -307,7 +307,7 @@ class WorkflowRouter:
             rules[wf_name] = keywords
 
         # 记录一条 info 日志，说明从 route.md 解析出了多少条路由规则。
-        logger.info(f"从 route.md 解析到 {len(rules)} 条路由规则")
+        logger.debug(f"从 route.md 解析到 {len(rules)} 条路由规则")
         # 返回解析出的路由规则字典。
         return rules
 
@@ -357,7 +357,7 @@ class WorkflowRouter:
             # 判断关键词（小写）是否作为子串出现在用户查询（小写）中。
             if kw in query_lower:
                 # 如果匹配成功，记录一条 info 日志，说明关键词匹配到了哪个工作流。
-                logger.info(
+                logger.debug(
                     f"Workflow 路由匹配: 关键词={kw!r} → 工作流={wf_name}"
                 )
                 # 返回匹配到的工作流名称，结束匹配过程。

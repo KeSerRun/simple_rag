@@ -40,14 +40,14 @@ async def clear_history(request: Request):
             raise HTTPException(status_code=403, detail="Forbidden")  # 如果不属于，抛出 403 禁止访问错误，防止越权操作
         system.data_store.delete_session_history(session_id)  # 调用数据存储的删除方法，清除该 session 的历史记录
         return JSONResponse(content={"message": "Session history cleared successfully"})  # 返回 JSON 格式的成功响应，告知客户端清除完成
-    except json.JSONDecodeError:  # 捕获 JSON 解析错误：请求体不是合法的 JSON 格式
-        logger.error("Invalid JSON format in clear_history request")  # 在日志中记录错误信息，方便排查问题
-        raise HTTPException(status_code=400, detail="Invalid JSON format")  # 向客户端返回 400 错误，提示 JSON 格式不正确
-    except HTTPException:  # 捕获自己主动抛出的 HTTPException（比如 400/403）
-        raise  # 直接原样抛出，不做额外处理（让 FastAPI 的异常处理器来处理）
-    except Exception as e:  # 捕获其他所有未预料到的异常
-        logger.error(f"Error in clear_history: {str(e)}")  # 在日志中记录异常的具体信息
-        raise HTTPException(status_code=500, detail=str(e))  # 向客户端返回 500 服务器内部错误，并把异常信息作为详情返回
+    except json.JSONDecodeError:
+        logger.error("清除历史请求 JSON 格式无效")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"清除历史失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================
@@ -68,5 +68,5 @@ async def get_history(request: Request, session_id: str):
     except HTTPException:  # 捕获自己主动抛出的 HTTPException
         raise  # 直接原样抛出，不做额外处理
     except Exception as e:  # 捕获其他所有未预料到的异常
-        logger.error(f"Error in get_history: {str(e)}")  # 在日志中记录异常的具体信息
-        raise HTTPException(status_code=500, detail=str(e))  # 向客户端返回 500 服务器内部错误
+        logger.error(f"获取历史失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

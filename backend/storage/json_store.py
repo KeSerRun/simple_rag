@@ -378,7 +378,7 @@ class JSONFileStore:
                 # any() 函数判断列表中是否有元素满足条件。
                 # 这里遍历 users 列表，检查是否已有用户的 username 与要插入的用户名相同。
                 # 如果存在，说明用户名已注册，不再重复插入。
-                logger.info(f"用户 '{username}' 已存在,跳过插入")
+                logger.debug(f"用户 '{username}' 已存在,跳过插入")
                 # 记录日志：用户已存在，跳过操作。
                 return False
                 # 返回 False，表示没有执行插入操作。
@@ -398,7 +398,7 @@ class JSONFileStore:
                 # 例如 "2026-07-08T12:34:56.789123"。
             })
             logger.info(f"成功插入用户: {username}")
-            # 记录日志：用户插入成功。
+          
             return True
             # 返回 True，表示插入操作执行成功。
 
@@ -570,7 +570,7 @@ class JSONFileStore:
                 'created_at': datetime.now().isoformat()
                 # 记录当前时间作为会话创建时间。
             })
-            logger.info(f"成功插入用户会话: session_id={session_id}, username={username}")
+            logger.debug(f"成功插入用户会话: session_id={session_id}, username={username}")
             # 记录日志：成功插入会话。
             return True
             # 返回 True，表示插入成功。
@@ -597,7 +597,7 @@ class JSONFileStore:
                 return False
                 # 返回 False。
 
-            logger.info(f"成功删除用户会话: session_id={session_id}")
+            logger.debug(f"成功删除用户会话: session_id={session_id}")
             # 记录日志：会话删除成功。
             return True
             # 返回 True。
@@ -669,7 +669,7 @@ class JSONFileStore:
         history = self._read_json(history_file)
         # 使用 _read_json 读取历史文件，返回列表（每个元素是一条对话记录）。
 
-        logger.info(f"session_id={session_id}, 成功查询对话历史")
+        logger.debug(f"session_id={session_id}, 成功查询对话历史")
         # 记录日志：成功查询到对话历史。
 
         return history
@@ -700,7 +700,7 @@ class JSONFileStore:
                 'timestamp': datetime.now().isoformat()
                 # 记录当前时间戳。
             })
-            logger.info(f"session_id={session_id}, 成功插入对话历史")
+            logger.debug(f"session_id={session_id}, 成功插入对话历史")
             # 记录日志：插入成功。
             return True
             # 返回 True。
@@ -761,7 +761,7 @@ class JSONFileStore:
         # 使用 _write_json 直接写入整个历史列表（覆盖写入，不是原子更新）。
         # 注意这里没有使用 _update_json，因为读和写之间没有需要保持原子性的复杂逻辑。
 
-        logger.info(f"session_id={session_id}, 记录事件: {event_type} -> {files}")
+        logger.debug(f"session_id={session_id}, 记录事件: {event_type} -> {files}")
         # 记录日志：事件已记录。
 
         return True
@@ -779,13 +779,28 @@ class JSONFileStore:
             # 如果历史文件存在...
             os.remove(history_file)
             # 使用 os.remove 删除该文件。
-            logger.info(f"session_id={session_id}, 成功删除对话历史")
+            logger.debug(f"session_id={session_id}, 成功删除对话历史")
             # 记录日志：删除成功。
             return True
             # 返回 True。
 
         return False
         # 如果文件不存在，返回 False。
+
+    # --- 会话任务持久化 -------------------------------------------------------
+    def save_session_tasks(self, session_id, tasks):
+        """持久化会话任务数据（短期/长期任务）。"""
+        tasks_dir = os.path.join(self._json_dir, "session_tasks")
+        os.makedirs(tasks_dir, exist_ok=True)
+        file_path = os.path.join(tasks_dir, f"{session_id}.json")
+        self._write_json(file_path, tasks)
+
+    def get_session_tasks(self, session_id):
+        """读取会话任务数据，不存在则返回默认空结构。"""
+        file_path = os.path.join(self._json_dir, "session_tasks", f"{session_id}.json")
+        if not os.path.exists(file_path):
+            return {"short": [], "long": []}
+        return self._read_json(file_path)
 
     # --- 归档 ---------------------------------------------------------------
     # 以下方法用于操作归档数据（archives/ 目录下的 JSON 文件）。
@@ -829,7 +844,7 @@ class JSONFileStore:
             # 归档创建时间。
         })
         logger.info(f"归档创建: {archive_id} ({len(turns)} 轮)")
-        # 记录日志：归档已创建，显示归档 ID 和对话轮次数。
+      
         return archive_id
         # 返回新生成的归档 ID，调用者可以用这个 ID 来查找或读取归档内容。
 

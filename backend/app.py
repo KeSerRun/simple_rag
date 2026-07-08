@@ -156,7 +156,7 @@ html_content = None
 # 判断 index.html 文件是否存在
 if os.path.exists(index_path):
     # 如果存在，用日志记录找到 index.html 的信息，并输出路径方便调试
-    logger.info(f"找到 index.html: {index_path}")
+    logger.debug(f"找到 index.html: {index_path}")
     # 以只读模式打开 index.html 文件，并指定编码为 UTF-8（支持中文等字符）
     with open(index_path, "r", encoding="utf-8") as f:
         # 读取文件的全部内容，保存到 html_content 变量中
@@ -225,7 +225,7 @@ if html_content is not None and os.path.isdir(assets_path):
     # 这个挂载用于提供前端中用到的其他静态资源
     app.mount("/", StaticFiles(directory=dist_path, html=False), name="frontend_root")
     # 记录日志，说明前端静态资源已成功挂载
-    logger.info(f"已挂载前端构建产物: {dist_path}")
+    logger.debug(f"已挂载前端构建产物: {dist_path}")
 # 如果 index.html 存在但 assets 目录不存在（说明前端构建不完整或目录结构变了）
 elif html_content is not None:
     # 记录警告日志，告诉用户 assets 目录没找到，静态资源无法正常加载

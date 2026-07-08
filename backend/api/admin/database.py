@@ -87,7 +87,7 @@ async def get_database_stats(request: Request):  # 定义异步函数 get_databa
             "by_source": by_source,                # 按来源统计的详细信息
         })
     except Exception as e:  # 捕获所有异常
-        logger.error(f"获取数据库统计失败: {e}")  # 记录错误日志
+        logger.error(f"获取数据库统计失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 抛出 HTTP 500 错误，返回服务器内部错误
 
 
@@ -155,7 +155,7 @@ async def get_chunks(            # 定义异步函数 get_chunks
             "items": simplified,   # 当前页的数据列表
         })
     except Exception as e:  # 捕获异常
-        logger.error(f"获取切块详情失败: {e}")  # 记录错误日志
+        logger.error(f"获取切块详情失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 返回500错误
 
 
@@ -187,7 +187,7 @@ async def get_partitions(request: Request):  # 定义异步函数 get_partitions
 
         return JSONResponse(content={"partitions": result})  # 返回 JSON 响应
     except Exception as e:  # 捕获异常
-        logger.error(f"获取分区列表失败: {e}")  # 记录错误日志
+        logger.error(f"获取分区列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 返回500错误
 
 
@@ -317,7 +317,7 @@ async def check_integrity(request: Request):  # 定义异步函数 check_integri
             "issues": issues,  # 问题详情列表
         })
     except Exception as e:  # 捕获异常
-        logger.error(f"完整性检查失败: {e}")  # 记录错误日志
+        logger.error(f"完整性检查失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 返回500错误
 
 
@@ -344,7 +344,7 @@ async def list_system_docs(request: Request):  # 定义异步函数 list_system_
             items.append({"name": d, "chunks": doc_chunks.get(d, 0)})  # 添加文档名和其切块数
         return JSONResponse(content={"documents": items})  # 返回 JSON 响应
     except Exception as e:  # 捕获异常
-        logger.error(f"获取系统文档列表失败: {e}")  # 记录错误日志
+        logger.error(f"获取系统文档列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 返回500错误
 
 
@@ -376,7 +376,7 @@ async def upload_system_data(request: Request, files: list[UploadFile] = File(..
         save_dir = f"{conf.vector_store_dir}/uploads/{SYSTEM_PARTITION}"  # 构建保存目录：向量存储目录/uploads/系统分区
         save_path = os.path.normpath(os.path.join(save_dir, filename))  # 构建完整保存路径并规范化（处理../等相对路径）
         if not save_path.startswith(os.path.normpath(save_dir)):  # 安全检查：确保保存路径仍在目标目录内（防止路径穿越攻击）
-            logger.warning(f"非法文件路径: {filename}")  # 记录警告日志
+            logger.warning(f"非法文件路径: {filename}")
             continue  # 跳过这个文件
 
         os.makedirs(os.path.dirname(save_path), exist_ok=True)  # 创建目录（如果不存在），exist_ok=True 表示目录已存在也不报错
@@ -394,22 +394,29 @@ async def upload_system_data(request: Request, files: list[UploadFile] = File(..
         "fail": 0,              # 处理失败的文件数（初始为0）
     }
 
-    # ===== 后台逐文件向量化 =====
-    # 定义一个内部函数 _worker，在后台线程中执行
+    # ===== 后台逐文件向量化（并发处理，最多 3 个并行） =====
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _process_one(fname, fpath):
+        """处理单个文件：删除旧数据 → 解析入库"""
+        system.vector_store.delete_documents_by_sources([fname], partition=SYSTEM_PARTITION)
+        system.vector_store.store_documents_from_dir(fpath, partition=SYSTEM_PARTITION)
+        return fname
+
     def _worker():
-        task = _upload_tasks[task_id]  # 获取当前任务的状态字典
-        for fname, fpath in tasks:  # 遍历所有需要处理的文件
-            try:  # 尝试处理每个文件
-                # 第一步：删除该文件在向量库中已有的旧数据（防止重复）
-                system.vector_store.delete_documents_by_sources([fname], partition=SYSTEM_PARTITION)
-                # 第二步：将文件内容存入向量库（解析、切块、嵌入）
-                system.vector_store.store_documents_from_dir(fpath, partition=SYSTEM_PARTITION)
-                task["success"] += 1  # 成功计数加1
-                logger.info(f"系统数据上传成功: {fname}")  # 记录成功日志
-            except Exception as e:  # 如果处理出错
-                task["fail"] += 1  # 失败计数加1
-                logger.error(f"系统数据上传失败 ({fname}): {e}")  # 记录失败日志
-        task["status"] = "finished"  # 所有文件处理完成，更新任务状态为"finished"
+        task = _upload_tasks[task_id]
+        with ThreadPoolExecutor(max_workers=conf.parse_workers) as pool:
+            futures = {pool.submit(_process_one, fname, fpath): fname for fname, fpath in tasks}
+            for future in as_completed(futures):
+                fname = futures[future]
+                try:
+                    future.result()
+                    task["success"] += 1
+                    logger.info(f"系统数据上传成功: {fname}")
+                except Exception as e:
+                    task["fail"] += 1
+                    logger.error(f"系统数据上传失败 ({fname}): {e}")
+        task["status"] = "finished"
 
     # 创建一个后台线程来执行 _worker 函数，daemon=True 表示主线程结束时该线程也会结束
     _threading.Thread(target=_worker, daemon=True).start()
@@ -465,17 +472,64 @@ async def delete_document(request: Request, source: str = Query(...), partition:
         file_path = os.path.join(upload_dir, source)  # 构建源文件的完整路径
         if os.path.isfile(file_path):  # 如果该文件存在且是一个普通文件
             os.remove(file_path)  # 删除该文件
-            logger.info(f"已删除源文件: {file_path}")  # 记录删除日志
+            logger.info(f"已删除源文件: {file_path}")
 
         # ===== 清理 MinerU chunk_out 产物 =====
         # MinerU 解析文档后会生成一个 chunk_out 目录，里面包含处理后的图片等资源
         chunk_out = os.path.join(upload_dir, "chunk_out", Path(source).stem)  # 构建 chunk_out 子目录路径
         if os.path.isdir(chunk_out):  # 如果该目录存在
             shutil.rmtree(chunk_out)  # 递归删除整个目录（包含所有子文件和子目录）
-            logger.info(f"已删除 chunk 目录: {chunk_out}")  # 记录删除日志
+            logger.info(f"已删除 chunk 目录: {chunk_out}")
 
-        logger.info(f"管理员删除文档: source={source}, partition={partition}")  # 记录管理员删除操作日志
-        return JSONResponse(content={"message": f"文档 '{source}' 已从 {partition} 删除"})  # 返回删除成功的响应
-    except Exception as e:  # 捕获异常
-        logger.error(f"删除文档失败: {e}")  # 记录错误日志
-        raise HTTPException(status_code=500, detail=str(e))  # 返回500错误
+        logger.info(f"管理员删除文档: source={source}, partition={partition}")
+        return JSONResponse(content={"message": f"文档 '{source}' 已从 {partition} 删除"})
+    except Exception as e:
+        logger.error(f"删除文档失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/database/batch_delete")
+@auth_required
+@admin_required
+async def batch_delete_documents(request: Request):
+    """批量删除指定分区中的多个文档"""
+    try:
+        body = await request.json()
+        sources = body.get("sources", [])
+        partition = body.get("partition", "")
+
+        if not sources or not partition:
+            raise HTTPException(status_code=400, detail="缺少参数 sources 或 partition")
+
+        deleted = []
+        errors = []
+
+        for source in sources:
+            try:
+                system.vector_store.delete_documents_by_sources([source], partition=partition)
+
+                upload_dir = f"{conf.vector_store_dir}/uploads/{partition}"
+                file_path = os.path.join(upload_dir, source)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    logger.info(f"已删除源文件: {file_path}")
+
+                chunk_out = os.path.join(upload_dir, "chunk_out", Path(source).stem)
+                if os.path.isdir(chunk_out):
+                    shutil.rmtree(chunk_out)
+                    logger.info(f"已删除 chunk 目录: {chunk_out}")
+
+                deleted.append(source)
+            except Exception as e:
+                errors.append({"source": source, "error": str(e)})
+                logger.error(f"批量删除失败 ({source}): {e}")
+
+        logger.info(f"管理员批量删除文档: partition={partition}, 成功={len(deleted)}, 失败={len(errors)}")
+        return JSONResponse(content={
+            "message": f"成功删除 {len(deleted)} 个文档",
+            "deleted": deleted,
+            "errors": errors,
+        })
+    except Exception as e:
+        logger.error(f"批量删除文档失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

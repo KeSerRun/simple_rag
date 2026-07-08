@@ -286,18 +286,34 @@
         <!-- 系统文档列表 -->
         <n-card title="系统文档列表" :bordered="true" size="small">
           <template #header-extra>
-            <n-input
-              v-model:value="systemDocQuery"
-              placeholder="搜索文档名..."
-              clearable
-              style="width: 260px"
-              size="small"
-            />
+            <n-space :size="8">
+              <n-button
+                v-if="checkedSystemDocKeys.length > 0"
+                type="error"
+                size="small"
+                secondary
+                :loading="store.loading"
+                :disabled="store.loading"
+                @click="batchDeleteSystemDocs"
+              >
+                删除选中 ({{ checkedSystemDocKeys.length }})
+              </n-button>
+              <n-input
+                v-model:value="systemDocQuery"
+                placeholder="搜索文档名..."
+                clearable
+                style="width: 260px"
+                size="small"
+              />
+            </n-space>
           </template>
           <n-data-table
             v-if="filteredSystemDocs.length > 0"
             :columns="systemDocColumns"
             :data="filteredSystemDocs"
+            :row-key="row => row.name"
+            :checked-row-keys="checkedSystemDocKeys"
+            @update:checked-row-keys="checkedSystemDocKeys = $event"
             :bordered="false"
             :single-line="true"
             size="small"
@@ -598,6 +614,7 @@ async function checkUploadStatus() {
 }
 
 const systemDocColumns = [
+  { type: 'selection' },
   { title: '文件名', key: 'name', ellipsis: { tooltip: true } },
   { title: '切块数', key: 'chunks', width: 100 },
   {
@@ -617,6 +634,7 @@ const systemDocColumns = [
 
 // 系统文档搜索
 const systemDocQuery = ref('')
+const checkedSystemDocKeys = ref([])
 const filteredSystemDocs = computed(() => {
   const q = systemDocQuery.value.trim().toLowerCase()
   if (!q) return store.systemDocs
@@ -638,6 +656,28 @@ async function confirmDeleteDoc(source, partition) {
         searchChunks()
       } catch (e) {
         message.error(e.response?.data?.detail || '删除失败')
+      }
+    },
+  })
+}
+
+async function batchDeleteSystemDocs() {
+  const count = checkedSystemDocKeys.value.length
+  dialog.warning({
+    title: '批量删除',
+    content: `确定要删除选中的 ${count} 个系统文档吗？此操作不可撤销。`,
+    positiveText: `确认删除 ${count} 个`,
+    negativeText: '取消',
+    async onPositiveClick() {
+      try {
+        await store.batchDeleteDocuments(checkedSystemDocKeys.value, SYSTEM_PARTITION)
+        message.success(`已删除 ${count} 个文档`)
+        checkedSystemDocKeys.value = []
+        store.fetchSystemDocs()
+        store.fetchDatabaseStats()
+        searchChunks()
+      } catch (e) {
+        message.error(e.response?.data?.detail || '批量删除失败')
       }
     },
   })

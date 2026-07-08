@@ -152,7 +152,7 @@ async def run_eval(request: Request):
                 task["progress"]["completed"] = i + 1  # 更新进度：已完成的任务数（i 从 0 开始，所以加 1）
 
                 # ===== 记录日志 =====
-                logger.info(f"[评估] {query}: {relevant}/{len(scores)} 相关, 平均分 {avg:.2f}")
+                logger.debug(f"[评估] {query}: {relevant}/{len(scores)} 相关, 平均分 {avg:.2f}")
                 # 输出日志：当前查询名称、相关数/总数、平均分（保留两位小数）
 
             # ===== 所有查询评估完毕，生成汇总报告 =====
@@ -187,14 +187,14 @@ async def run_eval(request: Request):
             task["finished_at"] = time.time()  # 记录任务完成时间（当前时间戳）
 
             # ===== 记录完成日志 =====
-            logger.info(f"评估完成: 平均精确率 {avg_precision:.1%}")  # 输出日志：评估完成以及平均精确率
+            logger.info(f"评估完成: 平均精确率 {avg_precision:.1%}")
 
         # ===== 异常处理 =====
         except Exception as e:  # 如果在执行过程中发生任何异常
             task["status"] = "failed"  # 将任务状态更新为 "failed"（失败）
             task["error"] = str(e)  # 记录错误信息（将异常对象转为字符串）
             task["finished_at"] = time.time()  # 记录任务结束时间（即使失败了也算结束）
-            logger.error(f"评估失败: {e}")  # 输出错误日志
+            logger.error(f"评估失败: {e}")
 
     # ===== 启动后台线程 =====
     threading.Thread(target=_worker, daemon=True).start()
@@ -292,7 +292,7 @@ async def update_eval_queries(request: Request):
     except HTTPException:  # 如果捕获到 HTTPException 类型的异常
         raise  # 直接重新抛出（不做额外处理，让 FastAPI 的异常处理器来处理）
     except Exception as e:  # 如果是其他类型的异常（如文件写入失败）
-        logger.error(f"保存测试查询失败: {e}")  # 记录错误日志
+        logger.error(f"保存测试查询失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))  # 抛出 HTTP 500 错误（服务器内部错误）
 
 

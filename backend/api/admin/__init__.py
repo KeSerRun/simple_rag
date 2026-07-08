@@ -147,6 +147,8 @@ def _write_config_ini(updates: dict) -> bool:
         "max_tool_iter": ("agent", "max_tool_iter"),             # 工具调用的最大迭代次数
         "max_calls_per_tool": ("agent", "max_calls_per_tool"),   # 每个工具的最大调用次数
         "max_output_tokens": ("agent", "max_output_tokens"),     # 输出的最大 Token 数量
+        "parse_workers": ("agent", "parse_workers"),                 # MinerU 解析并发线程数
+        "tool_call_workers": ("agent", "tool_call_workers"),         # 工具调用并发数
         # 搜索相关配置
         "search_backend": ("search", "backend"),                 # 搜索后端类型（如 searxng、bocha、bing）
         "searxng_url": ("search", "searxng_url"),               # SearXNG 搜索服务地址
@@ -179,7 +181,11 @@ def _write_config_ini(updates: dict) -> bool:
         if not cfg.has_section(section):
             cfg.add_section(section)
         # 将 Python 类型的值转换为字符串，因为 INI 文件只支持字符串格式
-        cfg.set(section, option, str(val))
+        # 注意：list 类型（如 stop_words）需转为逗号分隔的字符串，不能用 str() 否则会写入 Python 列表 repr
+        if isinstance(val, list):
+            cfg.set(section, option, ','.join(str(v) for v in val))
+        else:
+            cfg.set(section, option, str(val))
         # 将 changed 标志设为 True，表示确实有配置被修改了
         changed = True
         # 同步更新内存中的 conf 实例，让当前运行的程序也能立即感知到配置变化
@@ -190,10 +196,10 @@ def _write_config_ini(updates: dict) -> bool:
     if not changed:
         return False
 
-    # 确定配置文件的路径：优先使用 conf._config_file，否则在上级目录找 config.ini
-    # os.path.dirname(os.path.dirname(__file__)) 表示当前文件的上两级目录（即项目根目录）
+    # 确定配置文件的路径：优先使用 conf._config_file，否则在项目根目录找 config.ini
+    # os.path.dirname(os.path.dirname(os.path.dirname(__file__))) 表示当前文件的上三级目录（即项目根目录 backend/）
     config_path = getattr(conf, '_config_file',
-                          os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.ini'))
+                          os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config.ini'))
     # 以写入模式打开配置文件，使用 UTF-8 编码
     with open(config_path, 'w', encoding='utf-8') as f:
         # 将配置写入文件，space_around_delimiters=True 表示在 = 号两侧加空格，更美观

@@ -125,6 +125,15 @@ class SQLiteStore:
                 -- 在 history 表的 session_id 字段上创建索引，加速按会话 ID 查询历史记录
                 CREATE INDEX IF NOT EXISTS idx_history_session_id ON history(session_id);
 
+                -- 创建 session_tasks 表（会话任务表），存储短期/长期任务状态
+                CREATE TABLE IF NOT EXISTS session_tasks (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id  TEXT    NOT NULL UNIQUE,
+                    tasks_json  TEXT    NOT NULL,
+                    updated_at  TEXT    NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_session_tasks_sid ON session_tasks(session_id);
+
                 -- 创建 archives 表（归档表），用于存储归档的对话记录（压缩存储，方便回顾）
                 CREATE TABLE IF NOT EXISTS archives (
                     archive_id  TEXT    PRIMARY KEY,                 -- 归档 ID，主键，唯一标识一个归档
@@ -312,7 +321,7 @@ class SQLiteStore:
                         (session_id, username, self._now()),
                     )
                 # 日志记录：成功插入会话
-                logger.info(f"成功插入用户会话: session_id={session_id}, username={username}")
+                logger.debug(f"成功插入用户会话: session_id={session_id}, username={username}")
                 # 返回 True 表示插入成功
                 return True
             # 捕获唯一约束异常（session_id 重复时触发）
@@ -336,7 +345,7 @@ class SQLiteStore:
                 if cur.rowcount == 0:
                     return False
                 # 日志记录：成功删除会话
-                logger.info(f"成功删除用户会话: session_id={session_id}")
+                logger.debug(f"成功删除用户会话: session_id={session_id}")
                 # 返回 True 表示删除成功
                 return True
 
@@ -431,7 +440,7 @@ class SQLiteStore:
                 })
 
         # 日志记录：成功查询到对话历史
-        logger.info(f"session_id={session_id}, 成功查询对话历史")
+        logger.debug(f"session_id={session_id}, 成功查询对话历史")
         # 返回处理后的历史记录列表
         return history
 
@@ -451,7 +460,7 @@ class SQLiteStore:
                     (session_id, user, assistant, self._now()),
                 )
             # 日志记录：成功插入对话历史
-            logger.info(f"session_id={session_id}, 成功插入对话历史")
+            logger.debug(f"session_id={session_id}, 成功插入对话历史")
             # 返回 True 表示成功
             return True
 
@@ -476,7 +485,7 @@ class SQLiteStore:
                     (session_id, event_type, json.dumps(files, ensure_ascii=False), self._now()),
                 )
             # 日志记录：记录事件成功，打印事件类型和文件列表
-            logger.info(f"session_id={session_id}, 记录事件: {event_type} -> {files}")
+            logger.debug(f"session_id={session_id}, 记录事件: {event_type} -> {files}")
             # 返回 True 表示成功
             return True
 
@@ -493,6 +502,29 @@ class SQLiteStore:
                 cur = conn.execute("DELETE FROM history WHERE session_id = ?", (session_id,))
                 # 如果 rowcount > 0 说明有记录被删除了，返回 True；否则返回 False
                 return cur.rowcount > 0
+
+    # ===== 会话任务持久化 =====
+    def save_session_tasks(self, session_id: str, tasks: dict):
+        """持久化会话任务数据。"""
+        import json
+        with self._lock:
+            with self._get_conn() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO session_tasks (session_id, tasks_json, updated_at) "
+                    "VALUES (?, ?, ?)",
+                    (session_id, json.dumps(tasks, ensure_ascii=False), self._now()),
+                )
+
+    def get_session_tasks(self, session_id: str) -> dict:
+        """读取会话任务数据，不存在则返回默认空结构。"""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT tasks_json FROM session_tasks WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        if row:
+            import json
+            return json.loads(row[0])
+        return {"short": [], "long": []}
 
     # ===== 归档管理相关方法 =====
     # 这些方法是对 archives 表的操作，用于将对话历史压缩归档保存（方便以后回顾）

@@ -137,7 +137,7 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
             except Exception as e:
                 # 删除失败时
                 logger.warning(f"删除 {file_path} 失败: {e}")
-                # 记录警告日志，不中断程序
+              
 
         # 清理对应的 chunk 产物目录
         mineru_sub = os.path.join(chunk_root, os.path.splitext(src)[0])
@@ -154,7 +154,7 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
             except Exception as e:
                 # 删除失败时
                 logger.warning(f"删除 {mineru_sub} 失败: {e}")
-                # 记录警告日志
+              
 
 
 # ===== API 接口：添加已有文档到向量库 =====
@@ -224,22 +224,14 @@ async def add_documents(request: Request):
 
     except json.JSONDecodeError:
         # 捕获 JSON 解析错误（请求体不是合法的 JSON 格式）
-        logger.error("Invalid JSON format in add_documents request")
-        # 记录错误日志
+        logger.error("添加文档请求 JSON 格式无效")
         raise HTTPException(status_code=400, detail="Invalid JSON format")
-        # 抛出 HTTP 400 错误，提示 JSON 格式无效
 
     except HTTPException:
-        # 捕获 HTTPException 异常（上面主动抛出的）
         raise
-        # 直接重新抛出，不处理（让 FastAPI 框架来处理这个错误响应）
 
     except Exception as e:
-        # 捕获其他所有未预料到的异常
-        logger.error(f"Error in add_documents: {str(e)}")
-        # 记录错误日志
-        raise HTTPException(status_code=500, detail=str(e))
-        # 抛出 HTTP 500 服务器内部错误
+        logger.error(f"添加文档失败: {e}")
 
 
 # ===== API 接口：清除用户所有文档 =====
@@ -287,11 +279,8 @@ async def clear_documents(
         # 返回成功响应
 
     except Exception as e:
-        # 捕获所有异常
-        logger.error(f"Error in clear_documents: {str(e)}")
-        # 记录错误日志
+        logger.error(f"清除文档失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        # 返回 500 服务器错误
 
 
 # ===== API 接口：清除用户指定的文档 =====
@@ -346,21 +335,14 @@ async def clear_chosen_documents(
         # 返回成功响应
 
     except json.JSONDecodeError:
-        # 捕获 JSON 解析错误
-        logger.error("Invalid JSON format in clear_chosen_documents request")
-        # 记录错误日志
+        logger.error("清除文档请求 JSON 格式无效")
         raise HTTPException(status_code=400, detail="Invalid JSON format")
-        # 返回 400 错误
 
     except HTTPException:
-        # 捕获 HTTPException
         raise
-        # 重新抛出
 
     except Exception as e:
-        # 捕获其他所有异常
-        logger.error(f"Error in clear_chosen_documents: {str(e)}")
-        # 记录错误日志
+        logger.error(f"清除文档失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
         # 返回 500 错误
 
@@ -456,11 +438,8 @@ async def upload_file(
         # 重新抛出
 
     except Exception as e:
-        # 捕获其他异常
-        logger.error(f"Error in upload_file: {str(e)}")
-        # 记录错误日志
+        logger.error(f"上传文件失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        # 返回 500 错误
 
 
 # ===== API 接口：上传文件并自动向量化 =====
@@ -610,11 +589,8 @@ async def upload_embeddings(
         # 重新抛出
 
     except Exception as e:
-        # 捕获其他异常
-        logger.error(f"Error in upload_embeddings: {str(e)}")
-        # 记录错误日志
+        logger.error(f"上传向量化失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        # 返回 500 错误
 
 
 # ===== API 接口：获取文档列表 =====
@@ -645,11 +621,8 @@ async def get_documents(request: Request, username: str):
         # 返回文档列表
 
     except Exception as e:
-        # 捕获异常
-        logger.error(f"Error in get_documents: {str(e)}")
-        # 记录错误日志
+        logger.error(f"获取文档列表失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        # 返回 500 错误
 
 
 # ===== API 接口：获取存储使用情况 =====
@@ -1054,83 +1027,59 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
         # - ensure_ascii=False 保留中文字符，不转义为 \uXXXX
         # - 以两个换行符结尾 (\n\n)
 
+    # 阶段 1: 先将所有文件保存到磁盘（I/O 快，串行即可）
+    saved_files = []  # [(filename, save_path, content_len, content_type)]
     for idx, (filename, content, _ct) in enumerate(files_data):
-        # 遍历所有文件，enumerate 提供索引 idx
-        # 解包元组：(文件名, 文件内容, 内容类型)
         save_path = f"{conf.vector_store_dir}/uploads/{username}/{filename}"
-        # 构造文件保存路径
-
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        # 创建目录（如果不存在）
+        yield _sse({"status": "uploading", "text": "文档上传", "file": filename, "progress": f"{idx+1}/{len(files_data)}"})
 
-        # 阶段 1: 上传文件
-        yield _sse({"status": "uploading", "text": "文档上传", "file": filename})
-        # 发送"上传中"状态事件给客户端
-
-        # 同名文档: 先清旧向量 + chunk 产物
         system.vector_store.delete_documents_by_sources([filename], partition=username)
-        # 删除该文件已有的旧向量数据（实现覆盖更新）
-
         _purge_files(username, sources=[filename])
-        # 清理旧的原始文件和 chunk 产物
 
         with open(save_path, "wb") as f:
-            # 以二进制写入模式打开文件
             f.write(content)
-            # 将文件内容写入磁盘
+        saved_files.append((filename, save_path, len(content), _ct))
 
-        # 阶段 2: 解析文档
-        yield _sse({"status": "parsing", "text": "文档解析", "file": filename})
-        # 发送"解析中"状态事件
+    # 阶段 2-3: 并发解析 + 向量化（最多 3 个并行）
+    yield _sse({"status": "info", "text": f"开始并行处理 {len(saved_files)} 个文件..."})
 
-        documents = process_documents_from_dir(save_path)
-        # 调用文档处理函数解析文件
-        # process_documents_from_dir 会识别文件类型（PDF、TXT 等）
-        # 然后使用相应的解析器提取文本内容
-        # 返回解析后的文档列表（每个文档包含文本块）
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    def _process_one(fn, sp, usr):
+        events = []
+        events.append({"status": "parsing", "text": "文档解析", "file": fn})
+        documents = process_documents_from_dir(sp)
         if not documents:
-            # 如果解析结果为空（解析失败）
-            yield _sse({"status": "error", "text": "解析失败", "file": filename})
-            # 发送"错误"状态事件
-            error_count += 1
-            # 错误计数加一
-            continue
-            # 跳过后续步骤，处理下一个文件
+            events.append({"status": "error", "text": "解析失败", "file": fn})
+            return events, None, None
 
-        # 阶段 3: 词嵌入（向量化）
-        yield _sse({"status": "embedding", "text": "词嵌入", "file": filename})
-        # 发送"向量化中"状态事件
-
+        events.append({"status": "embedding", "text": "词嵌入", "file": fn})
         try:
-            system.vector_store.add_documents(documents, partition=username)
-            # 将解析后的文档添加到向量存储
-            # 这个方法内部会：
-            #   1. 将文本切分成更小的块（chunk）
-            #   2. 使用嵌入模型将每个块转成向量
-            #   3. 将向量存入数据库
+            system.vector_store.add_documents(documents, partition=usr)
         except Exception as e:
-            # 如果向量化或入库失败
-            logger.error(f"文档嵌入入库失败 ({filename}): {e}")
-            # 记录错误日志
-            yield _sse({"status": "error", "text": f"嵌入失败: {e}", "file": filename})
-            # 发送错误事件
-            error_count += 1
-            # 错误计数加一
-            continue
-            # 处理下一个文件
+            logger.error(f"文档嵌入入库失败 ({fn}): {e}")
+            events.append({"status": "error", "text": f"嵌入失败: {e}", "file": fn})
+            return events, None, None
 
-        results.append({"filename": filename, "size": len(content), "content_type": _ct})
-        # 记录成功处理的结果
+        events.append({"status": "done", "text": "处理完成", "file": fn})
+        return events, fn, None
 
-        filenames.append(filename)
-        # 记录成功处理的文件名
+    with ThreadPoolExecutor(max_workers=conf.parse_workers) as pool:
+        futures = {pool.submit(_process_one, fn, sp, username): fn for fn, sp, *_ in saved_files}
+        for future in as_completed(futures):
+            events, fn, _ = future.result()
+            for e in events:
+                yield _sse(e)
+            if fn:
+                results.append({"filename": fn})
+                filenames.append(fn)
+            else:
+                error_count += 1
 
     # 所有文件处理完毕
     if filenames:
-        # 如果有文件成功处理
         system.data_store.insert_session_event(session_id, 'upload', filenames)
-        # 记录上传事件
 
     # 发送最终状态
     if error_count > 0 and not results:

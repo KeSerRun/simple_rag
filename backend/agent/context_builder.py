@@ -266,7 +266,7 @@ class ContextBuilder:
             is_baseline = idx == 0  # 是否是第一个(基线)目录
             self._load_skills_from(d, is_baseline)
 
-        logger.info(
+        logger.debug(
             f"ContextBuilder 就绪: identity={'是' if self.identity else '否'}, "
             f"skills={sorted(self.skills.keys())}"
         )

@@ -322,6 +322,20 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  async function batchDeleteDocuments(sources, partition) {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await axios.post('/api/admin/database/batch_delete', { sources, partition })
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   // ─── 评估 ──────────────────────────────────────────
   const evalStatus = ref(null)
   const evalResults = ref(null)
@@ -401,7 +415,7 @@ export const useAdminStore = defineStore('admin', () => {
     // database
     dbStats, dbChunks, dbPartitions, dbIntegrity, fetchDatabaseStats, fetchChunks, fetchPartitions, fetchIntegrityCheck,
     // system data
-    systemDocs, fetchSystemDocs, uploadSystemData, deleteDocument,
+    systemDocs, fetchSystemDocs, uploadSystemData, deleteDocument, batchDeleteDocuments,
     uploadStatus, setUploadStatus, isUploading,
     // eval
     evalStatus, evalResults, evalReport, runEval, fetchEvalStatus, fetchEvalQueries, updateEvalQueries,

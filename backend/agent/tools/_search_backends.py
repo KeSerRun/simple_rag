@@ -28,10 +28,10 @@ def _search_duckduckgo(query: str, max_results: int) -> list | None:
             from duckduckgo_search import DDGS  # 从旧版 duckduckgo_search 库导入 DDGS 类
             return list(DDGS().text(query, max_results=max_results))  # 创建 DDGS 实例，调用 .text() 方法搜索，将结果转为 list 返回
         except ImportError:  # 如果旧版库也没安装，捕获 ImportError 异常
-            logger.warning("[tool] duckduckgo_search 库未安装")  # 记录警告日志：DuckDuckGo 搜索库未安装
+            logger.warning("[tool] duckduckgo_search 库未安装")
             return None  # 返回 None，表示该后端不可用
     except Exception as e:  # 捕获其他所有类型的异常（比如网络连接超时、DNS 解析失败等）
-        logger.warning(f"tool duckduckgo 搜索失败: {e}")  # 记录警告日志：DuckDuckGo 搜索失败，附上异常信息
+        logger.warning(f"tool duckduckgo 搜索失败: {e}")
         return None  # 返回 None，表示搜索失败
 
 
@@ -46,7 +46,7 @@ def _search_searxng(query: str, max_results: int) -> list | None:
     """
     base_url = (conf.searxng_url or "").rstrip("/")  # 从配置中读取 searxng_url，如果没配置就用空字符串，然后去掉结尾的斜杠
     if not base_url:  # 如果 base_url 为空（说明没配置 SearXNG 实例地址）
-        logger.warning("[tool] searxng_url 未配置")  # 记录警告日志：SearXNG URL 未配置
+        logger.warning("[tool] searxng_url 未配置")
         return None  # 返回 None，表示该后端不可用
 
     import urllib.parse as _up  # 导入 urllib.parse 模块并简写为 _up（虽然这里没用上，但可能是为后续扩展准备）
@@ -62,7 +62,7 @@ def _search_searxng(query: str, max_results: int) -> list | None:
         resp.raise_for_status()  # 检查响应状态码，如果状态码不是 2xx 就抛出异常
         data = resp.json()  # 将响应内容解析为 JSON 字典
     except Exception as e:  # 捕获所有异常（网络错误、超时、JSON 解析失败、HTTP 错误等）
-        logger.warning(f"tool SearXNG 搜索失败: {e}")  # 记录警告日志：SearXNG 搜索失败，附上异常信息
+        logger.warning(f"tool SearXNG 搜索失败: {e}")
         return None  # 返回 None，表示搜索失败
 
     results = data.get("results", [])  # 从返回的 JSON 数据中提取 results 字段，如果不存在则返回空列表
@@ -87,7 +87,7 @@ def _search_bocha(query: str, max_results: int) -> list | None:
     """
     api_key = conf.bocha_api_key  # 从配置中读取博查 AI 的 API Key
     if not api_key:  # 如果 API Key 为空（没配置）
-        logger.warning("[tool] bocha_api_key 未配置")  # 记录警告日志：博查 API Key 未配置
+        logger.warning("[tool] bocha_api_key 未配置")
         return None  # 返回 None，表示该后端不可用
 
     try:  # 开始异常捕获，准备调用 API
@@ -111,7 +111,7 @@ def _search_bocha(query: str, max_results: int) -> list | None:
         resp.raise_for_status()  # 检查响应状态码，如果不是 2xx 就抛出异常
         data = resp.json()  # 将响应内容解析为 JSON 字典
     except Exception as e:  # 捕获所有异常（网络错误、超时、API 返回错误等）
-        logger.warning(f"tool Bocha 搜索失败: {e}")  # 记录警告日志：博查搜索失败，附上异常信息
+        logger.warning(f"tool Bocha 搜索失败: {e}")
         return None  # 返回 None，表示搜索失败
 
     # 尝试多种可能的响应路径
@@ -123,7 +123,7 @@ def _search_bocha(query: str, max_results: int) -> list | None:
         or raw.get("data")  # 路径 4：data 字段
     )
     if not items or not isinstance(items, list):  # 如果提取出的 items 为空或者不是列表类型
-        logger.warning(f"tool Bocha 返回格式异常: {str(data)[:300]}")  # 记录警告日志：博查返回格式异常，打印前 300 个字符以便排查
+        logger.warning(f"tool Bocha 返回格式异常: {str(data)[:300]}")
         return None  # 返回 None，表示无法解析搜索结果
 
     out = []  # 初始化一个空列表，用于存放格式化后的搜索结果
@@ -146,7 +146,7 @@ def _search_bing(query: str, max_results: int) -> list | None:
     """
     api_key = conf.bing_api_key  # 从配置中读取 Bing 的 API Key
     if not api_key:  # 如果 API Key 为空（没配置）
-        logger.warning("[tool] bing_api_key 未配置")  # 记录警告日志：Bing API Key 未配置
+        logger.warning("[tool] bing_api_key 未配置")
         return None  # 返回 None，表示该后端不可用
 
     try:  # 开始异常捕获，准备调用 API
@@ -165,7 +165,7 @@ def _search_bing(query: str, max_results: int) -> list | None:
         resp.raise_for_status()  # 检查响应状态码，如果不是 2xx 就抛出异常
         data = resp.json()  # 将响应内容解析为 JSON 字典
     except Exception as e:  # 捕获所有异常（网络错误、超时、API Key 无效、HTTP 错误等）
-        logger.warning(f"tool Bing 搜索失败: {e}")  # 记录警告日志：Bing 搜索失败，附上异常信息
+        logger.warning(f"tool Bing 搜索失败: {e}")
         return None  # 返回 None，表示搜索失败
 
     pages = data.get("webPages") or {}  # 从返回的 JSON 中提取 webPages 字段（Bing 返回的结果主体），如果不存在则用空字典

@@ -228,6 +228,10 @@ class Config:
         self.max_calls_per_tool = config.getint('agent', 'max_calls_per_tool', fallback=3)
         # 获取 Agent 输出最大 token 数（转为 int），默认值为 8192
         self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
+        # 获取 MinerU PDF 解析的并发工作线程数（转为 int），默认值为 3，设为 1 即串行
+        self.parse_workers = config.getint('agent', 'parse_workers', fallback=3)
+        # 获取工具调用并发数（转为 int），默认值为 4，LLM 每轮最多同时执行多少个工具
+        self.tool_call_workers = config.getint('agent', 'tool_call_workers', fallback=4)
 
         # ===== 前端页面配置 =====
         # HTML 主页文件路径（相对于 backend/ 根目录的前端构建产物 dist/index.html）

@@ -243,20 +243,20 @@ class IntegratedSystem:
     # 定义一个私有方法：从内存中读取某个会话的状态为 active 的短期任务和长期任务描述
     def _load_session_tasks(self, session_id: str) -> tuple[list[str], list[str]]:
         """读取会话中状态为 active 的短期/长期任务描述。"""
-        # 从 session_tasks 字典中获取该会话的任务数据，如果不存在则返回空的短期/长期列表
-        tasks = self.session_tasks.get(session_id, {"short": [], "long": []})
-        # 提取所有状态为 "active" 的短期任务描述，放入 short 列表
+        tasks = self.session_tasks.get(session_id)
+        if tasks is None:
+            # 内存未命中，尝试从持久化存储恢复
+            tasks = self.data_store.get_session_tasks(session_id)
+            self.session_tasks[session_id] = tasks
         short = [t["desc"] for t in tasks.get("short", []) if t.get("status") == "active"]
-        # 提取所有状态为 "active" 的长期任务描述，放入 long_ 列表
         long_ = [t["desc"] for t in tasks.get("long", []) if t.get("status") == "active"]
-        # 返回两个列表（短期任务描述列表，长期任务描述列表）
         return short, long_
 
-    # 定义一个私有方法：将会话的任务列表保存到内存中的 session_tasks 字典里
     def _save_session_tasks(self, session_id: str, short: list[dict], long_: list[dict]):
         """保存会话任务列表。"""
-        # 将短期和长期任务列表存入 session_tasks 字典中，以 session_id 为键
-        self.session_tasks[session_id] = {"short": short, "long": long_}
+        tasks = {"short": short, "long": long_}
+        self.session_tasks[session_id] = tasks
+        self.data_store.save_session_tasks(session_id, tasks)
 
     # 定义一个私有方法：从用户问题中提取短期任务的描述文字
     def _extract_task_from_query(self, question: str, wf_name: str = None) -> str:
@@ -414,6 +414,7 @@ class IntegratedSystem:
         wf_name = self.rag_qa.workflow_router.match(question)
         # 加载当前会话的活跃短期任务和长期任务描述列表
         short_tasks, long_tasks = self._load_session_tasks(session_id)
+        logger.debug(f"会话任务 session={session_id} 短期={short_tasks} 长期={long_tasks}")
 
         try:
             # 调用 rag_qa 的 generate_answer 方法获取回答（非流式模式，stream=False）
@@ -427,7 +428,7 @@ class IntegratedSystem:
                 long_term_tasks=long_tasks,    # 活跃的长期任务列表
             )
             # 打印成功日志，记录回答的字符长度
-            logger.info(f"回答成功 len={len(answer)}")
+            logger.debug(f"回答成功 len={len(answer)}")
         except Exception as e:
             # 如果生成回答过程中发生了任何异常，捕获并记录错误日志
             logger.error(f"回答失败: {e}")
@@ -461,6 +462,7 @@ class IntegratedSystem:
         wf_name = self.rag_qa.workflow_router.match(question)
         # 加载短期和长期任务
         short_tasks, long_tasks = self._load_session_tasks(session_id)
+        logger.debug(f"会话任务 session={session_id} 短期={short_tasks} 长期={long_tasks}")
 
         # 调用 rag_qa 的流式生成方法，返回一个迭代器（逐个产生事件）
         answer_iter = self.rag_qa.generate_answer(
@@ -492,7 +494,7 @@ class IntegratedSystem:
         # 记录问答日志
         log_qa(partition, session_id, question, answer)
         # 打印回答成功的日志
-        logger.info(f"回答成功 len={len(answer)}")
+        logger.debug(f"回答成功 len={len(answer)}")
 
     # -- replaced by run_cli --
 

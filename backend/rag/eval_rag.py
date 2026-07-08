@@ -47,14 +47,14 @@ _QUERIES_FILE = os.path.join(os.path.dirname(__file__), "eval_queries.json")
 def load_test_queries(path: str = _QUERIES_FILE) -> List[str]:
     """从外部 JSON 文件加载测试查询列表。"""    # 函数的文档字符串，说明这个函数的作用
     if not os.path.exists(path):               # 判断指定的文件路径是否存在
-        logger.warning(f"测试查询文件不存在: {path}，使用内置默认查询")  # 文件不存在时记录一条警告日志
+        logger.warning(f"测试查询文件不存在: {path}，使用内置默认查询")
         return _default_queries()              # 返回内置的默认查询列表作为备选方案
     with open(path, "r", encoding="utf-8") as f:  # 以只读模式打开 JSON 文件，指定编码为 UTF-8 以支持中文
         queries = json.load(f)                 # 使用 json.load 将文件内容解析为 Python 对象（期望是一个列表）
     if not isinstance(queries, list) or not all(isinstance(q, str) for q in queries):  # 检查解析结果是否是一个列表，且列表中每个元素都是字符串
-        logger.warning(f"测试查询文件格式异常，使用内置默认查询")  # 格式不符合预期时记录警告日志
+        logger.warning(f"测试查询文件格式异常，使用内置默认查询")
         return _default_queries()              # 返回内置的默认查询列表作为备选方案
-    logger.info(f"已加载 {len(queries)} 个测试查询: {path}")  # 记录一条信息日志，说明成功加载了多少个查询
+    logger.info(f"已加载 {len(queries)} 个测试查询: {path}")
     return queries                             # 返回从文件中加载的查询列表
 
 
@@ -73,7 +73,7 @@ def save_test_queries(queries: List[str], path: str = _QUERIES_FILE) -> None:
     """保存测试查询列表到外部 JSON 文件。"""    # 函数的文档字符串，说明这个函数的作用
     with open(path, "w", encoding="utf-8") as f:  # 以写入模式打开文件，指定 UTF-8 编码以支持中文字符
         json.dump(queries, f, ensure_ascii=False, indent=2)  # 将查询列表序列化为 JSON 格式写入文件，ensure_ascii=False 保证中文不被转义，indent=2 让输出有缩进便于阅读
-    logger.info(f"已保存 {len(queries)} 个测试查询: {path}")  # 记录一条信息日志，说明保存成功
+    logger.info(f"已保存 {len(queries)} 个测试查询: {path}")
 
 
 # 定义一个有下划线前缀的"私有"函数，返回一组内置的默认测试查询
@@ -165,7 +165,7 @@ def llm_score(client: OpenAIClient, query: str, text: str) -> int:
         m = re.search(r"[0-4]", resp or "")         # 使用正则表达式在 LLM 返回的文本中查找 0-4 之间的数字
         if m:                                       # 如果找到了匹配的数字
             return int(m.group())                   # 返回找到的第一个数字（转换成整数）
-        logger.warning(f"LLM 评分失败 query={query!r} resp={resp!r}")  # 日志记录：LLM 评分失败，打印查询和返回内容以便排查
+        logger.warning(f"LLM 评分失败 query={query!r} resp={resp!r}")
         return 0                                    # 实在无法解析时返回 0 分（完全不相关）作为默认值
 
 
@@ -229,7 +229,7 @@ def test_precision(judge_client: OpenAIClient, queries: List[str] = None) -> Lis
         ))
 
         # 记录日志：输出本次查询的精确率结果，方便实时观察
-        logger.info(f"[精确率] {query}: {relevant}/{len(scores)} 相关, 平均分 {avg:.2f}")
+        logger.debug(f"[精确率] {query}: {relevant}/{len(scores)} 相关, 平均分 {avg:.2f}")
 
     return results    # 返回所有查询的评估结果列表
 

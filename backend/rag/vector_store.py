@@ -88,8 +88,7 @@ class VectorStore:
         # 调用 _load_from_disk 方法，尝试从磁盘加载之前保存的向量和元数据
         self._load_from_disk()
         # 使用 logger.info 输出一条日志，告知用户向量存储已经初始化完成
-        logger.info(
-            # 日志内容：包含嵌入模型名称、维度、当前已存储的文档数量
+        logger.debug(
             f"向量存储就绪: embedding={embedding_model}, dim={embedding_dim}, "
             f"当前文档数={len(self.metadata)}"
         )
@@ -100,7 +99,7 @@ class VectorStore:
         # 检查稠密向量文件和元数据文件是否同时存在，如果有一个不存在就说明没有历史数据
         if not (os.path.exists(self._dense_file) and os.path.exists(self._meta_file)):
             # 输出日志：没有发现已有的向量存储文件，将创建新的空存储
-            logger.info("未发现已有向量存储,将创建新的")
+            logger.debug("未发现已有向量存储,将创建新的")
             # 直接返回，不执行后续的加载逻辑
             return
         # 使用 try 块捕获可能出现的异常（如文件损坏、格式不对等）
@@ -134,7 +133,7 @@ class VectorStore:
             # 调用 _rebuild_index 方法，用加载的向量重新构建 FAISS 索引
             self._rebuild_index()
             # 输出日志：成功从磁盘加载了向量存储，并显示记录条数
-            logger.info(f"从磁盘加载向量存储: {len(self.dense_vectors)} 条记录")
+            logger.debug(f"从磁盘加载向量存储: {len(self.dense_vectors)} 条记录")
         # 如果在 try 块中发生了任何异常，使用 except 捕获
         except Exception as e:
             # 输出警告日志：加载失败并显示错误信息，后续将重新创建空存储
@@ -639,7 +638,7 @@ def process_documents_from_dir(directory) -> List[Document]:
     # 如果过滤前后数量发生了变化（有文档被过滤掉了）
     if before != len(documents):
         # 输出日志：显示过滤前后的数量以及最短字符数限制
-        logger.info(f"过滤短文本块: {before} → {len(documents)} (最短 {min_len} 字符)")
+        logger.debug(f"过滤短文本块: {before} → {len(documents)} (最短 {min_len} 字符)")
 
     # ===== 过滤规则第二步：过滤包含停用词的文本块 =====
     # 从配置中获取停用词列表（如邮编、电话号码等非内容行的关键词）
@@ -657,7 +656,7 @@ def process_documents_from_dir(directory) -> List[Document]:
     # 如果过滤前后数量发生了变化
     if before != len(documents):
         # 输出日志：显示过滤前后的数量
-        logger.info(f"过滤停用词块: {before} → {len(documents)}")
+        logger.debug(f"过滤停用词块: {before} → {len(documents)}")
 
     # 输出日志：文档处理完成，显示最终剩余的文档块数量
     logger.info(f"文档处理完成, 共 {len(documents)} 个块")

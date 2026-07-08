@@ -81,7 +81,7 @@ async def register(request: Request):
     except json.JSONDecodeError:
         # 使用 logger 记录错误日志，方便开发者排查问题
         # "Invalid JSON format in register request" 意思是"注册请求中的 JSON 格式无效"
-        logger.error("Invalid JSON format in register request")
+        logger.error("注册请求 JSON 格式无效")
         # 抛出 HTTP 400 错误，告诉前端"发来的数据不是合法的 JSON 格式"
         raise HTTPException(status_code=400, detail="Invalid JSON format")
     # 捕获 HTTPException 类型的异常（我们自己用 raise 抛出的那些错误）
@@ -93,7 +93,7 @@ async def register(request: Request):
     # Exception 是 Python 所有异常的基类，能捕获任何意料之外的错误
     except Exception as e:
         # 将错误信息记录到日志中，str(e) 会把异常对象转换成可读的字符串
-        logger.error(f"Error in register: {str(e)}")
+        logger.error(f"注册失败: {e}")
         # 抛出 HTTP 500 错误（服务器内部错误），并把异常信息传给前端
         # 注意：生产环境中通常不建议把具体错误信息直接暴露给用户
         raise HTTPException(status_code=500, detail=str(e))
@@ -159,7 +159,7 @@ async def login(request: Request):
     # 捕获 JSON 格式解析错误
     except json.JSONDecodeError:
         # 记录错误日志：登录请求中的 JSON 格式无效
-        logger.error("Invalid JSON format in login request")
+        logger.error("登录请求 JSON 格式无效")
         # 返回 HTTP 400 错误给前端
         raise HTTPException(status_code=400, detail="Invalid JSON format")
     # 捕获我们自己抛出的 HTTPException（如 400、401 等）
@@ -169,7 +169,7 @@ async def login(request: Request):
     # 捕获其他所有未预料到的异常
     except Exception as e:
         # 将异常信息记录到日志，方便调试
-        logger.error(f"Error in login: {str(e)}")
+        logger.error(f"登录失败: {e}")
         # 返回 HTTP 500 服务器内部错误
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -193,8 +193,8 @@ def create_superusers():
             # 普通用户注册时 role 默认为空或 "user"
             system.data_store.insert_user(username, password, role="admin")
             # 记录日志：超级管理员创建成功，方便运维人员检查
-            logger.info(f"Superuser '{username}' created successfully.")
+            logger.debug(f"Superuser '{username}' created successfully.")
         # 捕获任何类型的异常（比如用户名已存在引起的数据库错误）
         except Exception as e:
-            # 记录错误日志：创建某个超级管理员时出错了，并附上错误原因
+          
             logger.error(f"Error creating superuser '{username}': {str(e)}")

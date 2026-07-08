@@ -60,7 +60,7 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
     queries = [str(q).strip() for q in queries if str(q).strip()]
     # 如果清洗后没有有效的 query，说明 LLM 没传对参数
     if not queries:
-        logger.warning("tool search_knowledge_base 被调用但未提供有效 query")  # 记录警告日志，便于排查问题
+        logger.warning("tool search_knowledge_base 被调用但未提供有效 query")
         return "(未提供任何检索 query)"  # 返回提示信息，LLM 看到后会重新思考怎么问
 
     # 从参数中获取 search_system 标记，默认 True（表示同时搜索系统公开文档）
@@ -68,13 +68,13 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
     # 如果 search_system 为 True，系统分区列表 = [SYSTEM_PARTITION]，否则为 None（不搜索系统文档）
     system_partitions = [SYSTEM_PARTITION] if search_system else None
     # 记录日志：打印当前查询列表、用户分区、是否搜索系统文档，方便调试
-    logger.info(f"tool search_knowledge_base queries={queries} partition={ctx.partition} search_system={search_system}")
+    logger.debug(f"tool search_knowledge_base queries={queries} partition={ctx.partition} search_system={search_system}")
     # 调用 _retrieve_and_dedup: 内部按多 query 多分区检索，并做全局去重
     # 传入了向量数据库、查询列表、用户分区、系统分区
     chunks = _retrieve_and_dedup(ctx.vector_store, queries, ctx.partition, system_partitions)
     # 如果没有检索到任何文档块
     if not chunks:
-        logger.info("tool search_knowledge_base 未检索到相关内容, 返回 0 块")  # 记录信息日志
+        logger.debug("tool search_knowledge_base 未检索到相关内容, 返回 0 块")
         return "(知识库中未检索到相关内容)"  # 返回提示，告诉 LLM 知识库里没找到
 
     # ── 可选 LLM Listwise Rerank ─────────────────────────────────────
@@ -90,7 +90,7 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         # 调用 rerank 方法对检索结果重新排序，只保留前 candidate_top_k 个
         chunks = reranker.rerank(primary_query, chunks, top_k=conf.candidate_top_k)
         # 记录日志，打印重排序后留下了多少块
-        logger.info(f"LLM Rerank 后保留 {len(chunks)} 个片段")
+        logger.debug(f"LLM Rerank 后保留 {len(chunks)} 个片段")
     else:
         # 不启用 rerank 时直接截断到 candidate_top_k
         # 直接取前 candidate_top_k 个（默认顺序就是向量检索的相关性排序）
@@ -102,7 +102,7 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         # 获取块的元数据，如果没有元数据就用空字典
         meta = c.metadata or {}
         # 记录日志：块序号、来源文件名、块类型、章节路径、页码、标题、图片路径、内容长度
-        logger.info(
+        logger.debug(
             f"检索块 {ci+1}/{len(chunks)}] source={meta.get('source','')!r} "
             f"type={meta.get('chunk_type','')!r} section={meta.get('section_path',[])} "
             f"page={meta.get('page')} caption={meta.get('caption','')!r} "
@@ -111,11 +111,11 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         # 取内容前 200 个字符作为预览（去掉换行符让日志更紧凑）
         preview = c.page_content[:200].replace("\n", " ")
         # 记录预览内容日志
-        logger.info(f"检索块 {ci+1} 内容] {preview}")
+        logger.debug(f"检索块 {ci+1} 内容] {preview}")
     # 将 Document 列表格式化为 LLM 友好的文本（添加标题、序号、来源等标记）
     formatted = format_retrieved_chunks(chunks)          # 将 Document 列表格式化为 LLM 友好的文本
     # 记录最终返回的文本长度，用于监控上下文使用量
-    logger.info(f"tool search_knowledge_base 命中 {len(chunks)} 块, 上下文长度={len(formatted)}")
+    logger.debug(f"tool search_knowledge_base 命中 {len(chunks)} 块, 上下文长度={len(formatted)}")
     return formatted  # 返回格式化后的检索结果文本
 
 # ===== 工具2: 读取完整文档 handler =====
@@ -177,7 +177,7 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
 
     # 如果所有候选路径都没找到有效文件
     if resolved is None:
-        logger.warning(f"tool read_full_document 未找到: {resolved}")  # 记录警告日志
+        logger.warning(f"tool read_full_document 未找到: {resolved}")
         return f"(未找到 {filename} 的全文, 可能该文档不是由 MinerU 解析的)"  # 返回提示
 
     # 找到了文件，开始读取内容
@@ -185,7 +185,7 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
         # 以 UTF-8 编码读取文件的全部文本内容
         content = resolved.read_text(encoding="utf-8")
         # 记录成功日志，包含文件名和字符数
-        logger.info(f"tool read_full_document 成功: {filename} ({len(content)} 字符)")
+        logger.debug(f"tool read_full_document 成功: {filename} ({len(content)} 字符)")
         # 截断安全性: 全文超过 30000 字符时截断并附加提示
         # 防止返回过长的内容撑爆 LLM 的上下文窗口
         if len(content) > 30000:
@@ -193,7 +193,7 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
         return content  # 返回全文内容（可能被截断）
     except Exception as e:
         # 读取过程中发生任何异常（如文件编码错误、权限不足等）
-        logger.warning(f"tool read_full_document 读取失败 ({filename}): {e}")  # 记录警告日志
+        logger.warning(f"tool read_full_document 读取失败 ({filename}): {e}")
         return f"(读取 {filename} 失败: {e})"  # 返回错误信息
 
 
@@ -231,7 +231,7 @@ def _exec_web_search(args: dict, ctx: ToolContext) -> str:
     max_results = min(int(args.get("max_results", 5)), 10)
 
     # 记录日志：搜索关键词、最大结果数、使用的搜索引擎后端
-    logger.info(f"tool web_search query={query!r} max={max_results} backend={conf.search_backend}")
+    logger.debug(f"tool web_search query={query!r} max={max_results} backend={conf.search_backend}")
 
     # 自动增强时间语境: 检测 query 中是否包含 4 位年份，缺失则补当前年份
     # 使得搜索结果在跨年时仍有合理的时效性
@@ -242,7 +242,7 @@ def _exec_web_search(args: dict, ctx: ToolContext) -> str:
         # 如果没有年份，在 query 前面加上当前年份，例如 "2026年"
         query = f"{_now.year}年 {query}"
         # 记录日志，说明自动补充了年份
-        logger.info(f"tool web_search 已补年份: {query!r}")
+        logger.debug(f"tool web_search 已补年份: {query!r}")
 
     # 根据配置选择搜索引擎后端
     backend = conf.search_backend or "duckduckgo"  # 从配置读取后端名称，默认为 duckduckgo
@@ -286,7 +286,7 @@ def _exec_web_search(args: dict, ctx: ToolContext) -> str:
     # 将所有行用换行符连接起来，再去掉首尾空白
     output = "\n".join(lines).strip()
     # 记录日志：返回了多少条结果，总文本长度
-    logger.info(f"tool web_search 返回 {len(results)} 条结果, 长度={len(output)}")
+    logger.debug(f"tool web_search 返回 {len(results)} 条结果, 长度={len(output)}")
     return output  # 返回格式化后的搜索结果文本
 
 # ===== 工具4: 列出文档 handler =====
@@ -313,7 +313,7 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     list_system = args.get("list_system", True)
 
     # 记录日志：过滤关键词、是否列系统文档、当前用户分区
-    logger.info(f"tool list_documents pattern={pattern!r} list_system={list_system} partition={ctx.partition}")
+    logger.debug(f"tool list_documents pattern={pattern!r} list_system={list_system} partition={ctx.partition}")
 
     # 获取当前用户分区的文档列表
     # 调用向量数据库的 get_documents_by_partition 方法，传入当前用户分区
@@ -383,11 +383,11 @@ def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
         if result is None:
             return f"(归档 {archive_id} 不存在)"  # 返回提示
         # 记录成功日志
-        logger.info(f"tool read_archive 成功: {archive_id} ({len(result)} 字符)")
+        logger.debug(f"tool read_archive 成功: {archive_id} ({len(result)} 字符)")
         return result  # 返回归档对话历史文本
     except Exception as e:
         # 读取过程中发生异常
-        logger.warning(f"tool read_archive 失败 ({archive_id}): {e}")  # 记录警告日志
+        logger.warning(f"tool read_archive 失败 ({archive_id}): {e}")
         return f"(读取归档失败: {e})"  # 返回错误信息
 
 # ===== 工具6: 请求用户澄清 handler（虚拟工具） =====
@@ -412,7 +412,7 @@ def _exec_ask_clarification(args: dict, ctx: ToolContext) -> str:
     # 从参数中获取 question（要向用户提的问题），如果没有则用默认提示语
     question = args.get("question", "需要您提供更多信息。")
     # 记录日志：LLM 请求澄清的内容
-    logger.info(f"tool ask_user_for_clarification: LLM 请求澄清: {question}")
+    logger.debug(f"tool ask_user_for_clarification: LLM 请求澄清: {question}")
     return question  # 返回问题文本（外部循环会截获它，直接展示给用户）
 
 # ===== 工具7: 读取网页 URL handler =====
@@ -438,7 +438,7 @@ def _exec_read_url(args: dict, ctx: ToolContext) -> str:
         return "(未提供 URL 参数)"  # 返回错误提示
 
     # 记录日志：开始抓取该 URL
-    logger.info(f"tool read_url: 开始抓取 {url}")
+    logger.debug(f"tool read_url: 开始抓取 {url}")
     # 尝试抓取网页
     try:
         import requests as _req  # 导入 requests 库（用于发送 HTTP 请求）
@@ -511,12 +511,12 @@ def _exec_read_url(args: dict, ctx: ToolContext) -> str:
             text = text[:20000] + "\n\n...(网页内容过长，已截取前 20000 字符)..."
 
         # 记录成功日志
-        logger.info(f"tool read_url 成功: {url} ({len(text)} 字符)")
+        logger.debug(f"tool read_url 成功: {url} ({len(text)} 字符)")
         return text  # 返回网页文本内容
 
     except Exception as e:
         # 抓取或解析过程中发生异常（网络错误、解析错误等）
-        logger.warning(f"tool read_url 失败 ({url}): {e}")  # 记录警告日志
+        logger.warning(f"tool read_url 失败 ({url}): {e}")
         return f"(读取网页失败: {e})"  # 返回错误信息
 
 
@@ -895,5 +895,5 @@ def _retrieve_and_dedup(
             merged.append(c)
 
     # 记录日志：打印所有搜索的分区和最终合并后的块数
-    logger.info(f"多分区检索完成: partitions={search_partitions}, 合并后 {len(merged)} 块")
+    logger.debug(f"多分区检索完成: partitions={search_partitions}, 合并后 {len(merged)} 块")
     return merged  # 返回最终去重合并后的文档块列表

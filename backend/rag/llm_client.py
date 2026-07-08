@@ -27,6 +27,8 @@ from openai import OpenAI
 
 # 从 base.logger 导入自定义的 logger 日志工具，用于记录程序运行信息
 from base.logger import logger
+# 从 base.config 导入全局配置对象，用于读取 retrieval_top_k 等配置项
+from base.config import conf
 
 
 # ========================================================================
@@ -97,7 +99,7 @@ class OpenAIClient:
         self.base_url = base_url
 
         # 记录日志，说明 OpenAI 客户端初始化成功，并打印当前使用的 API 地址
-        logger.info(f"{client_name} OpenAI 客户端初始化完成,base_url={base_url or 'https://api.openai.com/v1'}")
+        logger.debug(f"{client_name} OpenAI 客户端初始化完成,base_url={base_url or 'https://api.openai.com/v1'}")
 
     # ========================================================================
     # chat() —— 纯文本对话（不带工具/函数调用）
@@ -447,7 +449,7 @@ class OpenAIClient:
             batch_idx = i // batch_size + 1
 
             # 记录日志：即将发送嵌入请求
-            logger.info(f"嵌入请求 {batch_idx}/{num_batches} (本批 {len(batch)} 条, 累计 {i}/{total})...")
+            logger.debug(f"嵌入请求 {batch_idx}/{num_batches} (本批 {len(batch)} 条, 累计 {i}/{total})...")
 
             # 构建请求参数字典：模型和输入文本列表
             kwargs = dict(model=model, input=batch)
@@ -462,7 +464,7 @@ class OpenAIClient:
                 out.extend([d.embedding for d in resp.data])
 
                 # 记录日志：当前批次嵌入完成
-                logger.info(f"嵌入完成 {batch_idx}/{num_batches} (本批 {len(batch)} 条)")
+                logger.debug(f"嵌入完成 {batch_idx}/{num_batches} (本批 {len(batch)} 条)")
 
             except Exception as e:
                 # 如果嵌入失败，记录错误日志
@@ -630,7 +632,7 @@ class LLMReranker:
         self.enable = enable
 
         # 记录日志：Reranker 初始化完成
-        logger.info(f"LLM Reranker 初始化: model={model}, enable={enable}")
+        logger.debug(f"LLM Reranker 初始化: model={model}, enable={enable}")
 
     def rerank(
         self, query: str, chunks: list,
@@ -656,9 +658,9 @@ class LLMReranker:
             # 如果指定了 top_k，就返回前 K 个；否则返回全部
             return chunks[:top_k] if top_k else chunks
 
-        # 取前 30 个候选（防止 context 窗口溢出）
+        # 取前 retrieval_top_k 个候选（防止 context 窗口溢出）
         # 因为如果候选太多，LLM 的上下文窗口可能装不下
-        candidates = chunks[:30]
+        candidates = chunks[:conf.retrieval_top_k]
 
         # 使用 try...except 捕获 LLM 调用过程中的异常
         try:
@@ -672,7 +674,7 @@ class LLMReranker:
             ]
 
             # 记录 Rerank 输入的相关信息（用于调试和监控）
-            logger.info(
+            logger.debug(
                 f"Rerank 输入: query={query!r}, candidates={len(candidates)}, "
                 f"prompt_len={len(prompt)}"
             )
@@ -738,7 +740,7 @@ class LLMReranker:
             result = reranked[:top_k] if top_k else reranked
 
             # 记录日志：Rerank 完成，比较排序前后 Top-1 的变化
-            logger.info(
+            logger.debug(
                 f"Rerank 完成: {len(candidates)} → {len(result)} 条, "
                 f"原始 Top-1={candidates[0].page_content[:40]!r}, "
                 f"新 Top-1={result[0].page_content[:40]!r}"

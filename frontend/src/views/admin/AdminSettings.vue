@@ -93,6 +93,12 @@
           <n-form-item label="最大输出 Token">
             <n-input-number v-model:value="form.max_output_tokens" :min="512" :max="65536" :step="1024" style="width:140px" />
           </n-form-item>
+          <n-form-item label="PDF 解析并发数">
+            <n-input-number v-model:value="form.parse_workers" :min="1" :max="8" style="width:120px" />
+          </n-form-item>
+          <n-form-item label="工具调用并发数">
+            <n-input-number v-model:value="form.tool_call_workers" :min="1" :max="16" style="width:120px" />
+          </n-form-item>
         </n-form>
       </n-card>
 
@@ -204,6 +210,8 @@ const form = reactive({
   max_tool_iter: 8,
   max_calls_per_tool: 3,
   max_output_tokens: 8192,
+  parse_workers: 3,
+  tool_call_workers: 4,
   search_backend: 'duckduckgo',
   searxng_url: '',
   bocha_api_key: '',

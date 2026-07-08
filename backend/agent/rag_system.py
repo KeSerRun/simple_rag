@@ -55,6 +55,9 @@ _input_log_path = os.path.join(_BACKEND_ROOT, "logs", "input.log")
 # 这行代码拼接出日志文件的完整路径：backend/logs/input.log
 # 每次调用 LLM 时，发送给 LLM 的消息都会记录到这个日志文件，方便调试
 
+# 确保日志目录在启动时已创建，与 base/logger.py 中 app.log/http.log/user.log 保持一致
+os.makedirs(os.path.dirname(_input_log_path), exist_ok=True)
+
 
 # ===== 日志记录辅助函数 =====
 def _log_input(messages: list, round: int = 0, suffix: str = ""):
@@ -112,7 +115,7 @@ class RAGSystem:
     # ===== 构造函数：初始化 RAG 系统的所有组件 =====
     def __init__(
         self,
-        chat_model: Optional[str] = None,        # 对话模型名称，如 "gpt-4o"，不传就用配置文件里的
+        chat_model: Optional[str] = None,         # 对话模型名称，如 "gpt-4o"，不传就用配置文件里的
         embedding_model: Optional[str] = None,    # 向量化模型名称，如 "text-embedding-3-small"
         embedding_dim: Optional[int] = None,      # 向量维度，如 1536
         prompts_dir: Optional[str] = None,        # 提示词模板目录（单个目录）
@@ -153,7 +156,7 @@ class RAGSystem:
         if conf.embedding_api_key == conf.openai_api_key and conf.embedding_base_url == conf.openai_base_url:
             # 判断：如果向量化的 API 密钥和地址和聊天 API 完全一样
             self.embed_client = self.client  # 复用同一个客户端，节省资源
-            logger.info("Embedding 端与 chat 端共用同一 OpenAI 客户端")  # 打印日志，提示用户共用了客户端
+            logger.debug("Embedding 端与 chat 端共用同一 OpenAI 客户端")
         else:  # 如果配置不同（比如用了不同的 API 服务商）
             self.embed_client = OpenAIClient(  # 单独创建一个独立的 embedding 客户端
                 api_key=conf.embedding_api_key,    # 使用独立的 API 密钥
@@ -161,7 +164,7 @@ class RAGSystem:
                 timeout=conf.openai_timeout,       # 使用相同的超时设置
                 max_retries=conf.openai_max_retries,  # 使用相同的重试设置
             )
-            logger.info(f"Embedding 端使用独立客户端: base_url={conf.embedding_base_url}")  # 打印日志提示用了独立客户端
+            logger.debug(f"Embedding 端使用独立客户端: base_url={conf.embedding_base_url}")
 
         # —— 向量存储：用于语义检索（RAG 的核心检索组件） ——
         self.vector_store = VectorStore(  # 创建向量存储实例
@@ -191,10 +194,10 @@ class RAGSystem:
         # —— PDF 解析方案日志（MinerU vs OCRPDFLoader） ——
         if conf.mineru_api_key:  # 如果配置了 MinerU 的 API 密钥
             tok_preview = f"{conf.mineru_api_key[:12]}...({conf.mineru_token_name})"  # 截取 API 密钥前 12 位做预览，保护隐私
-            logger.info(f"PDF 解析: MinerU {conf.mineru_model_version}/{conf.mineru_language} token={tok_preview}")
+            logger.debug(f"PDF 解析: MinerU {conf.mineru_model_version}/{conf.mineru_language} token={tok_preview}")
             # 打印日志：使用 MinerU 进行 PDF 解析，显示模型版本、语言和密钥预览
         else:  # 如果没有配置 MinerU 密钥
-            logger.info("PDF 解析: OCRPDFLoader (MinerU token 未配置)")
+            logger.debug("PDF 解析: OCRPDFLoader (MinerU token 未配置)")
             # 打印日志：使用 OCRPDFLoader 做 PDF 解析（后备方案）
 
     # ─── System Message 组装 ───────────────────────
@@ -211,6 +214,7 @@ class RAGSystem:
         style 为 None / "style-default" 时跳过风格注入。
         文档清单不再注入 system message，LLM 通过 list_documents 工具按需获取。
         """
+        # —— 注入身份设定文本（identity） ——
         parts = [self.context_builder.identity or ""]  # 获取 AI 的身份设定文本，如果没有则为空字符串
         # context_builder.identity 是从 prompt 模板加载的"AI 角色设定"，比如"你是一个金融助手"
         # 用一个列表来存储所有要拼装的部分
@@ -267,7 +271,7 @@ class RAGSystem:
           short_term_tasks: 本次会话的短期任务列表
           long_term_tasks : 跨会话的长期任务列表
         """
-        logger.info(f"收到用户查询: {query} (style={style})")  # 打印日志，记录用户的问题和指定的回答风格
+        logger.debug(f"收到用户查询: {query} (style={style})")
 
         # —— 第一步：组装 system message ——
         system_msg = self._build_system_message(  # 调用内部方法构建系统提示消息
@@ -289,7 +293,7 @@ class RAGSystem:
                     f"\n\n---\n## ⚠️ 必须遵守的工作流：{wf_name}\n"  # 加一个醒目的大标题
                     f"{wf_content}"  # 写入工作流的详细指令
                 )
-                logger.info(f"已注入 workflow [{wf_name}] 到 system message")  # 打印日志，记录注入了哪个工作流
+                logger.debug(f"已注入 workflow [{wf_name}] 到 system message")
 
         # —— 第二步：组装完整的 messages ——
         # 结构：[system, ...历史对话, 当前用户问题]
@@ -345,7 +349,7 @@ class RAGSystem:
         if total_len <= max_chars:  # 如果总长度没有超过上限
             return messages  # 直接返回原始消息列表，无需裁剪
 
-        logger.warning(f"上下文总长度({total_len})超过阈值({max_chars})，进行截断...")  # 打印警告日志，准备开始裁剪
+        logger.warning(f"上下文总长度={total_len} 超过阈值={max_chars}，进行截断...")
 
         new_messages = []  # 创建一个新列表，用于存放裁剪后的消息
         # 始终保留 system 提示（必须是第一个）和最后一个用户的问题及周边
@@ -375,7 +379,7 @@ class RAGSystem:
 
         # 再次检查
         new_len = sum(len(str(m.get("content", ""))) for m in new_messages)  # 计算裁剪后的总字符数
-        logger.info(f"截断后上下文总长度为: {new_len}")  # 打印日志，记录裁剪后的长度
+        logger.debug(f"截断后上下文总长度为: {new_len}")
         return new_messages  # 返回裁剪后的消息列表
 
     # ─── Tool-call 循环 (非流式) ─────────────────
@@ -421,14 +425,14 @@ class RAGSystem:
                     reasoning_effort=conf.chat_reasoning_effort,  # 推理努力程度（用于支持推理的模型，如 o1 系列）
                 )
             except Exception as e:  # 如果 LLM 调用过程中发生任何错误
-                logger.error(f"LLM tool 调用失败 (round {state.iteration}): {e}")  # 打印错误日志
+                logger.error(f"LLM tool 调用失败 (round {state.iteration}): {e}")
                 return "抱歉，模型处理请求时发生了错误。"  # 返回友好的错误提示给用户
 
             # —— 2. 终止条件：LLM 不再请求调用工具，返回最终文本 ——
             if not resp["tool_calls"]:  # 如果 LLM 的响应中没有工具调用请求
                 return resp["content"]  # 直接返回 LLM 生成的文本作为最终答案
 
-            logger.info(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")  # 打印日志：LLM 要求调用几个工具
+            logger.debug(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
             # —— 3. 将 LLM 的响应（含 tool_calls）追加到 state ——
             state.add_assistant_response(resp["content"], resp["tool_calls"])  # 把 LLM 的回复内容和工具调用请求记录到状态中
 
@@ -455,13 +459,13 @@ class RAGSystem:
                     )
                     return tc["id"], res  # 返回工具调用 ID 和执行结果
                 except Exception as e:  # 如果工具执行过程中发生异常
-                    logger.error(f"工具 {tc['name']} 执行发生严重异常: {e}", exc_info=True)  # 打印详细的错误日志
+                    logger.error(f"工具 {tc['name']} 执行发生严重异常: {e}", exc_info=True)
                     return tc["id"], f"(系统提示: 执行工具 {tc['name']} 时发生了严重错误: {e}，请尝试使用其他工具或根据现有信息回答)"
                     # 返回错误信息作为工具结果，让 LLM 知道这个工具出错了
 
             # —— 5. 并发执行所有工具（ThreadPoolExecutor） ——
             # 每个工具的执行是独立的 I/O 密集型任务，并发可以大幅减少总耗时
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(resp["tool_calls"])) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=conf.tool_call_workers) as executor:
                 # 创建一个线程池，线程数量等于这次需要执行的工具数量
                 futures = [executor.submit(_dispatch_task, tc) for tc in resp["tool_calls"]]
                 # 把每个工具提交给线程池，返回一个 future 对象列表
@@ -478,7 +482,7 @@ class RAGSystem:
                         q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")  # 从参数中提取 LLM 想问的问题
                     except:  # 如果解析失败
                         q = "我需要您提供更多背景信息。"  # 使用默认的提问文本
-                    logger.info("提前中断工具循环：LLM 需要澄清")  # 打印日志
+                    logger.debug("提前中断工具循环：LLM 需要澄清")
                     return q  # 直接将 LLM 的问题返回给用户，不再继续循环
 
             # 首轮过后不再强制 tool_choice，让 LLM 自由选择是否继续调用工具
@@ -511,7 +515,7 @@ class RAGSystem:
             )
             return resp  # 返回 LLM 生成的最终答案
         except Exception as e:  # 如果生成最终答案时出错
-            logger.error(f"最终回答生成失败: {e}")  # 打印错误日志
+            logger.error(f"最终回答生成失败: {e}")
             return "抱歉，生成最终回答时发生了错误。"  # 返回友好的错误提示
 
     # ─── Tool-call 循环 (流式) ─────────────────
@@ -568,7 +572,7 @@ class RAGSystem:
                     elif ev["type"] == "tool_calls":  # 如果是工具调用事件
                         tool_calls = ev["calls"]  # 提取工具调用列表
             except Exception as e:  # 如果流式调用出错
-                logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")  # 打印错误日志
+                logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")
                 yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}  # 发送错误提示给前端
                 return  # 终止生成器
 
@@ -576,7 +580,7 @@ class RAGSystem:
             if not tool_calls:  # 如果 LLM 没有要求调用任何工具
                 return  # 终态: 无工具调用, 已流完答案，直接结束生成器
 
-            logger.info(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")  # 打印日志：LLM 要求调用几个工具
+            logger.debug(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")
             state.add_assistant_response(accumulated_content, tool_calls)  # 把 LLM 的回复和工具调用记录到状态中
 
             import concurrent.futures  # 导入并发执行模块
@@ -614,7 +618,7 @@ class RAGSystem:
                         )
                     )
                 except Exception as e:  # 工具执行异常
-                    logger.error(f"工具 {tc['name']} 异常: {e}", exc_info=True)  # 打印错误日志
+                    logger.error(f"工具 {tc['name']} 异常: {e}", exc_info=True)
                     res = f"(系统提示: 执行工具 {tc['name']} 发生错误: {e}，请尝试其他策略)"  # 构造错误信息
 
                 return tc["id"], tool_info, res  # 返回工具调用 ID、信息字典和执行结果
@@ -636,7 +640,7 @@ class RAGSystem:
                  yield {"type": "status", "status": "calling_tool", **tmp_info}  # 通知前端：正在调用某个工具
 
             # —— 5. 并发执行所有工具 ——
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(tool_calls)) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=conf.tool_call_workers) as executor:
                 # 创建线程池，线程数等于工具数量
                 futures = [executor.submit(_dispatch_task_stream, tc) for tc in tool_calls]  # 提交所有工具任务
                 for future in concurrent.futures.as_completed(futures):  # 遍历已完成的任务
@@ -663,7 +667,7 @@ class RAGSystem:
                         q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")  # 提取 LLM 想问用户的问题
                     except:  # 解析失败
                         q = "我需要您提供更多背景信息。"  # 使用默认文本
-                    logger.info("流式提前中断工具循环：LLM 需要澄清")  # 打印日志
+                    logger.debug("流式提前中断工具循环：LLM 需要澄清")
                     yield {"type": "token", "text": "\n\n" + q}  # 把问题作为文本输出给前端
                     return  # 终止生成器
 
@@ -694,7 +698,7 @@ class RAGSystem:
             for text in events:  # 遍历 LLM 返回的文本流
                 yield {"type": "token", "text": text}  # 逐块发送给前端
         except Exception as e:  # 如果出错
-            logger.error(f"最终回答流式生成失败: {e}")  # 打印错误日志
+            logger.error(f"最终回答流式生成失败: {e}")
             yield {"type": "token", "text": "\n\n抱歉，生成最终回答时发生了错误。"}  # 发送错误提示
 
 

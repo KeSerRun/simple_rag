@@ -103,10 +103,10 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
 
     # ===== 异常处理 =====
     except json.JSONDecodeError:  # 捕获 JSON 解析错误（前端传的不是合法的 JSON）
-        logger.error("Invalid JSON format in query request")  # 记录错误日志
-        raise HTTPException(status_code=400, detail="Invalid JSON format")  # 返回 400 错误
-    except HTTPException:  # 捕获已经处理好的 HTTPException
-        raise             # 直接重新抛出，不做额外处理
-    except Exception as e:  # 捕获其他所有未预料到的异常
-        logger.error(f"Error in query: {str(e)}")  # 记录错误日志，包含异常信息
-        raise HTTPException(status_code=500, detail=str(e))  # 返回 500 服务器内部错误
+        logger.error("查询请求 JSON 格式无效")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -13,6 +13,7 @@
 - [API 接口](#api-接口)
 - [开发指南](#开发指南)
 - [项目结构](#项目结构)
+- [各模块文档](#各模块文档)
 
 ---
 
@@ -62,22 +63,16 @@ enable_llm_rerank = True   # 启用 LLM Listwise Rerank
 ### 启动
 
 ```bash
-# 终端 1：启动后端 API 服务
+# 终端 1：启动后端 API 服务（开发模式热重载）
 cd backend
-python app.py        # 访问 http://localhost:8000
+python app.py              # 访问 http://localhost:11000/index
 
-# 终端 2：启动前端开发服务器
+# 终端 2：启动前端开发服务器（可选，用于前端开发热重载）
 cd frontend
-npm run dev           # 访问 http://localhost:5173
+npm run dev                # 访问 http://localhost:5173
 ```
 
-### 生产构建
-
-```bash
-cd frontend
-npm run build         # 构建产物输出到 backend/dist/
-# 然后重启后端，前端文件通过 FastAPI 静态文件服务提供
-```
+> **注意**：前端构建后产物会输出到 `backend/dist/`，由后端 FastAPI 直接托管。生产环境只需启动后端，前端通过 `http://localhost:11000/index` 访问。
 
 ---
 
@@ -85,8 +80,9 @@ npm run build         # 构建产物输出到 backend/dist/
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    前端 (Vue 3 + Naive UI)                      │
-│              /api/query (流式/非流式)                           │
+│                    前端 (Vue 3 + Naive UI)                    │
+│              /api/query (流式/非流式)                         │
+│    文件上传 / 会话管理 / 历史记录 / 管理后台                    │
 └──────────────────────────┬───────────────────────────────────┘
                            │
 ┌──────────────────────────▼───────────────────────────────────┐
@@ -94,29 +90,39 @@ npm run build         # 构建产物输出到 backend/dist/
 │                                                               │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐  │
 │  │  main.py     │  │  api/        │  │  storage/         │  │
-│  │  集成系统     │  │  路由+鉴权    │  │  JSON 持久化存储   │  │
-│  └──────┬───────┘  └──────┬───────┘  └─────────┬─────────┘  │
-│         │                 │                     │            │
-│  ┌──────▼─────────────────▼─────────────────────▼──────────┐ │
-│  │                   agent/ (核心)                           │ │
-│  │  ┌──────────────────┐                                   │ │
-│  │  │  rag_system.py   │ ← Tool-calling 循环驱动            │ │
-│  │  │   ├─ _run_tool_loop()          非流式                  │ │
-│  │  │   └─ _run_tool_loop_stream()   流式                    │ │
-│  │  ├─ state.py         │ Agent 状态机                      │ │
-│  │  ├─ tools.py         │ 内建工具注册                        │ │
-│  │  ├─ registry.py      │ 工具注册中心                        │ │
-│  │  ├─ workflow_router.py │ 工作流路由引擎                     │ │
-│  │  ├─ context_builder.py │ 身份/Skill 提示词工厂              │ │
-│  │  └─ prompts/workflow/ │ 工作流定义 (.md)                  │ │
-│  └─────────────────────────────────────────────────────────┘ │
+│  │  Integrated   │  │  ┌ admin/   │  │  JSON / SQLite    │  │
+│  │  System      │  │  │ 配置/用户 │  │  持久化存储       │  │
+│  │  集成入口     │  │  │ 日志/评估 │  │                   │  │
+│  └──────┬───────┘  │  │ 数据库    │  └─────────┬─────────┘  │
+│         │           │  ├ auth/    │            │            │
+│         │           │  ├ query/   │            │            │
+│         │           │  ├ sessions/│            │            │
+│         │           │  └ ...      │            │            │
+│         │           └──────┬──────┘            │            │
+│  ┌──────▼──────────────────▼───────────────────▼──────────┐ │
+│  │                   agent/ (核心)                         │ │
+│  │  ┌───────────────────────────────────────────────────┐ │ │
+│  │  │  rag_system.py     ← Tool-calling 循环驱动        │ │ │
+│  │  │   ├─ _run_tool_loop()          非流式              │ │ │
+│  │  │   └─ _run_tool_loop_stream()   流式                │ │ │
+│  │  ├─ registry.py       工具注册中心                    │ │ │
+│  │  ├─ state.py          Agent 状态机                   │ │ │
+│  │  ├─ context_builder.py 身份/Skill 提示词工厂          │ │ │
+│  │  ├─ workflow_router.py 工作流路由引擎                 │ │ │
+│  │  ├─ tools/            工具处理函数                    │ │ │
+│  │  │   ├─ _handlers.py   知识库搜索/联网搜索/全文读取    │ │ │
+│  │  │   ├─ _format.py     结果格式化                    │ │ │
+│  │  │   └─ _search_backends.py 多搜索后端封装           │ │ │
+│  │  └─ prompts/          工作流定义 (.md)               │ │ │
+│  └───────────────────────────────────────────────────────┘ │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────────┐ │
-│  │               rag/ (基础设施)                              │ │
-│  │  ├─ core/openai_client.py     LLM/Embedding 客户端        │ │
-│  │  ├─ core/local_vector_store.py  向量库封装                 │ │
-│  │  ├─ core/reranker.py          LLM Listwise Rerank        │ │
-│  │  └─ core/document_process.py   文档处理管线                │ │
+│  │               rag/ (基础设施)                             │ │
+│  │  ├─ vector_store.py    FAISS 向量库 + 文档入库           │ │
+│  │  ├─ llm_client.py      LLM/Embedding 客户端 + Reranker  │ │
+│  │  ├─ pdf_parser.py      MinerU PDF 解析                  │ │
+│  │  ├─ text_splitter.py   中文文本切分（备用）              │ │
+│  │  └─ eval_rag.py        检索质量评估                     │ │
 │  └─────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -139,7 +145,6 @@ npm run build         # 构建产物输出到 backend/dist/
 
 - **非流式**（`_run_tool_loop`）：整体循环完成后一次性返回
 - **流式**（`_run_tool_loop_stream`）：逐 token 输出 + 实时工具调用状态
-- **反思模式**：已移除，因为流式模式下不适用
 
 ### 2. 状态机（AgentState）
 
@@ -178,7 +183,7 @@ route.md 关键词匹配 → 读取 workflow/xxx.md Frontmatter
 检索增强阶段的可选优化环节：
 
 ```
-FAISS 检索 Top-30 → LLM Listwise Rerank → 保留 Top-15
+FAISS 检索 Top-30 → LLM Listwise Rerank → 保留 Top-5
 ```
 
 LLM 根据 query 与每个 chunk 的相关性进行全局排序，过滤低相关的噪音片段，提升注入上下文的信息密度。
@@ -207,37 +212,78 @@ registry.register(
 | 配置 | 默认值 | 说明 |
 |------|--------|------|
 | **LLM / API** | | |
-| `chat_model` | gpt-4o-mini | 对话模型名 |
+| `chat_model` | deepseek-v4-flash | 对话模型名 |
 | `chat_base_url` | https://api.openai.com/v1 | API 端点 |
 | `chat_reasoning_effort` | - | 推理力度（low/medium/high） |
 | `embedding_model` | text-embedding-3-small | 嵌入模型名 |
+| `embedding_dim` | 1024 | 嵌入向量维度 |
+| `timeout` | 60 | API 超时（秒） |
+| `max_retries` | 3 | API 重试次数 |
+| **MinerU（PDF 解析）** | | |
+| `mineru_base_url` | https://mineru.net | MinerU API 地址 |
+| `mineru_api_key` | - | MinerU API 密钥 |
+| `mineru_model_version` | vlm | 解析模型版本 |
 | **Agent** | | |
-| `max_tool_iter` | 6 | 单次对话最大工具调用轮次 |
+| `max_tool_iter` | 8 | 单次对话最大工具调用轮次 |
 | `max_calls_per_tool` | 3 | 单个工具最大调用次数 |
 | `max_output_tokens` | 8192 | 生成答案的最大 Token 数 |
 | **检索** | | |
 | `retrieval_top_k` | 30 | 向量检索返回 Top-K 文档块 |
-| `candidate_top_k` | 5 | 多 query 时每个 query 的候选数 |
+| `candidate_top_k` | 5 | 重排/截断后保留数 |
 | `enable_llm_rerank` | false | LLM Listwise Rerank 开关 |
+| `min_chunk_length` | 30 | 文本块最小长度 |
 | **搜索** | | |
 | `search_backend` | duckduckgo | 搜索后端（duckduckgo/searxng/bocha/bing） |
 | `search_timeout` | 15 | 搜索超时（秒） |
+| **对话历史** | | |
+| `max_history_length` | 200 | 最大保留轮次 |
+| `max_history_chars` | 100000 | 最大字符数 |
+| **日志** | | |
+| `app_log_level` | INFO | 应用日志级别 |
+| `console_log_level` | DEBUG | 控制台日志级别 |
 
 ---
 
 ## API 接口
 
-| 路径 | 方法 | 说明 |
+### 用户接口
+
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| `/api/query` | POST | 非流式问答 |
-| `/api/query/stream` | GET | 流式问答（SSE） |
-| `/api/admin/config` | GET/PUT | 系统配置读取/保存 |
-| `/api/admin/dashboard` | GET | 仪表盘统计 |
-| `/api/admin/users` | GET/POST/DELETE | 用户管理 CRUD |
-| `/api/admin/logs` | GET | 日志查看与下载 |
-| `/api/admin/database` | GET | 向量库统计 |
-| `/api/documents/upload` | POST | 文档上传 |
-| `/api/documents/list` | GET | 文档列表 |
+| POST | `/api/auth/login` | 用户登录 |
+| POST | `/api/auth/register` | 用户注册 |
+| POST | `/api/query` | 非流式问答 |
+| POST | `/api/query/stream` | 流式问答（SSE） |
+| POST | `/api/documents/upload` | 上传个人文档 |
+| GET | `/api/documents/list` | 文档列表 |
+| GET | `/api/sessions` | 会话列表 |
+| POST | `/api/sessions` | 创建会话 |
+| GET | `/api/history/{session_id}` | 会话历史 |
+| GET | `/api/health` | 健康检查 |
+
+### 管理后台（需 admin 角色）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/dashboard` | 仪表盘统计 |
+| GET | `/api/admin/config` | 读取系统配置 |
+| PUT | `/api/admin/config` | 更新系统配置 |
+| GET | `/api/admin/users` | 用户列表 |
+| POST | `/api/admin/users` | 创建用户 |
+| DELETE | `/api/admin/users/{name}` | 删除用户 |
+| PUT | `/api/admin/users/{name}/role` | 修改角色 |
+| PUT | `/api/admin/users/{name}/password` | 重置密码 |
+| GET | `/api/admin/logs` | 日志文件 |
+| GET | `/api/admin/database` | 向量库统计 |
+| GET | `/api/admin/database/chunks` | 块详情 |
+| GET | `/api/admin/database/partitions` | 分区列表 |
+| GET | `/api/admin/database/check_integrity` | 完整性检查 |
+| POST | `/api/admin/database/upload` | 上传系统文档 |
+| DELETE | `/api/admin/database/delete` | 删除文档 |
+| POST | `/api/admin/eval/run` | 启动检索评估 |
+| GET | `/api/admin/eval/status/{id}` | 评估进度 |
+| GET | `/api/admin/eval/queries` | 获取测试查询 |
+| PUT | `/api/admin/eval/queries` | 保存测试查询 |
 
 ---
 
@@ -245,14 +291,18 @@ registry.register(
 
 ### 如何添加新工具
 
-1. 在 `backend/agent/tools.py` 中编写 handler 函数并注册：
+1. 在 `backend/agent/tools/_handlers.py` 中编写 handler 函数：
 
 ```python
 def _exec_my_tool(args: dict, ctx: ToolContext) -> str:
     param = args.get("param_name")
     # ... 执行逻辑 ...
     return "结果字符串"
+```
 
+2. 在 `backend/agent/tools/__init__.py` 中注册：
+
+```python
 registry.register(
     name="my_tool",
     description="工具描述，LLM 根据此描述决定何时调用",
@@ -270,7 +320,7 @@ registry.register(
 )
 ```
 
-2. 重启后端，LLM 会在下一轮对话中自动学会使用此工具。
+3. 重启后端，LLM 会在下一轮对话中自动学会使用此工具。
 
 ### 如何添加新工作流
 
@@ -301,26 +351,10 @@ max_calls_per_tool: 6
 ```bash
 cd frontend
 npm run dev       # 热重载开发
-npm run build     # 生产构建
+npm run build     # 生产构建（输出到 backend/dist/）
 ```
 
 前端使用 Vue 3 + Vite + Naive UI + Pinia。
-
-### 代码风格
-
-- Python：遵循 PEP 8，使用中文注释
-- 前端：ESLint + Prettier
-
-### 添加新依赖
-
-```bash
-cd backend
-pip install <package>
-pip freeze > requirements.txt
-
-cd frontend
-npm install <package>
-```
 
 ---
 
@@ -328,49 +362,98 @@ npm install <package>
 
 ```
 rag_simple/
-├── backend/                      # Python 后端
-│   ├── agent/                    # Agent 核心
-│   │   ├── rag_system.py         # 主循环入口（带逐行注释）
-│   │   ├── state.py              # 状态机（带逐行注释）
-│   │   ├── tools.py              # 工具注册（带逐行注释）
-│   │   ├── registry.py           # 工具注册中心
-│   │   ├── workflow_router.py    # 工作流路由（带逐行注释）
-│   │   ├── context_builder.py    # 身份/Skill 工厂（带逐行注释）
-│   │   └── prompts/workflow/     # 工作流定义 .md
-│   │       ├── route.md          # 路由规则
-│   │       ├── USstocks.md       # 美股分析工作流
-│   │       └── Autoplan.md       # 规划工作流
-│   ├── api/                      # HTTP 路由
-│   │   ├── query.py              # 问答接口
-│   │   ├── documents.py          # 文档接口
-│   │   ├── admin.py              # 管理后台接口
-│   │   └── deps.py               # 鉴权依赖
-│   ├── rag/core/                 # RAG 基础设施
-│   │   ├── openai_client.py      # LLM 客户端（带逐行注释）
-│   │   ├── local_vector_store.py # 向量库
-│   │   ├── reranker.py           # LLM Listwise Rerank
-│   │   └── document_process.py   # 文档处理
-│   ├── base/                     # 配置与日志
-│   ├── storage/                  # 数据持久化
-│   ├── app.py                    # 后端入口
-│   └── config.ini                # 配置文件
+├── backend/                          # Python 后端
+│   ├── agent/                        # Agent 核心
+│   │   ├── rag_system.py            # 主循环入口（Tool-calling）
+│   │   ├── registry.py              # 工具注册中心
+│   │   ├── state.py                 # 状态机
+│   │   ├── context_builder.py       # 身份/Skill 提示词工厂
+│   │   ├── workflow_router.py       # 工作流路由引擎
+│   │   ├── tools/                   # 工具实现
+│   │   │   ├── _handlers.py         # 知识库/搜索/全文读取
+│   │   │   ├── _format.py           # 结果格式化
+│   │   │   └── _search_backends.py  # 多搜索后端
+│   │   └── prompts/workflow/        # 工作流定义 .md
+│   │       ├── route.md             # 路由规则
+│   │       └── *.md                 # 各工作流定义
+│   ├── api/                         # HTTP 路由
+│   │   ├── __init__.py              # 路由汇总
+│   │   ├── admin/                   # 管理后台 API
+│   │   │   ├── __init__.py          # 路由器入口
+│   │   │   ├── config.py            # 系统设置
+│   │   │   ├── dashboard.py         # 仪表盘
+│   │   │   ├── database.py          # 数据库管理
+│   │   │   ├── logs.py              # 日志查看
+│   │   │   ├── users.py             # 用户管理
+│   │   │   └── eval.py              # 检索评估
+│   │   ├── auth.py                  # 登录/注册
+│   │   ├── query.py                 # 问答接口
+│   │   ├── sessions.py              # 会话管理
+│   │   ├── history.py               # 历史记录
+│   │   ├── documents.py             # 文档管理
+│   │   └── deps.py                  # 鉴权依赖 + 系统单例
+│   ├── rag/                         # RAG 基础设施
+│   │   ├── vector_store.py          # FAISS 向量库 + 文档入库
+│   │   ├── llm_client.py            # LLM/Embedding 客户端 + Reranker
+│   │   ├── pdf_parser.py            # MinerU PDF 解析
+│   │   ├── text_splitter.py         # 中文文本切分（备用）
+│   │   ├── eval_rag.py              # 检索质量评估
+│   │   └── eval_queries.json        # 评估测试查询
+│   ├── base/                        # 基础组件
+│   │   ├── config.py                # 配置解析（config.ini + 环境变量）
+│   │   └── logger.py                # 结构化日志（控制台 + 文件 + HTTP）
+│   ├── storage/                     # 数据持久化
+│   │   ├── json_store.py            # JSON 文件存储（默认）
+│   │   └── sqlite_store.py          # SQLite 存储（备用）
+│   ├── data/                        # 运行时数据
+│   │   ├── data.json                # 用户/会话/消息数据
+│   │   └── vector_store/            # 向量库文件
+│   ├── dist/                        # 前端构建产物
+│   ├── app.py                       # FastAPI 应用入口
+│   ├── main.py                      # IntegratedSystem 集成入口
+│   ├── config.ini                   # 配置文件
+│   └── pyproject.toml               # Python 项目配置
 │
-├── frontend/                     # Vue 3 前端
+├── frontend/                        # Vue 3 前端
 │   ├── src/
-│   │   ├── components/           # 通用组件
-│   │   ├── views/                # 页面
-│   │   │   ├── admin/            # 管理后台
-│   │   │   ├── Chat.vue          # 主聊天页
-│   │   │   ├── Login.vue         # 登录页
-│   │   │   └── Register.vue      # 注册页
-│   │   ├── stores/               # Pinia 状态管理
-│   │   ├── http/                 # axios 封装
-│   │   └── assets/               # 静态资源
-│   ├── index.html
+│   │   ├── views/                   # 所有页面
+│   │   │   ├── admin/               # 管理后台
+│   │   │   │   ├── AdminLayout.vue  # 后台布局 + 侧边栏
+│   │   │   │   ├── AdminDashboard.vue
+│   │   │   │   ├── AdminSettings.vue
+│   │   │   │   ├── AdminUsers.vue
+│   │   │   │   ├── AdminLog.vue
+│   │   │   │   ├── AdminDatabase.vue
+│   │   │   │   └── AdminEval.vue    # 检索评估页
+│   │   │   ├── Chat.vue             # 主聊天页
+│   │   │   ├── Home.vue             # 首页
+│   │   │   ├── Login.vue            # 登录页
+│   │   │   └── Register.vue         # 注册页
+│   │   ├── stores/                  # Pinia 状态管理
+│   │   │   ├── user.js              # 用户认证
+│   │   │   ├── admin.js             # 管理后台 API
+│   │   │   └── theme.js             # 主题
+│   │   ├── http/                    # Axios 封装 + 拦截器
+│   │   ├── router/                  # Vue Router 配置
+│   │   ├── config/                  # 品牌配置
+│   │   └── assets/                  # 静态资源
 │   ├── package.json
 │   └── vite.config.js
 │
-├── README.md                     # 本文件（项目根目录）
-├── backend/README.md             # 后端独立说明
-└── frontend/README.md            # 前端独立说明
+├── README.md                        # 本文件
+└── backend/README.md                # 后端独立说明
 ```
+
+---
+
+## 各模块文档
+
+每个后端模块均有独立的 README，包含文件说明、调用示例和依赖关系：
+
+| 模块 | 路径 | 内容 |
+|------|------|------|
+| RAG 基础 | [backend/rag/README.md](backend/rag/README.md) | 向量库、LLM 客户端、PDF 解析、评估 |
+| Agent | [backend/agent/README.md](backend/agent/README.md) | 工具注册、工作流路由、主循环 |
+| API | [backend/api/README.md](backend/api/README.md) | HTTP 接口、鉴权、端点一览 |
+| 配置 | [backend/base/README.md](backend/base/README.md) | config.ini、日志使用 |
+| 存储 | [backend/storage/README.md](backend/storage/README.md) | 用户/会话/消息 CRUD |

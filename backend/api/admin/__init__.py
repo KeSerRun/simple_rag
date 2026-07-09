@@ -144,7 +144,6 @@ def _write_config_ini(updates: dict) -> bool:
         "mineru_language": ("api", "mineru_language"),           # MinerU 处理语言
         # Agent（智能体）相关配置
         "max_tool_iter": ("agent", "max_tool_iter"),             # 工具调用的最大迭代次数
-        "max_calls_per_tool": ("agent", "max_calls_per_tool"),   # 每个工具的最大调用次数
         "max_output_tokens": ("agent", "max_output_tokens"),     # 输出的最大 Token 数量
         "parse_workers": ("agent", "parse_workers"),                 # MinerU 解析并发线程数
         "tool_call_workers": ("agent", "tool_call_workers"),         # 工具调用并发数

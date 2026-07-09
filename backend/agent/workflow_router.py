@@ -90,7 +90,6 @@ class WorkflowRouter:
         #   "description": str,       # frontmatter 中的 description 字段
         #   "source": str,            # workflow 文件的绝对路径
         #   "max_tool_iter": int|None,        # frontmatter 中的最大工具迭代次数
-        #   "max_calls_per_tool": int|None,   # frontmatter 中的单个工具最大调用次数
         # }
         # 初始化一个空字典，用来存储所有加载的工作流信息。
         # 字典的 key 是工作流名称（字符串），value 是包含模板内容、描述、来源路径等信息的字典。
@@ -186,13 +185,10 @@ class WorkflowRouter:
                     "description": str(meta.get("description", "")),
                     # source：工作流文件的绝对路径，方便调试时定位文件位置。
                     "source": str(wf_file.resolve()),
-                    # 从 frontmatter 中读取 max_tool_iter 和 max_calls_per_tool，
                     # 这两个参数控制 LLM 在本次工作流中可以执行多少轮工具调用。
                     # 如果 frontmatter 中未定义，则值为 None，由调用方决定默认值。
                     # max_tool_iter：最大工具迭代轮数，控制 LLM 最多可以连续调用工具多少次。
                     "max_tool_iter": meta.get("max_tool_iter"),
-                    # max_calls_per_tool：每个工具的最大调用次数，防止某个工具被无限调用。
-                    "max_calls_per_tool": meta.get("max_calls_per_tool"),
                 }
 
                 # 注册关键词：将 route.md 中该规则声明的所有关键词
@@ -391,13 +387,11 @@ class WorkflowRouter:
         """获取工作流的特殊配置参数（如最大调用次数等）。
 
         该方法被 rag_system.py 消费，用于获取工作流级别的覆盖配置。
-        返回值中的 max_tool_iter 和 max_calls_per_tool 会覆盖系统默认值，
         允许每个工作流独立控制 LLM 工具调用的轮次上限。
 
         消费方（rag_system.py）典型用法:
             config = router.get_workflow_config(wf_name)
             max_iter = config.get("max_tool_iter") or DEFAULT_MAX_TOOL_ITER
-            max_calls = config.get("max_calls_per_tool") or DEFAULT_MAX_CALLS_PER_TOOL
 
         如果工作流 frontmatter 中未定义这些字段，对应值为 None，
         消费方应使用自己的默认值兜底。
@@ -408,12 +402,10 @@ class WorkflowRouter:
         if not wf:
             # 如果工作流不存在，返回一个空字典，避免调用方拿到 None 后报错。
             return {}
-        # 返回一个包含工作流配置参数的字典，只返回 max_tool_iter 和 max_calls_per_tool 两个字段。
         return {
             # 最大工具迭代轮数，如果 frontmatter 中没定义就是 None。
             "max_tool_iter": wf.get("max_tool_iter"),
             # 每个工具的最大调用次数，如果 frontmatter 中没定义就是 None。
-            "max_calls_per_tool": wf.get("max_calls_per_tool"),
         }
 
     # ===== 列出所有工作流的方法 =====

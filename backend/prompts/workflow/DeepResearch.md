@@ -2,7 +2,6 @@
 name: DeepResearch
 description: 深度调研工作流 —— 多角度搜索 → 深入阅读 → 交叉验证 → 结构化报告
 max_tool_iter: 20
-max_calls_per_tool: 8
 ---
 
 ## ⚠️ 深度调研工作流

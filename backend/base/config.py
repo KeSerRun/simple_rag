@@ -147,7 +147,6 @@ class Config:
 
         # ===== Agent =====
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=6)
-        self.max_calls_per_tool = config.getint('agent', 'max_calls_per_tool', fallback=3)
         self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
         self.parse_workers = config.getint('agent', 'parse_workers', fallback=3)
         self.tool_call_workers = config.getint('agent', 'tool_call_workers', fallback=4)

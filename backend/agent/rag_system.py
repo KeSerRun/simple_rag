@@ -533,6 +533,7 @@ class RAGSystem:
                             partition=state.partition,        # 知识库分区
                             data_store=self.data_store,       # 数据存储
                             session_id=state.partition or "",
+                            subagent_manager=getattr(self, "subagent_manager", None),
                         )
                     )
                     return tc["id"], res  # 返回工具调用 ID 和执行结果

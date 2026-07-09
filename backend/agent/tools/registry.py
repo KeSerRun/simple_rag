@@ -23,6 +23,7 @@ class ToolContext:
     partition: Optional[str] = None
     data_store: Optional[object] = None
     session_id: str = ""  # 当前会话 ID，供 subagent 等使用
+    subagent_manager: Optional[object] = None  # SubagentManager 实例（由 IntegratedSystem 注入）
 
 
 # ===== ToolDef：单个工具的定义 =====

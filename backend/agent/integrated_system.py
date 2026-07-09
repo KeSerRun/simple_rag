@@ -42,6 +42,8 @@ class IntegratedSystem:
         self.checkpoints = CheckpointStore()
         # 子 Agent 管理器
         self.subagent_manager = SubagentManager(max_concurrent=4)
+        # 将 subagent_manager 注入 RAGSystem，使其能传递给 ToolContext
+        self.rag_qa.subagent_manager = self.subagent_manager
         # 会话管理器（AgentLoop 实例池）
         self.session_manager = SessionManager()
         # 钩子系统

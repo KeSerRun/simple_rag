@@ -124,6 +124,7 @@ class StateContext:
 # ========================================================================
 # AgentState: tool-calling 循环的运行时状态 (原 state.py)
 # ========================================================================
+@dataclass
 class AgentState:
     # ===== AgentState 的文档字符串 =====
     """Agent 状态, 在 tool-calling 循环中逐步累积。

@@ -6,6 +6,25 @@ from __future__ import annotations
 from .registry import ToolContext
 
 
+# ===== 简单目标存储（模块级 dict，由 IntegratedSystem 读取） =====
+_GOALS: dict[str, dict] = {}
+
+
+def _set_goal(session_id: str, goal: str):
+    _GOALS[session_id] = {"goal": goal, "status": "active"}
+
+
+def _complete_goal(session_id: str):
+    _GOALS[session_id] = {"goal": "", "status": "completed"}
+
+
+def _get_goal_line(session_id: str) -> str:
+    data = _GOALS.get(session_id)
+    if data and data.get("status") == "active" and data.get("goal"):
+        return f"\n当前目标：{data['goal']}"
+    return ""
+
+
 # ===== ask_user_for_clarification（虚拟工具） =====
 def _exec_ask_clarification(args: dict, ctx: ToolContext) -> str:
     """
@@ -29,19 +48,32 @@ def _exec_spawn_subagent(args: dict, ctx: ToolContext) -> str:
     if not task:
         return "(未提供 task 参数)"
 
-    # 从 ctx 中获取 subagent_manager
     mgr = getattr(ctx, "subagent_manager", None)
     if not mgr:
         return "(子 Agent 管理器不可用)"
 
-    # 获取可用的工具列表（可选）
     allowed_tools = args.get("allowed_tools") or []
-
     task_id = mgr.spawn(
         task=task,
         session_id=ctx.session_id or "",
         label=task[:20],
         tools=allowed_tools,
     )
-
     return f"(子任务已派发: {task_id}，完成后结果将自动注入)"
+
+
+# ===== set_goal =====
+def _exec_set_goal(args: dict, ctx: ToolContext) -> str:
+    """设置会话的持续目标。目标信息会持续注入 system prompt。"""
+    goal = (args.get("goal") or "").strip()
+    if not goal:
+        return "(未提供 goal 参数)"
+    _set_goal(ctx.session_id or "", goal)
+    return f"(目标已设置：{goal})"
+
+
+# ===== complete_goal =====
+def _exec_complete_goal(args: dict, ctx: ToolContext) -> str:
+    """完成当前目标。"""
+    _complete_goal(ctx.session_id or "")
+    return "(当前目标已完成)"

@@ -239,6 +239,19 @@ class SessionManager:
                 self._locks[session_id] = threading.Lock()
             return self._locks[session_id]
 
+    def set_metadata(self, session_id: str, key: str, value) -> None:
+        """存储会话级元数据（如 goal）。"""
+        loop = self._loops.get(session_id)
+        if loop and loop.ctx:
+            loop.ctx.metadata[key] = value
+
+    def get_metadata(self, session_id: str, key: str):
+        """读取会话级元数据。"""
+        loop = self._loops.get(session_id)
+        if loop and loop.ctx:
+            return loop.ctx.metadata.get(key)
+        return None
+
     def cancel_session(self, session_id: str) -> bool:
         """中断会话的当前执行。"""
         loop = self._loops.get(session_id)

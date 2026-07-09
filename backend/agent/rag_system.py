@@ -195,11 +195,9 @@ class RAGSystem:
     # ===== 构建系统提示消息 =====
     def _build_system_message(
         self,
-        style: Optional[str] = None,                # 回答风格模板名称，如 "concise"（简洁）、"detailed"（详细）
-        short_term_tasks: Optional[List[str]] = None,  # 短期任务列表，当前会话中用户交代的任务
-        long_term_tasks: Optional[List[str]] = None,   # 长期任务列表，跨会话持久化的任务描述
+        style: Optional[str] = None,                # 回答风格模板名称
     ) -> str:  # 返回值类型是字符串，即拼装好的 system message
-        """构造 system message: identity + 可选回答风格 + 短期/长期任务。
+        """构造 system message: identity + 可选回答风格。
 
         style 为 None / "style-default" 时跳过风格注入。
         文档清单不再注入 system message，LLM 通过 list_documents 工具按需获取。
@@ -217,16 +215,6 @@ class RAGSystem:
         # 把当前时间格式化为"2026年07月08日 Wednesday 10:30"的形式添加到消息中
         # 如果获取不到时区信息，默认显示 UTC
 
-        # —— 注入短期/长期任务 ——
-        # 短期任务：用户当前会话中交代的临时任务
-        # 长期任务：跨会话持久化的任务描述
-        tasks_lines = []  # 创建一个空列表，用于存储任务相关的文本行
-        if short_term_tasks:  # 如果有短期任务
-            tasks_lines.append("短期任务：" + "；".join(short_term_tasks))  # 用分号把所有短期任务拼接成一行
-        if long_term_tasks:  # 如果有长期任务
-            tasks_lines.append("长期任务：" + "；".join(long_term_tasks))  # 用分号把所有长期任务拼接成一行
-        if tasks_lines:  # 如果有任何任务
-            parts.append("\n\n---\n" + "\n".join(tasks_lines))  # 在消息中添加分隔线和任务文本，每条任务一行
 
         # —— 注入回答风格 ——
         # style 是预先定义好的 prompt 模板（如 "concise"、"detailed"、"friendly"）
@@ -246,8 +234,6 @@ class RAGSystem:
         history: list = None,
         partition: str = None,
         style: Optional[str] = None,
-        short_term_tasks: Optional[List[str]] = None,
-        long_term_tasks: Optional[List[str]] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
         on_checkpoint: Optional[Callable[[str, dict], None]] = None,
         drain_pending: Optional[Callable[[], list[dict]]] = None,

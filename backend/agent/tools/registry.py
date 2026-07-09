@@ -188,6 +188,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     from ._infra_handlers import (
         _exec_ask_clarification,
         _exec_spawn_subagent,
+        _exec_set_goal,
+        _exec_complete_goal,
     )
 
     # --- ask_user_for_clarification（虚拟工具） ---
@@ -236,6 +238,42 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": ["task"],
         },
         handler=_exec_spawn_subagent,
+        source=__name__,
+    )
+
+    # --- set_goal ---
+    reg.register(
+        name="set_goal",
+        description=(
+            "设置当前会话的持续目标。目标信息会持续注入 system prompt 供后续对话参考。"
+            "当用户交代了一个多轮对话才能完成的目标时调用。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "目标的详细描述，LLM 应该努力完成的目标。",
+                },
+            },
+            "required": ["goal"],
+        },
+        handler=_exec_set_goal,
+        source=__name__,
+    )
+
+    # --- complete_goal ---
+    reg.register(
+        name="complete_goal",
+        description=(
+            "标记当前目标已完成。当用户确认目标已完成时调用。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+        handler=_exec_complete_goal,
         source=__name__,
     )
 

@@ -63,12 +63,6 @@ class AgentState:
     # style: 回答风格标识，例如 "style-formal"，可为 None 表示使用默认风格
     # 该值会被注入 system prompt，影响 LLM 回答的语气和格式
     style: Optional[str] = None
-    # short_term_tasks: 当前会话的短期任务列表，用于本轮对话中 LLM 自主规划的子目标
-    # 初始值为空列表，通过 field(default_factory=list) 确保每个实例独立拥有
-    short_term_tasks: List[str] = field(default_factory=list)
-    # long_term_tasks: 当前会话的长期任务列表，跨多轮对话持续追踪
-    # 在每次提问时注入 system prompt，让 LLM 记住长期需要完成的目标
-    long_term_tasks: List[str] = field(default_factory=list)
     # _called_tools_history: 已调用过的工具签名集合，类型为 set
     # 签名格式为 "tool_name::序列化参数"，用于检测完全相同的重复调用
     # 以下划线开头表示"私有"属性，不应在外部直接访问

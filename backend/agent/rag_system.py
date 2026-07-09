@@ -261,8 +261,6 @@ class RAGSystem:
         # —— 第一步：组装 system message ——
         system_msg = self._build_system_message(  # 调用内部方法构建系统提示消息
             style=style,                        # 传入回答风格
-            short_term_tasks=short_term_tasks,  # 传入短期任务
-            long_term_tasks=long_term_tasks,    # 传入长期任务
         )
 
         # ── Workflow 路由注入 ─────────────────────────────────────────

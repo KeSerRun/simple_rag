@@ -65,8 +65,6 @@ _CONFIG_SCHEMA = [
      "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
     {"key": "http_log_level", "label": "HTTP 日志级别", "group": "日志配置", "type": "select",
      "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
-    {"key": "user_log_level", "label": "用户日志级别", "group": "日志配置", "type": "select",
-     "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
     {"key": "console_log_level", "label": "控制台日志级别", "group": "日志配置", "type": "select",
      "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
 

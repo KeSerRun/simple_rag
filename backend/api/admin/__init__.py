@@ -160,7 +160,6 @@ def _write_config_ini(updates: dict) -> bool:
         "log_path": ("logger", "log_path"),                     # 日志文件存放路径
         "app_log_level": ("logger", "app_log_level"),           # 应用日志级别
         "http_log_level": ("logger", "http_log_level"),         # HTTP 请求日志级别
-        "user_log_level": ("logger", "user_log_level"),         # 用户操作日志级别
         "console_log_level": ("logger", "console_log_level"),   # 控制台输出日志级别
         # 上传相关配置
         "max_user_storage_mb": ("upload", "max_user_storage_mb"), # 每个用户的最大存储空间（MB）

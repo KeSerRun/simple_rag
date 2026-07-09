@@ -33,7 +33,7 @@ from rag.llm_client import OpenAIClient      # OpenAI 兼容的 API 客户端（
 # —— Agent 内部组件 ——  （Agent 自己的子模块）
 from .context_builder import ContextBuilder  # 从 prompts 目录加载 identity / 风格模板
 # ContextBuilder 负责从 prompts 文件夹读取"AI 身份设定"和"回答风格模板"
-from .state import AgentState                # 工具循环的状态机（迭代计数、消息列表、工具调用记录）
+from .state_machine import AgentState                # 工具循环的状态机（迭代计数、消息列表、工具调用记录）
 # AgentState 负责管理 tool loop 的状态，包括已经轮了多少次、消息列表、调用了哪些工具等
 from .tools.registry import ToolContext            # 工具执行时的上下文（向量库、分区、数据存储）
 # ToolContext 是执行工具时传给工具的上下文对象，包含向量库、知识库分区、数据存储等信息

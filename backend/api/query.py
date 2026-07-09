@@ -89,23 +89,19 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
         lock = system.session_manager.get_lock(session_id)
 
         # ===== 根据是否流式选择不同的响应方式 =====
-        if stream:  # 如果前端请求使用流式响应
+        if stream:
             def _stream_with_lock():
-                """在流式生成器外层持有会话锁。"""
                 with lock:
                     yield from _sse_wrapper(
-                        system.answer_generator(session_id, question, partition=username, style=style)
+                        system.run_agent(session_id, question, partition=username, style=style, stream=True)
                     )
             return StreamingResponse(
                 _stream_with_lock(),
-                media_type="text/event-stream",  # 设置媒体类型为 SSE 流
+                media_type="text/event-stream",
             )
-        # 非流式模式：直接返回完整的 JSON 响应
+        # 非流式模式
         with lock:
-            answer = system.get_answer(session_id, question, partition=username, style=style)
-        return JSONResponse(content={
-            "answer": answer
-        })
+            answer = system.run_agent(session_id, question, partition=username, style=style, stream=False)
 
     # ===== 异常处理 =====
     except json.JSONDecodeError:  # 捕获 JSON 解析错误（前端传的不是合法的 JSON）

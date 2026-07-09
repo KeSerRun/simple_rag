@@ -77,6 +77,24 @@ class IntegratedSystem:
           - max_history_chars: 字符数超限时压缩早期对话（保留最近 2 轮）
         """
         raw = self.data_store.get_session_history(session_id) or []
+
+        # 检查点恢复：如果存在未完成的检查点，将之前的工具执行结果注入历史
+        cp = self.checkpoints.load(session_id)
+        if cp and cp.phase in ("awaiting_tools", "tools_completed"):
+            from .checkpoint import restore_messages
+            restored = restore_messages(cp)
+            if restored:
+                logger.info(f"恢复检查点: phase={cp.phase}, {len(restored)} 条消息注入历史")
+                # 将恢复的消息作为合成 qa 条目插入历史
+                if restored:
+                    raw.append({
+                        "type": "qa",
+                        "user": "(系统：检测到上轮对话被中断，以下为已完成的工具执行结果)",
+                        "assistant": f"[系统已恢复 {len(restored)} 条工具执行结果]",
+                    })
+            # 清除检查点（避免重复恢复）
+            self.checkpoints.clear(session_id)
+
         if not raw:
             return []
         messages = []
@@ -404,38 +422,39 @@ class IntegratedSystem:
         """使用 AgentLoop 状态机处理用户查询。
 
         替代 get_answer / answer_generator 的新入口。
-        支持状态机编排、检查点恢复、中断检测。
+        调用方（API）已持有会话锁。
         """
-        lock = self.session_manager.get_lock(session_id)
-
         if stream:
-            # 流式：获取生成器
             return self._run_agent_stream(session_id, question, partition, style)
-        else:
-            # 非流式
-            with lock:
-                loop = self.session_manager.get_or_create(
-                    session_id,
-                    rag_system=self.rag_qa,
-                    data_store=self.data_store,
-                    checkpoints=self.checkpoints,
-                )
-                # 准备参数
-                self._check_style_change(session_id, style)
-                history = self.get_history(session_id)
-                short_tasks, long_tasks = self._load_session_tasks(session_id)
 
-                ctx = loop.rag._build_context(
-                    question=question,
-                    history=history,
-                    partition=partition,
-                    style=style,
-                    short_term_tasks=short_tasks,
-                    long_term_tasks=long_tasks,
-                )
-                # 暂使用原有方法
-                answer = self.get_answer(session_id, question, partition=partition, style=style)
-                return answer
+        # 非流式
+        self._check_style_change(session_id, style)
+        history = self.get_history(session_id)
+        wf_name = self.rag_qa.workflow_router.match(question)
+        short_tasks, long_tasks = self._load_session_tasks(session_id)
+
+        try:
+            answer = self.rag_qa.generate_answer(
+                question,
+                stream=False,
+                history=history,
+                partition=partition,
+                style=style,
+                short_term_tasks=short_tasks,
+                long_term_tasks=long_tasks,
+            )
+            logger.debug(f"回答成功 len={len(answer)}")
+        except Exception as e:
+            logger.error(f"回答失败: {e}")
+            answer = f"抱歉，处理请求时发生了错误: {e}"
+            self.data_store.insert_session_history(session_id, question, answer)
+            log_qa(partition, session_id, question, answer)
+            return answer
+
+        self._update_tasks(session_id, question, wf_name)
+        self.data_store.insert_session_history(session_id, question, answer)
+        log_qa(partition, session_id, question, answer)
+        return answer
 
     def _run_agent_stream(self, session_id, question, partition=None, style=None):
         """流式版本的 run_agent。"""

@@ -28,7 +28,7 @@ from dataclasses import dataclass    # 从 dataclasses 模块导入 dataclass �
 # ===== 导入项目内部模块 =====
 from base.config import conf           # 从 base.config 导入配置对象 conf，里面包含了模型名称、API密钥等全局配置
 from base.logger import logger         # 从 base.logger 导入日志记录器 logger，用于在控制台输出带级别的日志信息
-from base.llm_client import OpenAIClient    # 从 rag.llm_client 导入 OpenAI 客户端类，用于调用大语言模型 API
+from base.llm_client import OpenAIClient    # OpenAI API 客户端
 from agent.tools.registry import ToolContext     # 从 agent.tools.registry 导入 ToolContext 类
 from agent.tools import registry           # 从 agent.tools 导入 registry 对象，它负责管理和调度所有可用的工具（如知识库搜索）
 

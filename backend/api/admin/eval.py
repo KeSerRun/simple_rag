@@ -27,7 +27,7 @@ from rag.eval_rag import test_precision, load_test_queries, save_test_queries, E
 # EvalResult: 评估结果的数据类，包含 query（查询）、retrieved_count（检索数量）、relevant_count（相关数量）、avg_score（平均分）、scores（分数列表）等字段
 
 # ===== 导入 LLM 客户端 =====
-from base.llm_client import OpenAIClient  # 从 rag.llm_client 导入 OpenAIClient 类，用于调用 OpenAI 兼容的 API（大语言模型接口）
+from base.llm_client import OpenAIClient  # 用于调用大语言模型 API
 
 # ===== 全局变量：评估任务状态追踪 =====
 # 评估任务状态追踪（这是一个全局字典，用来记录所有评估任务的执行状态）

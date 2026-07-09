@@ -487,7 +487,7 @@ class IntegratedSystem:
                     logger.info(f"ä¸­é´æ³¨å¥å­ Agent: {r.task_id}")
             return msgs
 
-            def save_cp(phase: str, payload: dict):
+        def save_cp(phase: str, payload: dict):
                 """ä¿å­æ£æ¥ç¹ã"""
                 from .checkpoint import Checkpoint
                 cp = Checkpoint(
@@ -498,7 +498,6 @@ class IntegratedSystem:
                     completed_results=payload.get("completed_results"),
                 )
                 self.checkpoints.save(session_id, cp)
-
 
         try:
             answer_iter = self.rag_qa.generate_answer(

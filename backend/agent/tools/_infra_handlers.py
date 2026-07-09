@@ -125,3 +125,23 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
         return f"(未知配置: {key})"
 
     return "(未知 action)"
+
+
+# ===== read_workflow（渐进式加载工作流） =====
+def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
+    """读取工作流的完整分步指令。"""
+    name = (args.get("name") or "").strip()
+    if not name:
+        return "(未提供 name 参数)"
+    # 通过 ctx 获取 workflow_router
+    router = getattr(ctx, "workflow_router", None)
+    if not router:
+        return "(工作流路由器不可用)"
+    content = router.get_workflow_content(name)
+    if not content:
+        return f"(未找到工作流: {name})"
+    desc = ""
+    cfg = router.get_workflow_config(name)
+    if cfg:
+        desc = router.get_workflow_summaries()
+    return f"工作流：{name}\n\n{content}"

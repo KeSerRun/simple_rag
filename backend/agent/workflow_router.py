@@ -409,6 +409,18 @@ class WorkflowRouter:
         }
 
     # ===== 列出所有工作流的方法 =====
+    # ===== get_workflow_summaries =====
+    def get_workflow_summaries(self) -> str:
+        """Build workflow summary for progressive loading."""
+        lines = ["Available workflows"]
+        for n, info in self._workflows.items():
+            d = info.get("description", "")
+            if d:
+                lines.append(n + ": " + d)
+            else:
+                lines.append(n)
+        return "\n".join(lines)
+
     def list_workflows(self) -> dict:
         """列出所有已加载的工作流及其元信息。
 

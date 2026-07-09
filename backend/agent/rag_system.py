@@ -264,20 +264,21 @@ class RAGSystem:
             style=style,                        # 传入回答风格
         )
 
-        # ── Workflow 路由注入 ─────────────────────────────────────────
-        # 通过 WorkflowRouter 将 query 与预设工作流（如 "USstocks"、"Autoplan"）匹配
-        # 匹配成功后，将对应工作流的提示文本注入到 system message 中
-        wf_name = self.workflow_router.match(query)  # 让路由器根据用户问题匹配工作流，返回工作流名称（如 "USstocks"）
-        wf_config = {}  # 初始化工作流配置字典，默认为空
-        if wf_name:  # 如果匹配到了某个工作流
-            wf_content = self.workflow_router.get_workflow_content(wf_name)  # 获取工作流的指令文本
-            wf_config = self.workflow_router.get_workflow_config(wf_name)    # 获取工作流的配置（如迭代次数覆盖）
-            if wf_content:  # 如果有工作流指令
-                system_msg += (  # 把工作流指令注入到 system message 后面
-                    f"\n\n---\n## ⚠️ 必须遵守的工作流：{wf_name}\n"  # 加一个醒目的大标题
-                    f"{wf_content}"  # 写入工作流的详细指令
+        # ── Workflow 路由（nanobot 渐进式加载） ─────────
+        wf_name = self.workflow_router.match(query)
+        wf_config = {}
+        if wf_name:
+            wf_content = self.workflow_router.get_workflow_content(wf_name)
+            wf_config = self.workflow_router.get_workflow_config(wf_name)
+            if wf_content:
+                # nanobot 模式：注入摘要，LLM 通过 read_workflow 按需获取完整内容
+                summary = self.workflow_router.get_workflow_summaries()
+                system_msg += (
+                    f"\n\n---\n# 工作流\n"
+                    f"{summary}\n"
+                    f"如需加载完整工作流指令，请调用 read_workflow 工具。"
                 )
-                logger.debug(f"已注入 workflow [{wf_name}] 到 system message")
+                logger.debug(f"已匹配 workflow [{wf_name}]")
 
         # —— 第二步：组装完整的 messages ——
         # 结构：[system, ...历史对话, 当前用户问题]
@@ -529,6 +530,7 @@ class RAGSystem:
                             data_store=self.data_store,       # 数据存储
                             session_id=state.partition or "",
                             subagent_manager=getattr(self, "subagent_manager", None),
+                            workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
                     return tc["id"], res  # 返回工具调用 ID 和执行结果
@@ -723,6 +725,7 @@ class RAGSystem:
                             data_store=self.data_store,       # 数据存储
                             session_id=state.partition or "",
                             subagent_manager=getattr(self, "subagent_manager", None),
+                            workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
                 except Exception as e:  # 工具执行异常

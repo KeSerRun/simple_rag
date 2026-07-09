@@ -24,6 +24,7 @@ class ToolContext:
     data_store: Optional[object] = None
     session_id: str = ""  # 当前会话 ID，供 subagent 等使用
     subagent_manager: Optional[object] = None  # SubagentManager 实例（由 IntegratedSystem 注入）
+    workflow_router: Optional[object] = None  # WorkflowRouter 实例
 
 
 # ===== ToolDef：单个工具的定义 =====
@@ -223,6 +224,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         _exec_set_goal,
         _exec_complete_goal,
         _exec_my,
+        _exec_read_workflow,
     )
 
     # --- ask_user_for_clarification（虚拟工具） ---
@@ -334,6 +336,28 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": ["action"],
         },
         handler=_exec_my,
+        source=__name__,
+    )
+
+    # --- read_workflow（渐进式加载） ---
+    reg.register(
+        name="read_workflow",
+        description=(
+            "读取工作流的完整分步指令。"
+            "system prompt 中列出了可用的工作流及其摘要。"
+            "如需使用某个工作流，先调用此工具获取完整指令，再按步骤执行。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "工作流名称，如 USstocks、Autoplan、DeepResearch",
+                },
+            },
+            "required": ["name"],
+        },
+        handler=_exec_read_workflow,
         source=__name__,
     )
 

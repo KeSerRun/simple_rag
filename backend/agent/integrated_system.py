@@ -482,10 +482,22 @@ class IntegratedSystem:
             msgs = []
             for r in results:
                 if r.success and r.content:
-                    content = f"[å­ä»»å¡ {{r.task_id}} å®æ]\n{{r.content[:500]}}"
+                    content = f"[å­ä»»å¡ {r.task_id} å®æ]\n{r.content[:500]}"
                     msgs.append({"role": "user", "content": content})
-                    logger.info(f"ä¸­é´æ³¨å¥å­ Agent: {{r.task_id}}")
+                    logger.info(f"ä¸­é´æ³¨å¥å­ Agent: {r.task_id}")
             return msgs
+
+            def save_cp(phase: str, payload: dict):
+                """ä¿å­æ£æ¥ç¹ã"""
+                from .checkpoint import Checkpoint
+                cp = Checkpoint(
+                    phase=phase,
+                    iteration=payload.get("iteration", 0),
+                    model=getattr(self.rag_qa, "chat_model", ""),
+                    pending_calls=payload.get("pending_calls"),
+                    completed_results=payload.get("completed_results"),
+                )
+                self.checkpoints.save(session_id, cp)
 
 
         try:

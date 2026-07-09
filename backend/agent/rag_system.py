@@ -458,7 +458,6 @@ class RAGSystem:
 
         # while 循环直到 should_continue() 返回 False（达上限或主动 break）
         while state.should_continue():  # 检查是否应该继续循环（没达到上限且没有被终止）
-            _log_input(state.messages, round=state.iteration)  # 把当前轮次的消息记录到日志文件，方便调试
 
             # 发送前裁剪（避免上下文窗口溢出）
             truncated_messages = self._govern_context(state.messages)  # 上下文治理：去孤/压缩/裁剪
@@ -622,7 +621,6 @@ class RAGSystem:
 
             # —— 通知前端开始思考 ——
             yield {"type": "status", "status": "thinking"}  # 发送状态事件给前端：AI 正在思考中
-            _log_input(state.messages, round=it)  # 把当前消息记录到日志
 
             # 发送前裁剪
             truncated_messages = self._truncate_messages(state.messages)  # 裁剪过长的消息，控制上下文窗口

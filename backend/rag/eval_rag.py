@@ -156,7 +156,7 @@ def llm_score(client: OpenAIClient, query: str, text: str) -> int:
             model=conf.chat_model,                  # 使用配置文件中指定的聊天模型名称
             stream=False,                           # 关闭流式输出，一次性返回完整结果
             temperature=0.1,                        # 温度设为 0.1，让输出更确定、更稳定，减少随机性
-            max_tokens=256,                         # 最大生成 256 个 token，足够输出一个数字
+            max_tokens=conf.max_output_tokens,         # 使用全局配置
         )
         score = int(resp.strip())                   # 将 LLM 返回的文本去除首尾空格后转为整数
         return max(0, min(4, score))                # 确保评分在 0-4 范围内，防止 LLM 返回超出范围的值

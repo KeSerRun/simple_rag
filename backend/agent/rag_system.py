@@ -264,21 +264,15 @@ class RAGSystem:
             style=style,                        # 传入回答风格
         )
 
-        # ── Workflow 路由（nanobot 渐进式加载） ─────────
-        wf_name = self.workflow_router.match(query)
-        wf_config = {}
-        if wf_name:
-            wf_content = self.workflow_router.get_workflow_content(wf_name)
-            wf_config = self.workflow_router.get_workflow_config(wf_name)
-            if wf_content:
-                # nanobot 模式：注入摘要，LLM 通过 read_workflow 按需获取完整内容
-                summary = self.workflow_router.get_workflow_summaries()
-                system_msg += (
-                    f"\n\n---\n# 工作流\n"
-                    f"{summary}\n"
-                    f"如需加载完整工作流指令，请调用 read_workflow 工具。"
-                )
-                logger.debug(f"已匹配 workflow [{wf_name}]")
+        # ── Workflow 渐进式加载（nanobot 模式） ─────────
+        # 所有工作流以摘要形式注入 system prompt，LLM 通过 read_workflow 按需获取完整内容
+        wf_summaries = self.workflow_router.get_workflow_summaries()
+        if wf_summaries:
+            system_msg += (
+                f"\n\n---\n# 工作流\n"
+                f"{wf_summaries}\n"
+                f"如需加载完整工作流指令，请调用 read_workflow 工具。"
+            )
 
         # —— 第二步：组装完整的 messages ——
         # 结构：[system, ...历史对话, 当前用户问题]

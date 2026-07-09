@@ -38,7 +38,7 @@ from base.logger import logger
 # 从当前包（rag）的 pdf_parser 模块导入 MinerUPDFLoader 类（用于解析 PDF 文件）
 from .pdf_parser import MinerUPDFLoader
 # 从当前包（rag）的 llm_client 模块导入 OpenAIClient 类（用于调用 OpenAI 的 API）
-from .llm_client import OpenAIClient
+from base.llm_client import OpenAIClient
 
 
 # ===== 类定义：VectorStore（向量存储） =====

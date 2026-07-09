@@ -109,136 +109,37 @@ class WorkflowRouter:
 
     # ===== 加载工作流的方法 =====
     def _load_workflows(self):
-        """从 route.md 解析路由规则 + 加载各 workflow 内容。
+        """从 workflow/ 目录扫描加载所有工作流（nanobot 模式）。
 
-        加载策略（route.md → xxx.md）:
-          1. 只读取 route.md 这一入口文件，从中解析出所有路由规则。
-          2. 每条规则中声明了工作流名称和对应的触发关键词。
-          3. 按工作流名称去 workflow 目录下加载同名的 .md 文件。
-          4. 这是一种"声明式"路由设计：修改路由只需编辑 route.md，
-             无需改动代码，新增工作流也只需新建 .md 文件并在 route.md 加一行。
+        扫描 workflow/ 目录下所有 .md 文件（排除 route.md），
+        解析 frontmatter，注册工作流。
         """
-        # 拼接出 route.md 文件的完整路径：workflow 目录下的 route.md 文件。
-        route_file = self.workflow_dir / "route.md"
-        # 判断 route.md 文件是否真的存在（并且是一个文件，而不是目录）。
-        if not route_file.is_file():
-            # 如果 route.md 文件不存在，记录一条警告日志，告诉开发者文件路径。
-            logger.warning(f"route.md 不存在: {route_file}")
-            # 文件不存在就直接返回，不执行后面的加载逻辑。
-            return
+        # 扫描目录下所有 .md 文件
+        for fpath in sorted(self.workflow_dir.glob("*.md")):
+            if fpath.name == "route.md":
+                continue
+            try:
+                # 读取文件内容并解析 frontmatter
+                text = fpath.read_text(encoding="utf-8")
+                meta, template = parse_frontmatter(text)
+                wf_name = meta.get("name") or fpath.stem
+                desc = meta.get("description") or ""
 
-        # 1. 解析路由规则（从 route.md 的 "## 路由规则" 区域）
-        #    rules 格式: {"工作流名": ["关键词1", "关键词2", ...]}
-        # 调用 _parse_routing_rules 方法解析 route.md 文件，得到路由规则字典。
-        # 这个字典的结构是：{"工作流名称": ["关键词1", "关键词2", ...]}
-        rules: dict[str, list[str]] = self._parse_routing_rules(route_file)
-        # 检查解析结果是否为空（没有解析到任何路由规则）。
-        if not rules:
-            # 如果没有解析到任何路由规则，记录一条警告日志。
-            logger.warning("route.md 中未解析到任何路由规则")
-            # 没有规则就直接返回，不执行后面的加载逻辑。
-            return
-
-        # 2. 按规则名称加载对应 workflow 文件
-        #    遍历每一条路由规则，找到对应的 .md 文件并加载其内容。
-        # 初始化一个计数器，用来统计成功加载了多少个工作流。
-        loaded = 0
-        # 遍历路由规则字典，wf_name 是工作流名称，keywords 是该工作流对应的关键词列表。
-        for wf_name, keywords in rules.items():
-            # 根据规则中声明的工作流名称拼接文件路径
-            # 拼接出工作流文件的完整路径：工作流名称 + ".md" 后缀。
-            wf_file = self.workflow_dir / f"{wf_name}.md"
-            # 检查这个工作流文件是否真的存在。
-            if not wf_file.is_file():
-                # 如果 route.md 中引用了某个工作流，但实际文件不存在，
-                # 记录警告并跳过，避免系统启动时崩溃。
-                # 记录一条警告日志，告诉开发者 route.md 引用了哪个工作流，但文件不存在。
-                logger.warning(
-                    f"路由规则引用了 '{wf_name}', "
-                    f"但文件不存在: {wf_file}"
-                )
-                # 跳过当前这个工作流，继续处理下一个。
+                # 注册工作流
+                self._workflows[wf_name] = {
+                    "name": wf_name,
+                    "description": desc,
+                    "template": template,
+                    "max_tool_iter": meta.get("max_tool_iter"),
+                    "always_load": meta.get("always_load", False),
+                }
+            except Exception as e:
+                logger.warning(f"工作流加载失败 {fpath.name}: {e}")
                 continue
 
-            # 使用 try-except 包裹加载逻辑，防止某个文件格式错误导致整个系统崩溃。
-            try:
-                # 读取工作流 .md 文件的全部内容，使用 UTF-8 编码以支持中文。
-                text = wf_file.read_text(encoding="utf-8")
-                # parse_frontmatter 解析 YAML 格式的 frontmatter（--- 包裹的元数据区）
-                # 返回 (meta_dict, body_str) 二元组：
-                #   - meta: frontmatter 中的键值对（description, max_tool_iter 等）
-                #   - body: 去除 frontmatter 后的剩余正文（即工作流的分步指令）
-                # 调用 parse_frontmatter 函数，解析文件的 YAML 元数据和正文内容。
-                meta, body = parse_frontmatter(text)
-                # 如果 frontmatter 中显式声明了 name 则使用，否则以文件名（不含 .md）作为名称
-                # 尝试从元数据中获取 name 字段，如果没有定义，就用文件名（不含 .md 后缀）作为工作流名称。
-                name = meta.get("name") or wf_file.stem
-
-                # 用文件名做 key，确保与路由规则一致
-                # 注意：这里使用 wf_name（来自 route.md 规则中的名称）作为 key，
-                # 而不是 meta.get("name")，以保证路由规则和 _workflows 字典的 key 一致。
-                # 将工作流信息存入 _workflows 字典，key 是 route.md 中定义的工作流名称。
-                self._workflows[wf_name] = {
-                    # template：去除 frontmatter 后的正文内容，去掉首尾空白字符。
-                    "template": body.strip(),
-                    # description：从 frontmatter 中读取的描述信息，如果没定义就返回空字符串。
-                    "description": str(meta.get("description", "")),
-                    # source：工作流文件的绝对路径，方便调试时定位文件位置。
-                    "source": str(wf_file.resolve()),
-                    # 这两个参数控制 LLM 在本次工作流中可以执行多少轮工具调用。
-                    # 如果 frontmatter 中未定义，则值为 None，由调用方决定默认值。
-                    # max_tool_iter：最大工具迭代轮数，控制 LLM 最多可以连续调用工具多少次。
-                    "max_tool_iter": meta.get("max_tool_iter"),
-                }
-
-                # 注册关键词：将 route.md 中该规则声明的所有关键词
-                # 逐一添加到 _keyword_map 中，供后续 match() 匹配使用。
-                # 初始化一个计数器，统计当前工作流成功注册了多少个关键词。
-                _added = 0
-                # 遍历当前工作流的所有关键词，将每个关键词注册到 _keyword_map 中。
-                for kw in keywords:
-                    # 统一转为小写，实现大小写不敏感的匹配
-                    # 去除关键词两端的空白字符，并转换为小写（实现大小写不敏感匹配）。
-                    kw_lower = kw.strip().lower()
-                    # 检查转换后的关键词是否为空字符串（比如关键词只有空格）。
-                    if not kw_lower:
-                        # 如果关键词是空的，跳过不处理，继续下一个关键词。
-                        continue
-                    # 检查关键词冲突：如果同一个关键词已经被映射到另一个工作流，
-                    # 则记录警告，并用当前工作流覆盖。这意味着 route.md 中
-                    # 后定义的同名关键词会覆盖先定义的。
-                    # 检查这个关键词是否已经在 _keyword_map 中存在了（被其他工作流注册过）。
-                    if kw_lower in self._keyword_map:
-                        # 如果关键词冲突，记录一条警告日志，说明哪个关键词被哪个工作流覆盖了。
-                        logger.warning(
-                            f"关键词 '{kw}' 已映射到 '{self._keyword_map[kw_lower]}', "
-                            f"被 '{wf_name}' 覆盖"
-                        )
-                    # 将关键词（小写）映射到当前工作流名称，存入 _keyword_map 字典。
-                    self._keyword_map[kw_lower] = wf_name
-                    # 关键词注册计数器加 1。
-                    _added += 1
-
-                # 成功加载的工作流计数器加 1。
-                loaded += 1
-                # 记录一条 info 级别的日志，说明成功加载了哪个工作流以及注册了多少个关键词。
-                logger.debug(
-                    f"已加载 workflow [{wf_name}] {_added} 个关键词"
-                    f" ({wf_file.name})"
-                )
-            # 捕获 try 块中可能发生的任何异常（比如文件编码错误、YAML 解析错误等）。
-            except Exception as e:
-                # 记录一条错误日志，说明加载哪个文件失败了，以及具体的错误信息。
-                logger.error(f"加载 workflow 失败 {wf_file}: {e}")
-
-        # 记录一条 info 日志，总结 WorkflowRouter 的加载结果：
-        # 成功加载了多少个工作流，以及总共注册了多少个路由关键词。
         logger.info(
-            f"WorkflowRouter 就绪: {loaded} 个工作流, "
-            f"{len(self._keyword_map)} 个路由关键词"
+            f"WorkflowRouter 就绪: {len(self._workflows)} 个工作流"
         )
-
-    # ===== 解析路由规则的方法 =====
     def _parse_routing_rules(self, route_file: Path) -> dict[str, list[str]]:
         """解析 route.md 中 '## 路由规则' 区域的路由条目。
 

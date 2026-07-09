@@ -283,9 +283,7 @@ class RAGSystem:
         # 最终消息结构：[system 消息, 历史对话 1, 历史对话 2, ..., 当前用户问题]
 
         # —— 第三步：确定迭代次数上限 ——
-        # 优先使用 workflow 中定义的覆盖值，否则使用全局配置
-        max_iter_val = wf_config.get("max_tool_iter")  # 尝试从工作流配置中获取最大工具循环轮数
-        max_iter = int(max_iter_val) if max_iter_val is not None else conf.max_tool_iter  # 如果有覆盖值就用覆盖，否则用全局默认
+        max_iter = conf.max_tool_iter
 
         # —— 第四步：初始化 AgentState（工具循环的状态管理） ——
         state = AgentState(  # 创建 AgentState 实例，管理工具循环的状态

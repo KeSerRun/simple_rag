@@ -254,6 +254,9 @@ class RAGSystem:
         # 重置空响应和 length 恢复重试计数器
         self._empty_retries = 0
         self._length_retries = 0
+        # 重置重复外部查询计数（nanobot 模式）
+        from .tools import registry as _reg
+        _reg.reset_external_lookup_counts()
         logger.debug(f"收到用户查询: {query} (style={style})")
 
         # —— 第一步：组装 system message ——

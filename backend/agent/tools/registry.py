@@ -60,9 +60,13 @@ class ToolRegistry:
         "read_document_titles", "list_documents", "read_archive",
     }
 
+    # 重复外部查询拦截（nanobot 模式）
+    _MAX_REPEAT_EXTERNAL_LOOKUPS = 2
+
     def __init__(self):
         self._tools: dict[str, ToolDef] = {}
         self.call_counts: dict[str, int] = {}  # 各工具累计调用次数
+        self._external_lookup_counts: dict[str, int] = {}  # 重复查询计数（每轮重置）
 
     def register(
         self,
@@ -117,6 +121,21 @@ class ToolRegistry:
             batches.append([tc])
         return batches
 
+    def reset_external_lookup_counts(self):
+        """每轮请求开始时调用，重置重复查询计数。"""
+        self._external_lookup_counts.clear()
+
+    @staticmethod
+    def _external_lookup_signature(name: str, args: dict) -> str | None:
+        """生成外部查询的稳定签名，用于重复检测。"""
+        if name == "web_search":
+            q = (args.get("query") or "").strip()
+            return f"web_search:{q.lower()}" if q else None
+        if name == "read_url":
+            url = (args.get("url") or "").strip()
+            return f"read_url:{url.lower()}" if url else None
+        return None
+
     def dispatch(self, name: str, args_json: str, *, ctx: ToolContext) -> str:
         try:
             args = json.loads(args_json) if args_json else {}
@@ -134,6 +153,18 @@ class ToolRegistry:
         if error:
             logger.warning(f"工具 {name!r} 参数校验失败: {error}")
             return f"(工具 {name!r} 参数错误: {error})"
+
+        # 重复外部查询检测（nanobot 模式）
+        sig = self._external_lookup_signature(name, args)
+        if sig:
+            count = self._external_lookup_counts.get(sig, 0) + 1
+            self._external_lookup_counts[sig] = count
+            if count > self._MAX_REPEAT_EXTERNAL_LOOKUPS:
+                logger.warning(f"重复外部查询被拦截: {sig}")
+                return (
+                    f"(工具 {name} 调用被拦截：已使用完全相同参数查询 {count} 次。"
+                    f"请在已有结果中寻找答案，或使用不同的查询词重试。)"
+                )
 
         # 累计调用次数
         self.call_counts[name] = self.call_counts.get(name, 0) + 1

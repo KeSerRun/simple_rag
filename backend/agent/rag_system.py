@@ -27,7 +27,7 @@ from base.logger import logger        # 结构化日志
 # —— RAG 核心组件 ——  （RAG 系统的三个核心模块）
 from rag.vector_store import VectorStore  # 本地向量存储，用于语义搜索
 # VectorStore 负责把文本转成向量，并支持根据语义相似度搜索最相关的内容
-from rag.llm_client import OpenAIClient      # OpenAI 兼容的 API 客户端（流式 / 非流式）
+from base.llm_client import OpenAIClient      # OpenAI 兼容的 API 客户端（流式 / 非流式）
 # OpenAIClient 封装了调用 OpenAI 或兼容 API（如阿里云通义千问）的细节，支持流式和非流式两种模式
 
 # —— Agent 内部组件 ——  （Agent 自己的子模块）

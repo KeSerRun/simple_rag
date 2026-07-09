@@ -263,7 +263,7 @@ class IntegratedSystem:
             )
             # 使用已有的 LLM 客户端
             if not hasattr(self, '_summary_client'):
-                from rag.llm_client import OpenAIClient
+                from base.llm_client import OpenAIClient
                 self._summary_client = OpenAIClient(
                     api_key=conf.openai_api_key,
                     base_url=conf.openai_base_url,

@@ -110,7 +110,7 @@ class SubagentManager:
             from .tools import registry as reg
             from .tools.registry import ToolContext as TC
             from base.config import conf
-            from rag.llm_client import OpenAIClient
+            from base.llm_client import OpenAIClient
 
             client = OpenAIClient(
                 api_key=conf.openai_api_key,

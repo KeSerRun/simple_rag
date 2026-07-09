@@ -33,14 +33,14 @@ from typing import Optional
 # ===== 导入项目内部模块 =====
 # 从 base.config 模块中导入 conf 对象，conf 是项目的全局配置对象，里面保存了各种配置项（比如数据目录路径）
 from base.config import conf
-# 从 base.logger 模块中导入 logger 对象，logger 是用来记录日志的工具，可以输出信息到控制台或文件
 from base.logger import logger
+from .base import BaseStore
 
 
 # ===== 定义 SQLiteStore 类 =====
 # class 关键字用来定义一个类，SQLiteStore 是基于 SQLite 的持久化存储类
 # 它的接口设计得和 JSONFileStore 一模一样，方便替换使用
-class SQLiteStore:
+class SQLiteStore(BaseStore):
     """基于 SQLite 的持久化存储。
 
     文件结构:

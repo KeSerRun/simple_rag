@@ -44,6 +44,18 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  const configSchema = ref([])
+
+  async function fetchConfigSchema() {
+    try {
+      const res = await axios.get('/api/admin/config/schema')
+      configSchema.value = res.data
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+    }
+  }
+
   async function updateConfig(updates) {
     loading.value = true
     error.value = null
@@ -407,7 +419,7 @@ export const useAdminStore = defineStore('admin', () => {
     // dashboard
     dashboardData, fetchDashboard,
     // config
-    configData, fetchConfig, updateConfig,
+    configData, configSchema, fetchConfig, fetchConfigSchema, updateConfig,
     // users
     usersData, fetchUsers, createUser, deleteUser, changeUserRole, resetUserPassword,
     // logs

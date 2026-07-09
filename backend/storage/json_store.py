@@ -26,15 +26,14 @@ from datetime import datetime
 # ===== 导入项目内部模块 =====
 
 from base.config import conf
-# 从项目的基础配置模块 base.config 中导入 conf 对象。
-# conf 是项目的全局配置，包含了 data_dir（数据存储目录路径）等配置项。
-
 from base.logger import logger
+from .base import BaseStore
 # 从项目的基础日志模块 base.logger 中导入 logger 对象。
 # logger 用于记录日志信息，方便开发者调试和追踪程序运行状态。
 
 
-class JSONFileStore:
+class JSONFileStore(BaseStore):
+    # ================================================================
     # ================================================================
     # 类定义：JSONFileStore —— 基于 JSON 文件的持久化存储
     #

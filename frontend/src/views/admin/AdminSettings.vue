@@ -10,159 +10,27 @@
     </div>
 
     <template v-else-if="store.configData">
-      <n-card title="LLM / API 配置" :bordered="true" size="small" style="margin-bottom: 16px">
+      <n-card v-for="group in groups" :key="group" :title="group" :bordered="true" size="small" style="margin-bottom: 16px">
         <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="Chat 模型">
-            <n-input v-model:value="form.chat_model" />
+          <n-form-item v-for="field in fieldsByGroup(group)" :key="field.key" :label="field.label">
+            <!-- 字符串输入 -->
+            <n-input v-if="field.type === 'string'" v-model:value="form[field.key]" :placeholder="field.placeholder || ''" />
+            <!-- 密码输入 -->
+            <n-input v-else-if="field.type === 'password'" v-model:value="form[field.key]" type="password" show-password-on="click" :placeholder="field.placeholder || ''" />
+            <!-- 多行文本 -->
+            <n-input v-else-if="field.textarea" v-model:value="form[field.key]" type="textarea" :rows="3" :placeholder="field.placeholder || ''" />
+            <!-- 整数 -->
+            <n-input-number v-else-if="field.type === 'int'" v-model:value="form[field.key]" :min="field.min" :max="field.max" style="width:140px" />
+            <!-- 开关 -->
+            <n-switch v-else-if="field.type === 'bool'" v-model:value="form[field.key]" />
+            <!-- 下拉选择 -->
+            <n-select v-else-if="field.type === 'select'" v-model:value="form[field.key]" :options="field.options" style="width:200px" clearable />
           </n-form-item>
-          <n-form-item label="Chat Base URL">
-            <n-input v-model:value="form.openai_base_url" placeholder="https://api.openai.com/v1" />
-          </n-form-item>
-          <n-form-item label="Chat API Key">
-            <n-input v-model:value="form.openai_api_key" type="password" show-password-on="click" />
-          </n-form-item>
-          <n-form-item label="推理力度">
-            <n-select v-model:value="form.chat_reasoning_effort" :options="reasoningOptions" style="width:140px" clearable />
-          </n-form-item>
-          <n-form-item label="Embedding 模型">
-            <n-input v-model:value="form.openai_embedding_model" />
-          </n-form-item>
-          <n-form-item label="Embedding Base URL">
-            <n-input v-model:value="form.embedding_base_url" placeholder="https://api.openai.com/v1" />
-          </n-form-item>
-          <n-form-item label="Embedding API Key">
-            <n-input v-model:value="form.embedding_api_key" type="password" show-password-on="click" placeholder="留空则复用 Chat API Key" />
-          </n-form-item>
-          <n-form-item label="Embedding 维度">
-            <n-input-number v-model:value="form.openai_embedding_dim" :min="64" :max="4096" style="width:140px" />
-          </n-form-item>
-          <n-form-item label="超时时间(秒)">
-            <n-input-number v-model:value="form.openai_timeout" :min="5" :max="300" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="最大重试次数">
-            <n-input-number v-model:value="form.openai_max_retries" :min="0" :max="10" style="width:100px" />
-          </n-form-item>
-        </n-form>
-      </n-card>
-
-      <n-card title="MinerU PDF 解析" :bordered="true" size="small" style="margin-bottom: 16px">
-        <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="API Base URL">
-            <n-input v-model:value="form.mineru_base_url" />
-          </n-form-item>
-          <n-form-item label="API Key">
-            <n-input v-model:value="form.mineru_api_key" type="password" show-password-on="click" />
-          </n-form-item>
-          <n-form-item label="Token 名称">
-            <n-input v-model:value="form.mineru_token_name" />
-          </n-form-item>
-          <n-form-item label="模型版本">
-            <n-select v-model:value="form.mineru_model_version" :options="mineruModelOptions" style="width:140px" />
-          </n-form-item>
-          <n-form-item label="语言">
-            <n-input v-model:value="form.mineru_language" style="width:120px" />
-          </n-form-item>
-        </n-form>
-      </n-card>
-
-      <n-card title="检索配置" :bordered="true" size="small" style="margin-bottom: 16px">
-        <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="检索 Top-K">
-            <n-input-number v-model:value="form.retrieval_top_k" :min="1" :max="100" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="候选 Top-K">
-            <n-input-number v-model:value="form.candidate_top_k" :min="1" :max="50" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="LLM Rerank">
-            <n-switch v-model:value="form.enable_llm_rerank" />
-          </n-form-item>
-          <n-form-item label="文本停用词">
-            <n-input v-model:value="form.stop_words" placeholder="用逗号分隔" type="textarea" :rows="3" />
-          </n-form-item>
-        </n-form>
-      </n-card>
-
-      <n-card title="Agent 配置" :bordered="true" size="small" style="margin-bottom: 16px">
-        <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="最大工具迭代次数">
-            <n-input-number v-model:value="form.max_tool_iter" :min="1" :max="30" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="单个工具最大调用次数">
-            <n-input-number v-model:value="form.max_calls_per_tool" :min="1" :max="10" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="最大输出 Token">
-            <n-input-number v-model:value="form.max_output_tokens" :min="512" :max="65536" :step="1024" style="width:140px" />
-          </n-form-item>
-          <n-form-item label="PDF 解析并发数">
-            <n-input-number v-model:value="form.parse_workers" :min="1" :max="8" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="工具调用并发数">
-            <n-input-number v-model:value="form.tool_call_workers" :min="1" :max="16" style="width:120px" />
-          </n-form-item>
-        </n-form>
-      </n-card>
-
-      <n-card title="联网搜索配置" :bordered="true" size="small" style="margin-bottom: 16px">
-        <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="搜索后端">
-            <n-select v-model:value="form.search_backend" :options="searchBackendOptions" style="width:160px" />
-          </n-form-item>
-          <n-form-item v-if="form.search_backend === 'searxng'" label="SearXNG 地址">
-            <n-input v-model:value="form.searxng_url" placeholder="仅 backend=searxng 时使用" />
-          </n-form-item>
-          <n-form-item v-if="form.search_backend === 'bocha'" label="博查 API Key">
-            <n-input v-model:value="form.bocha_api_key" type="password" show-password-on="click" placeholder="backend=bocha 时必填" />
-          </n-form-item>
-          <n-form-item v-if="form.search_backend === 'bing'" label="Bing API Key">
-            <n-input v-model:value="form.bing_api_key" type="password" show-password-on="click" placeholder="backend=bing 时必填" />
-          </n-form-item>
-          <n-form-item label="搜索超时(秒)">
-            <n-input-number v-model:value="form.search_timeout" :min="5" :max="60" style="width:120px" />
-          </n-form-item>
-        </n-form>
-      </n-card>
-
-      <n-card title="对话历史配置" :bordered="true" size="small" style="margin-bottom: 16px">
-        <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="最大保留轮次">
-            <n-input-number v-model:value="form.max_history_length" :min="10" :max="1000" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="最大字符数">
-            <n-input-number v-model:value="form.max_history_chars" :min="1000" :max="500000" style="width:140px" />
-          </n-form-item>
-        </n-form>
-      </n-card>
-
-      <n-card title="日志配置" :bordered="true" size="small" style="margin-bottom: 16px">
-        <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="应用日志级别">
-            <n-select v-model:value="form.app_log_level" :options="logLevelOptions" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="HTTP 日志级别">
-            <n-select v-model:value="form.http_log_level" :options="logLevelOptions" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="用户日志级别">
-            <n-select v-model:value="form.user_log_level" :options="logLevelOptions" style="width:120px" />
-          </n-form-item>
-          <n-form-item label="控制台日志级别">
-            <n-select v-model:value="form.console_log_level" :options="logLevelOptions" style="width:120px" />
-          </n-form-item>
-        </n-form>
-      </n-card>
-
-      <n-card title="上传限制" :bordered="true" size="small" style="margin-bottom: 16px">
-        <n-form label-placement="left" label-width="160" size="small">
-          <n-form-item label="用户存储上限(MB)">
-            <n-input-number v-model:value="form.max_user_storage_mb" :min="0" :max="10000" style="width:140px" />
-          </n-form-item>
-          <n-text depth="3" style="font-size: 12px">0 表示不限制，管理员不受此限制</n-text>
         </n-form>
       </n-card>
 
       <n-space style="margin-top: 20px">
-        <n-button type="primary" :loading="store.loading" @click="handleSave">
-          保存设置
-        </n-button>
+        <n-button type="primary" :loading="store.loading" @click="handleSave">保存设置</n-button>
         <n-button @click="handleReset">重置</n-button>
       </n-space>
     </template>
@@ -176,7 +44,7 @@
 </template>
 
 <script setup>
-import { reactive, onMounted } from 'vue'
+import { computed, reactive, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useAdminStore } from '@/stores/admin'
 import {
@@ -187,83 +55,34 @@ import {
 const store = useAdminStore()
 const message = useMessage()
 
-const form = reactive({
-  chat_model: '',
-  openai_base_url: '',
-  openai_api_key: '',
-  chat_reasoning_effort: null,
-  openai_embedding_model: '',
-  embedding_base_url: '',
-  embedding_api_key: '',
-  openai_embedding_dim: 1024,
-  openai_timeout: 60,
-  openai_max_retries: 3,
-  mineru_base_url: '',
-  mineru_api_key: '',
-  mineru_token_name: 'default',
-  mineru_model_version: 'vlm',
-  mineru_language: 'ch',
-  retrieval_top_k: 20,
-  candidate_top_k: 5,
-  enable_llm_rerank: false,
-  stop_words: '',
-  max_tool_iter: 8,
-  max_calls_per_tool: 3,
-  max_output_tokens: 8192,
-  parse_workers: 3,
-  tool_call_workers: 4,
-  search_backend: 'duckduckgo',
-  searxng_url: '',
-  bocha_api_key: '',
-  bing_api_key: '',
-  search_timeout: 15,
-  max_history_length: 200,
-  max_history_chars: 100000,
-  app_log_level: 'INFO',
-  http_log_level: 'INFO',
-  user_log_level: 'INFO',
-  console_log_level: 'DEBUG',
-  max_user_storage_mb: 10,
+const form = reactive({})
+
+const groups = computed(() => {
+  const gs = new Set()
+  for (const f of store.configSchema) {
+    if (f.group) gs.add(f.group)
+  }
+  return [...gs]
 })
 
-const logLevelOptions = [
-  { label: 'DEBUG', value: 'DEBUG' },
-  { label: 'INFO', value: 'INFO' },
-  { label: 'WARNING', value: 'WARNING' },
-  { label: 'ERROR', value: 'ERROR' },
-]
-
-const reasoningOptions = [
-  { label: '不指定', value: null },
-  { label: 'low', value: 'low' },
-  { label: 'medium', value: 'medium' },
-  { label: 'high', value: 'high' },
-]
-
-const mineruModelOptions = [
-  { label: 'vlm', value: 'vlm' },
-  { label: 'lite', value: 'lite' },
-]
-
-const searchBackendOptions = [
-  { label: 'DuckDuckGo', value: 'duckduckgo' },
-  { label: 'SearXNG', value: 'searxng' },
-  { label: '博查 AI', value: 'bocha' },
-  { label: 'Bing', value: 'bing' },
-]
+function fieldsByGroup(group) {
+  return store.configSchema.filter(f => f.group === group)
+}
 
 function applyConfig(data) {
   if (!data) return
-  const fields = Object.keys(form)
-  for (const key of fields) {
+  for (const field of store.configSchema) {
+    const key = field.key
     if (key in data) {
       form[key] = data[key]
     }
   }
 }
 
-function loadData() {
-  store.fetchConfig().then(data => applyConfig(data))
+async function loadData() {
+  await store.fetchConfigSchema()
+  const data = await store.fetchConfig()
+  applyConfig(data)
 }
 
 function handleSave() {
@@ -287,7 +106,6 @@ onMounted(() => {
 .settings-page {
   max-width: 1200px;
 }
-
 .loading-center {
   display: flex;
   justify-content: center;

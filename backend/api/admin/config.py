@@ -4,30 +4,86 @@
 
 # ===== 导入依赖模块 =====
 
-# 从当前包的 __init__.py 中导入 router 对象，这个 router 是 APIRouter 的实例
-# 用于注册路由（URL 路径和处理函数的映射关系）
 from . import router
-
-# 从当前包的 __init__.py 中导入两个工具函数：
-# _get_config_dict：把 config.ini 文件读取出来，返回一个字典（Python 的键值对结构）
-# _write_config_ini：把前端传过来的配置数据写回到 config.ini 文件中
 from . import _get_config_dict, _write_config_ini
-
-# 从上级目录的 deps.py 文件中导入两个装饰器函数
-# admin_required：检查当前登录用户是不是管理员，不是就拒绝访问
-# auth_required：检查当前请求有没有登录认证，没登录就拒绝访问
 from ..deps import admin_required, auth_required
-
-# 从 base/logger.py 中导入日志记录器 logger，用于在控制台或日志文件中记录程序运行信息
 from base.logger import logger
-
-# 从 FastAPI 框架中导入 HTTPException 和 Request 两个类
-# HTTPException：用于主动抛出 HTTP 错误响应（比如 400 参数错误、500 服务器错误）
-# Request：代表客户端发来的 HTTP 请求，可以从中获取请求体、请求头等信息
 from fastapi import HTTPException, Request
-
-# 从 FastAPI 的响应模块中导入 JSONResponse，用于返回标准的 JSON 格式响应给前端
 from fastapi.responses import JSONResponse
+
+
+# ===== 配置项 schema 定义 =====
+# 新增配置项时只需在此列表加一行，前端会自动渲染
+_CONFIG_SCHEMA = [
+    # ── LLM / API ──
+    {"key": "chat_model", "label": "Chat 模型", "group": "LLM / API", "type": "string"},
+    {"key": "openai_base_url", "label": "Chat Base URL", "group": "LLM / API", "type": "string"},
+    {"key": "openai_api_key", "label": "Chat API Key", "group": "LLM / API", "type": "password"},
+    {"key": "chat_reasoning_effort", "label": "推理力度", "group": "LLM / API", "type": "select",
+     "options": [{"label": "不指定", "value": None}, {"label": "low", "value": "low"}, {"label": "medium", "value": "medium"}, {"label": "high", "value": "high"}]},
+    {"key": "openai_embedding_model", "label": "Embedding 模型", "group": "LLM / API", "type": "string"},
+    {"key": "embedding_base_url", "label": "Embedding Base URL", "group": "LLM / API", "type": "string"},
+    {"key": "embedding_api_key", "label": "Embedding API Key", "group": "LLM / API", "type": "password",
+     "placeholder": "留空则复用 Chat API Key"},
+    {"key": "openai_embedding_dim", "label": "Embedding 维度", "group": "LLM / API", "type": "int", "min": 64, "max": 4096},
+    {"key": "openai_timeout", "label": "超时时间(秒)", "group": "LLM / API", "type": "int", "min": 5, "max": 300},
+    {"key": "openai_max_retries", "label": "最大重试次数", "group": "LLM / API", "type": "int", "min": 0, "max": 10},
+
+    # ── MinerU ──
+    {"key": "mineru_base_url", "label": "API Base URL", "group": "MinerU PDF 解析", "type": "string"},
+    {"key": "mineru_api_key", "label": "API Key", "group": "MinerU PDF 解析", "type": "password"},
+    {"key": "mineru_token_name", "label": "Token 名称", "group": "MinerU PDF 解析", "type": "string"},
+    {"key": "mineru_model_version", "label": "模型版本", "group": "MinerU PDF 解析", "type": "select",
+     "options": [{"label": "vlm", "value": "vlm"}, {"label": "lite", "value": "lite"}]},
+    {"key": "mineru_language", "label": "语言", "group": "MinerU PDF 解析", "type": "string"},
+
+    # ── 检索 ──
+    {"key": "retrieval_top_k", "label": "检索 Top-K", "group": "检索配置", "type": "int", "min": 1, "max": 100},
+    {"key": "candidate_top_k", "label": "候选 Top-K", "group": "检索配置", "type": "int", "min": 1, "max": 50},
+    {"key": "enable_llm_rerank", "label": "LLM Rerank", "group": "检索配置", "type": "bool"},
+    {"key": "stop_words", "label": "文本停用词", "group": "检索配置", "type": "string", "textarea": True, "placeholder": "用逗号分隔"},
+
+    # ── Agent ──
+    {"key": "max_tool_iter", "label": "最大工具迭代次数", "group": "Agent 配置", "type": "int", "min": 1, "max": 30},
+    {"key": "max_calls_per_tool", "label": "单个工具最大调用次数", "group": "Agent 配置", "type": "int", "min": 1, "max": 10},
+    {"key": "max_output_tokens", "label": "最大输出 Token", "group": "Agent 配置", "type": "int", "min": 512, "max": 65536},
+    {"key": "parse_workers", "label": "PDF 解析并发数", "group": "Agent 配置", "type": "int", "min": 1, "max": 8},
+    {"key": "tool_call_workers", "label": "工具调用并发数", "group": "Agent 配置", "type": "int", "min": 1, "max": 16},
+
+    # ── 搜索 ──
+    {"key": "search_backend", "label": "搜索后端", "group": "联网搜索配置", "type": "select",
+     "options": [{"label": "DuckDuckGo", "value": "duckduckgo"}, {"label": "SearXNG", "value": "searxng"}, {"label": "博查 AI", "value": "bocha"}, {"label": "Bing", "value": "bing"}]},
+    {"key": "searxng_url", "label": "SearXNG 地址", "group": "联网搜索配置", "type": "string", "placeholder": "仅后端=searxng 时使用"},
+    {"key": "bocha_api_key", "label": "博查 API Key", "group": "联网搜索配置", "type": "password"},
+    {"key": "bing_api_key", "label": "Bing API Key", "group": "联网搜索配置", "type": "password"},
+    {"key": "search_timeout", "label": "搜索超时(秒)", "group": "联网搜索配置", "type": "int", "min": 5, "max": 60},
+
+    # ── 对话历史 ──
+    {"key": "max_history_length", "label": "最大保留轮次", "group": "对话历史配置", "type": "int", "min": 10, "max": 1000},
+    {"key": "max_history_chars", "label": "最大字符数", "group": "对话历史配置", "type": "int", "min": 1000, "max": 500000},
+
+    # ── 日志 ──
+    {"key": "app_log_level", "label": "应用日志级别", "group": "日志配置", "type": "select",
+     "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
+    {"key": "http_log_level", "label": "HTTP 日志级别", "group": "日志配置", "type": "select",
+     "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
+    {"key": "user_log_level", "label": "用户日志级别", "group": "日志配置", "type": "select",
+     "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
+    {"key": "console_log_level", "label": "控制台日志级别", "group": "日志配置", "type": "select",
+     "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
+
+    # ── 上传 ──
+    {"key": "max_user_storage_mb", "label": "用户存储上限(MB)", "group": "上传限制", "type": "int", "min": 0, "max": 10000},
+]
+
+
+# ===== API: 获取配置 schema =====
+@router.get("/config/schema")
+@auth_required
+@admin_required
+async def get_config_schema(request: Request):
+    """返回配置项 schema，前端据此动态渲染表单"""
+    return JSONResponse(content=_CONFIG_SCHEMA)
 
 
 # ===== 获取配置的 API 接口 =====

@@ -222,6 +222,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         _exec_spawn_subagent,
         _exec_set_goal,
         _exec_complete_goal,
+        _exec_my,
     )
 
     # --- ask_user_for_clarification（虚拟工具） ---
@@ -306,6 +307,33 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": [],
         },
         handler=_exec_complete_goal,
+        source=__name__,
+    )
+
+    # --- my（内省工具） ---
+    reg.register(
+        name="my",
+        description=(
+            "查看当前会话的运行时状态和配置。"
+            "调用 my(action='check') 获取完整状态概览，"
+            "或 my(action='check', key='model') 查看特定配置。"
+            "支持的关键词: model, max_iterations, context_window, max_tokens, retrieval_top_k"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "要执行的操作。目前仅支持 check。",
+                },
+                "key": {
+                    "type": "string",
+                    "description": "要查看的配置项关键词。不传则显示全部。",
+                },
+            },
+            "required": ["action"],
+        },
+        handler=_exec_my,
         source=__name__,
     )
 

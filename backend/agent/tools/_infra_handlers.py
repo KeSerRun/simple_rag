@@ -77,3 +77,51 @@ def _exec_complete_goal(args: dict, ctx: ToolContext) -> str:
     """完成当前目标。"""
     _complete_goal(ctx.session_id or "")
     return "(当前目标已完成)"
+
+
+# ===== my（内省工具，类比 nanobot MyTool） =====
+def _exec_my(args: dict, ctx: ToolContext) -> str:
+    """查看当前会话的运行时状态和配置。"""
+    action = args.get("action", "check")
+    key = args.get("key", "")
+
+    from base.config import conf
+    from . import registry
+
+    if action == "check" and not key:
+        lines = ["=== 当前状态 ==="]
+        lines.append(f"模型: {conf.chat_model}")
+        lines.append(f"最大迭代: {conf.max_tool_iter}")
+        lines.append(f"上下文窗口: {conf.context_window_tokens}")
+        lines.append(f"输出 Token 上限: {conf.max_output_tokens}")
+        lines.append(f"检索 Top-K: {conf.retrieval_top_k}")
+        lines.append(f"搜索后端: {conf.search_backend}")
+        lines.append("")
+
+        counts = dict(registry.call_counts)
+        if counts:
+            lines.append("=== 工具调用统计 ===")
+            for name, cnt in sorted(counts.items(), key=lambda x: -x[1]):
+                lines.append(f"  {name}: {cnt}")
+
+        goal = _get_goal_line(ctx.session_id or "")
+        if goal:
+            lines.append("")
+            lines.append(f"目标: {goal.strip()}")
+
+        return "\\n".join(lines)
+
+    elif action == "check" and key:
+        key_map = {
+            "model": ("chat_model", conf.chat_model),
+            "max_iterations": ("max_tool_iter", conf.max_tool_iter),
+            "context_window": ("context_window_tokens", conf.context_window_tokens),
+            "max_tokens": ("max_output_tokens", conf.max_output_tokens),
+            "retrieval_top_k": ("retrieval_top_k", conf.retrieval_top_k),
+        }
+        if key in key_map:
+            name, val = key_map[key]
+            return f"{name}: {val}"
+        return f"(未知配置: {key})"
+
+    return "(未知 action)"

@@ -7,8 +7,9 @@ from .tools import registry, TOOL_SCHEMAS, execute_tool
 from .workflow_router import WorkflowRouter
 from .bus import MessageBus, bus as agent_bus
 from .state_machine import StateMachine, StateContext, TurnState
-from .checkpoint import CheckpointStore, Checkpoint
+from .checkpoint import CheckpointStore, Checkpoint, restore_messages
 from .subagent import SubagentManager
+from .agent_loop import AgentLoop, SessionManager
 
 __all__ = [
     "RAGSystem", "IntegratedSystem",
@@ -18,6 +19,7 @@ __all__ = [
     "WorkflowRouter",
     "MessageBus", "agent_bus",
     "StateMachine", "StateContext", "TurnState",
-    "CheckpointStore", "Checkpoint",
+    "CheckpointStore", "Checkpoint", "restore_messages",
     "SubagentManager",
+    "AgentLoop", "SessionManager",
 ]

@@ -123,6 +123,9 @@ async def cancel_query(request: Request):
         if not session_id:
             raise HTTPException(status_code=400, detail="Missing session_id")
         system.cancel_generation(session_id)
+        # 同时通知 AgentLoop 会话管理器
+        if hasattr(system, 'session_manager'):
+            system.session_manager.cancel_session(session_id)
         return JSONResponse(content={"message": "已发送中断信号"})
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON format")

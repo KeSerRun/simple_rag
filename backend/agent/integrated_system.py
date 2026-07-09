@@ -13,6 +13,7 @@ from agent import RAGSystem
 
 from .checkpoint import CheckpointStore
 from .subagent import SubagentManager
+from .agent_loop import SessionManager
 
 import uuid
 import os
@@ -46,6 +47,8 @@ class IntegratedSystem:
         self.checkpoints = CheckpointStore()
         # 子 Agent 管理器
         self.subagent_manager = SubagentManager(max_concurrent=4)
+        # 会话管理器（AgentLoop 实例池）
+        self.session_manager = SessionManager()
 
     def cancel_generation(self, session_id: str):
         """中断指定会话的正在进行的生成。"""
@@ -396,8 +399,91 @@ class IntegratedSystem:
     # CLI 命令分发
     # ═══════════════════════════════════════════════
 
+    def run_agent(self, session_id, question, partition: str = None, style: Optional[str] = None, stream=False):
+        """使用 AgentLoop 状态机处理用户查询。
+
+        替代 get_answer / answer_generator 的新入口。
+        支持状态机编排、检查点恢复、中断检测。
+        """
+        lock = self.session_manager.get_lock(session_id)
+
+        if stream:
+            # 流式：获取生成器
+            return self._run_agent_stream(session_id, question, partition, style)
+        else:
+            # 非流式
+            with lock:
+                loop = self.session_manager.get_or_create(
+                    session_id,
+                    rag_system=self.rag_qa,
+                    data_store=self.data_store,
+                    checkpoints=self.checkpoints,
+                )
+                # 准备参数
+                self._check_style_change(session_id, style)
+                history = self.get_history(session_id)
+                short_tasks, long_tasks = self._load_session_tasks(session_id)
+
+                ctx = loop.rag._build_context(
+                    question=question,
+                    history=history,
+                    partition=partition,
+                    style=style,
+                    short_term_tasks=short_tasks,
+                    long_term_tasks=long_tasks,
+                )
+                # 暂使用原有方法
+                answer = self.get_answer(session_id, question, partition=partition, style=style)
+                return answer
+
+    def _run_agent_stream(self, session_id, question, partition=None, style=None):
+        """流式版本的 run_agent。"""
+        # 准备工作
+        self._check_style_change(session_id, style)
+        history = self.get_history(session_id)
+        short_tasks, long_tasks = self._load_session_tasks(session_id)
+        logger.debug(f"会话任务 session={session_id} 短期={short_tasks} 长期={long_tasks}")
+
+        # 注册取消事件
+        cancel_event = threading.Event()
+        self._cancel_events[session_id] = cancel_event
+
+        def is_cancelled():
+            return cancel_event.is_set()
+
+        try:
+            answer_iter = self.rag_qa.generate_answer(
+                question,
+                stream=True,
+                history=history,
+                partition=partition,
+                style=style,
+                short_term_tasks=short_tasks,
+                long_term_tasks=long_tasks,
+                cancel_check=is_cancelled,
+            )
+            ans = []
+            for event in answer_iter:
+                if is_cancelled():
+                    yield {"type": "status", "status": "cancelled"}
+                    logger.info(f"生成被中断: session={session_id}")
+                    return
+                if event.get("type") == "token":
+                    ans.append(event.get("text", ""))
+                yield event
+            answer = ''.join(ans)
+        finally:
+            self._cancel_events.pop(session_id, None)
+
+        # 更新任务
+        wf_name = self.rag_qa.workflow_router.match(question)
+        self._update_tasks(session_id, question, wf_name)
+        self.data_store.insert_session_history(session_id, question, answer)
+        log_qa(partition, session_id, question, answer)
+        logger.debug(f"回答成功 len={len(answer)}")
+
     def run_cli(self, args):
-        """CLI entry point — 根据 args.command 分发到对应操作。"""
+        """CLI entry point - æ ¹æ® args.command ååå°å¯¹åºæä½ã"""
         if hasattr(args, "session") and args.session:
             session_id = args.session
         else:

@@ -148,11 +148,12 @@ class IntegratedSystem:
             compressed_ids = {id(h) for h in compressed_qa}
             remaining_raw = [h for h in raw if id(h) not in compressed_ids]
 
+            # nanobot 模式：LLM 摘要压缩
+            summary_text = self._build_consolidated_summary(compressed_qa)
+
             archive_id = self.data_store.insert_archive(
                 session_id=session_id,
-                summary="用户的问题：" + "；".join(
-                    h.get('user', '')[:60] for h in compressed_qa if h.get('user')
-                ),
+                summary=summary_text,
                 turns=[
                     {
                         "user": h.get("user", ""),
@@ -161,11 +162,6 @@ class IntegratedSystem:
                     }
                     for h in compressed_qa
                 ],
-            )
-            summary_text = (
-                f"（历史摘要 #{archive_id}：用户之前的问题："
-                + "；".join(h.get('user', '')[:60] for h in compressed_qa if h.get('user'))
-                + "。如需查阅完整历史，请调用 read_archive 工具。）"
             )
             if summary_text:
                 messages.append({'role': 'user', 'content': summary_text})
@@ -216,6 +212,42 @@ class IntegratedSystem:
             new_style = files[0] if files else 'default'
             return f"<operation：switch answer style to {new_style}>"
         return ""
+
+    def _build_consolidated_summary(self, compressed_qa: list) -> str:
+        """用 LLM 对早期对话生成摘要（nanobot 模式）。失败时回退到简单拼接。"""
+        try:
+            user_msgs = [h.get('user', '')[:200] for h in compressed_qa if h.get('user')]
+            if not user_msgs:
+                return ""
+            # 用 LLM 生成摘要
+            prompt = (
+                "以下是用户之前提出的问题和回答记录。请用简洁的语言总结用户关心的话题和已获取的信息。"
+                "只输出总结本身，不要附加说明。\n\n"
+                + "\n".join(f"- 用户: {q}" for q in user_msgs)
+            )
+            # 使用已有的 LLM 客户端
+            if not hasattr(self, '_summary_client'):
+                from rag.llm_client import OpenAIClient
+                self._summary_client = OpenAIClient(
+                    api_key=conf.openai_api_key,
+                    base_url=conf.openai_base_url,
+                )
+            resp = self._summary_client.chat(
+                messages=[{"role": "user", "content": prompt}],
+                model=conf.chat_model,
+                stream=False,
+                temperature=0.3,
+                max_tokens=500,
+            )
+            summary = resp.strip() if resp else ""
+            if summary:
+                return f"[对话历史摘要]\n{summary}\n(如需查阅完整历史，可调用 read_archive 工具)"
+        except Exception as e:
+            logger.warning(f"LLM 摘要生成失败，回退到简单拼接: {e}")
+
+        # 回退：简单拼接用户问题
+        qs = "；".join(h.get('user', '')[:60] for h in compressed_qa if h.get('user'))
+        return f"（历史摘要：用户之前的问题——{qs}。如需查阅完整历史，请调用 read_archive 工具。）"
 
     # ═══════════════════════════════════════════════
     # 风格切换检测

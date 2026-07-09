@@ -16,7 +16,7 @@ AgentState 封装了循环中的 messages / 轮次 / 上下文参数。  # Agent
 # ===== 标准库导入 =====
 import os  # 导入操作系统模块，用于文件路径操作（拼接路径、获取目录等）
 
-from typing import List, Optional  # 导入类型注解：List 表示列表类型，Optional 表示可选类型（可能为 None）
+from typing import Callable, List, Optional
 
 # —— 配置与日志 ——  （这两个是项目自己的基础模块）
 from base.config import conf          # 全局配置（模型名、超时、token 限制等）
@@ -29,15 +29,13 @@ from rag.vector_store import VectorStore  # 本地向量存储，用于语义搜
 # VectorStore 负责把文本转成向量，并支持根据语义相似度搜索最相关的内容
 from rag.llm_client import OpenAIClient      # OpenAI 兼容的 API 客户端（流式 / 非流式）
 # OpenAIClient 封装了调用 OpenAI 或兼容 API（如阿里云通义千问）的细节，支持流式和非流式两种模式
-from rag.llm_client import LLMReranker            # LLM Listwise Reranker（对检索结果重排序）
-# LLMReranker 使用大模型对检索到的结果进行二次排序，把最相关的内容排到最前面
 
 # —— Agent 内部组件 ——  （Agent 自己的子模块）
 from .context_builder import ContextBuilder  # 从 prompts 目录加载 identity / 风格模板
 # ContextBuilder 负责从 prompts 文件夹读取"AI 身份设定"和"回答风格模板"
 from .state import AgentState                # 工具循环的状态机（迭代计数、消息列表、工具调用记录）
 # AgentState 负责管理 tool loop 的状态，包括已经轮了多少次、消息列表、调用了哪些工具等
-from .registry import ToolContext            # 工具执行时的上下文（向量库、分区、数据存储）
+from .tools.registry import ToolContext            # 工具执行时的上下文（向量库、分区、数据存储）
 # ToolContext 是执行工具时传给工具的上下文对象，包含向量库、知识库分区、数据存储等信息
 from .tools import registry                  # 全局工具注册表，管理所有可用工具的 schema 和 dispatch
 # registry 是一个全局的工具注册表，记录了所有可用的工具（如搜索知识库、网络搜索等）
@@ -178,14 +176,6 @@ class RAGSystem:
             os.path.join(_BACKEND_ROOT, "prompts")  # 传入 prompts 目录路径，路由器会扫描目录下的 workflow 配置
         )
 
-        # —— LLM Listwise Reranker：对检索结果做相关性重排序 ——
-        # 如果配置开启，检索后的 chunks 会经过一次 LLM 排序，保留最相关的 Top-K 片段
-        self.reranker = LLMReranker(  # 创建 LLM 重排序器
-            client=self.client,       # 传入 LLM 客户端，用大模型来排序
-            model=self.chat_model,    # 传入模型名称，指定用哪个模型来做排序
-            enable=conf.enable_llm_rerank,  # 是否启用重排序，从配置文件读取
-        )
-
         logger.info(  # 打印 RAG 系统初始化完成的日志
             f"RAG agent 就绪, chat_model={self.chat_model}, "  # 打印当前使用的对话模型
             f"工具={[t['function']['name'] for t in registry.schemas]}"  # 列出所有已注册的工具名称
@@ -250,27 +240,31 @@ class RAGSystem:
 
     # ===== 生成答案的顶层入口方法 =====
     def generate_answer(
-        self, query,            # 用户当前的问题文本
-        force_retrieve: bool = False,  # 是否强制 LLM 必须调用检索工具（用于"必须查资料"的场景）
-        stream=False,           # 是否启用流式输出（True 的话逐字返回，适合前端实时展示）
-        history: list = None,   # 历史对话列表，用于多轮对话
-        partition: str = None,  # 知识库分区名称（用于多租户/多知识库场景，如 "finance"、"tech"）
-        style: Optional[str] = None,  # 回答风格模板名称，如 "concise"、"detailed"、"friendly"
-        short_term_tasks: Optional[List[str]] = None,  # 短期任务列表
-        long_term_tasks: Optional[List[str]] = None,   # 长期任务列表
+        self, query,
+        force_retrieve: bool = False,
+        stream=False,
+        history: list = None,
+        partition: str = None,
+        style: Optional[str] = None,
+        short_term_tasks: Optional[List[str]] = None,
+        long_term_tasks: Optional[List[str]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ):
         """生成答案的顶层入口。
 
         参数:
           query           : 用户当前问题
-          force_retrieve  : 是否强制 LLM 必须调用检索工具（用于"必须查资料"的场景）
+          force_retrieve  : 是否强制 LLM 必须调用检索工具
           stream          : 是否启用流式输出
           history         : 历史对话列表
-          partition       : 知识库分区（用于多租户/多知识库场景）
+          partition       : 知识库分区
           style           : 回答风格模板名称
           short_term_tasks: 本次会话的短期任务列表
           long_term_tasks : 跨会话的长期任务列表
+          cancel_check    : 可选的中断检测函数，返回 True 时中断生成
         """
+        # 每次对话前检查 config.ini 是否被修改，自动热重载（hash 比对，无 I/O 开销）
+        conf.reload_if_changed()
         logger.debug(f"收到用户查询: {query} (style={style})")
 
         # —— 第一步：组装 system message ——
@@ -322,11 +316,10 @@ class RAGSystem:
         )
 
         # —— 第五步：分发到流式或非流式执行路径 ——
-        if stream:  # 如果用户要求流式输出
-            return self._run_tool_loop_stream(state, force_retrieve)  # 进入流式工具循环，返回一个生成器（yield 逐字输出）
+        if stream:
+            return self._run_tool_loop_stream(state, force_retrieve, cancel_check=cancel_check)
 
-        # 非流式：直接返回 tool loop 生成的最终答案
-        return self._run_tool_loop(state, force_retrieve)  # 进入非流式工具循环，直接返回最终答案文本
+        return self._run_tool_loop(state, force_retrieve)
 
     # ─── 上下文裁剪 ───────────────────────────
 
@@ -454,7 +447,6 @@ class RAGSystem:
                             vector_store=self.vector_store,  # 向量存储，用于检索知识库
                             partition=state.partition,        # 知识库分区
                             data_store=self.data_store,       # 数据存储
-                            reranker=self.reranker,           # 重排序器
                         )
                     )
                     return tc["id"], res  # 返回工具调用 ID 和执行结果
@@ -521,7 +513,8 @@ class RAGSystem:
     # ─── Tool-call 循环 (流式) ─────────────────
 
     # ===== 流式工具调用主循环（生成器函数） =====
-    def _run_tool_loop_stream(self, state: AgentState, force_retrieve: bool):
+    def _run_tool_loop_stream(self, state: AgentState, force_retrieve: bool,
+                               cancel_check: Optional[Callable[[], bool]] = None):
         """流式生成器: 逐 token 产出, 中间穿插 status 事件。
 
         与非流式版本的核心逻辑相同，但：
@@ -539,6 +532,11 @@ class RAGSystem:
 
         # 使用 for 循环（range 方式）替代 while，上限即为 max_iterations
         for it in range(state.max_iterations):  # 循环最多 max_iterations 次
+            # ä¸­æ­æ£æ¥
+            if cancel_check and cancel_check():
+                logger.info("工具循环被中断")
+                return
+        
             accumulated_content = ""  # 用于累积本次 LLM 回复的文本内容
             tool_calls: List[dict] = []  # 用于存储 LLM 请求的工具调用列表
 
@@ -566,6 +564,10 @@ class RAGSystem:
                     reasoning_effort=conf.chat_reasoning_effort,  # 推理努力程度
                 )
                 for ev in events:  # 遍历 LLM 返回的事件流
+                    # 每次迭代检查中断
+                    if cancel_check and cancel_check():
+                        logger.info("token流被中断")
+                        return
                     if ev["type"] == "content":  # 如果是文本内容事件
                         accumulated_content += ev["text"]  # 累积文本内容
                         yield {"type": "token", "text": ev["text"]}  # 把文本逐块发给前端
@@ -614,7 +616,6 @@ class RAGSystem:
                             vector_store=self.vector_store,  # 向量存储
                             partition=state.partition,        # 知识库分区
                             data_store=self.data_store,       # 数据存储
-                            reranker=self.reranker,           # 重排序器
                         )
                     )
                 except Exception as e:  # 工具执行异常

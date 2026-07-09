@@ -110,3 +110,24 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
     except Exception as e:
         logger.error(f"查询失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== 中断生成接口 =====
+@router.post("/query/cancel")
+@auth_required
+async def cancel_query(request: Request):
+    """中断当前正在进行的生成。"""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        if not session_id:
+            raise HTTPException(status_code=400, detail="Missing session_id")
+        system.cancel_generation(session_id)
+        return JSONResponse(content={"message": "已发送中断信号"})
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"取消生成失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

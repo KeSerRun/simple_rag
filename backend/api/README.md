@@ -107,6 +107,6 @@ query.py ──→ deps.py (IntegratedSystem)
 sessions.py ──→ deps.py
 history.py ──→ deps.py
 documents.py ──→ deps.py / base.config
-deps.py ──→ main.py (IntegratedSystem) / base.config / base.logger
+deps.py ──→ agent (IntegratedSystem) / base.config / base.logger
 admin/*.py ──→ deps.py / base.config / base.logger
 ```

@@ -1,0 +1,364 @@
+"""工具注册中心: ToolRegistry + ToolContext + ToolDef
+
+设计目标:
+  - 工具通过 registry.register() 注册，不再写 if/elif 链
+  - 前后端兼容: registry.schemas 替代 TOOL_SCHEMAS, registry.dispatch 替代 execute_tool
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Callable, List, Optional
+
+from base.logger import logger
+from rag.vector_store import VectorStore
+
+
+# ===== ToolContext：工具调用的运行时上下文 =====
+
+@dataclass
+class ToolContext:
+    """传递给 tool handler 的运行时上下文。"""
+    vector_store: VectorStore
+    partition: Optional[str] = None
+    data_store: Optional[object] = None
+
+
+# ===== ToolDef：单个工具的定义 =====
+
+@dataclass
+class ToolDef:
+    """单个工具的定义。"""
+    name: str
+    description: str
+    parameters: dict
+    handler: Callable
+    source: str = ""
+
+    @property
+    def schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+
+# ===== ToolRegistry：工具注册中心 =====
+
+class ToolRegistry:
+    """工具注册中心。"""
+
+    def __init__(self):
+        self._tools: dict[str, ToolDef] = {}
+        self.call_counts: dict[str, int] = {}  # 各工具累计调用次数
+
+    def register(
+        self,
+        name: str,
+        description: str,
+        parameters: dict,
+        handler: Callable[[dict, ToolContext], str],
+        source: str = "",
+    ) -> ToolDef:
+        if name in self._tools:
+            logger.warning(f"工具 {name!r} 被覆盖注册")
+        tool = ToolDef(name=name, description=description,
+                       parameters=parameters, handler=handler, source=source)
+        self._tools[name] = tool
+        return tool
+
+    @property
+    def schemas(self) -> List[dict]:
+        return [t.schema for t in self._tools.values()]
+
+    @property
+    def tool_names(self) -> List[str]:
+        return list(self._tools.keys())
+
+    def get(self, name: str) -> Optional[ToolDef]:
+        return self._tools.get(name)
+
+    def dispatch(self, name: str, args_json: str, *, ctx: ToolContext) -> str:
+        try:
+            args = json.loads(args_json) if args_json else {}
+        except json.JSONDecodeError as e:
+            logger.warning(f"tool {name!r} 参数 JSON 解析失败 ({e})")
+            return f"(工具调用失败: 参数 JSON 解析错误 {e})"
+
+        tool = self._tools.get(name)
+        if tool is None:
+            logger.warning(f"未注册的工具: {name!r}, 已注册: {sorted(self._tools.keys())}")
+            return f"(未知工具: {name})"
+
+        # 累计调用次数
+        self.call_counts[name] = self.call_counts.get(name, 0) + 1
+
+        logger.info(f"工具调用: {name} (累计: {self.call_counts[name]})")
+
+        try:
+            result = tool.handler(args, ctx)
+            return result or ""
+        except Exception as e:
+            logger.error(f"工具 {name!r} 执行失败: {e}")
+            return f"(工具执行失败: {e})"
+
+
+# ===== 内建工具注册入口 =====
+
+def register_all_builtins(reg: ToolRegistry) -> None:
+    """注册全部内建工具。由 __init__.py 在导入所有 handler 模块后调用。"""
+    # 延迟导入 handler 函数（避免循环导入：registry → handler → __init__")
+    from ._kb_handlers import (
+        _exec_search_kb, _exec_read_full_document,
+        _exec_list_documents, _exec_read_archive, _exec_read_chunk_context,
+        _exec_read_document_titles, _exec_read_section,
+    )
+    from ._web_handlers import _exec_web_search, _exec_read_url
+    from ._infra_handlers import _exec_ask_clarification
+
+    # --- ask_user_for_clarification（虚拟工具） ---
+    reg.register(
+        name="ask_user_for_clarification",
+        description=(
+            "当用户请求模糊（指代不清、未指定具体文档）、且已有检索结果不足以推断时调用此工具。"
+            "调用后对话中断，将你设置的 question 抛给用户等待补充。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "你需要向用户询问的具体问题，比如'请问您指的是本季度的哪一份财报？'",
+                },
+            },
+            "required": ["question"],
+        },
+        handler=_exec_ask_clarification,
+        source=__name__,
+    )
+
+    # --- search_knowledge_base（首选检索工具） ---
+    reg.register(
+        name="search_knowledge_base",
+        description=(
+            "知识库检索，覆盖文本、表格、图片图表。"
+            "支持多 query 并行检索；set search_system=false 仅搜用户文档。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "description": (
+                        "检索查询列表。简单问题 1 个；多焦点问题拆 2-5 个子查询。"
+                        "用名词短语而非完整问句。"
+                    ),
+                },
+                "search_system": {
+                    "type": "boolean",
+                    "description": "是否同时搜索系统公开文档。默认为 true（搜索全部）。设为 false 则只搜索用户自己的文档。",
+                    "default": True,
+                },
+            },
+            "required": ["queries"],
+        },
+        handler=_exec_search_kb,
+        source=__name__,
+    )
+
+    # --- read_full_document ---
+    reg.register(
+        name="read_full_document",
+        description=(
+            "读取某篇文档的完整全文（Markdown 格式）。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": (
+                        "要读取的文档文件名（含扩展名）。"
+                        "必须是文档清单中出现的完整文件名，如 KD指标.pdf"
+                    ),
+                }
+            },
+            "required": ["filename"],
+        },
+        handler=_exec_read_full_document,
+        source=__name__,
+    )
+
+    # --- read_url ---
+    reg.register(
+        name="read_url",
+        description=(
+            "读取指定网页的完整文字内容。仅限公开可访问的网页。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "要读取的网页完整 URL（必须以 http:// 或 https:// 开头）",
+                },
+            },
+            "required": ["url"],
+        },
+        handler=_exec_read_url,
+        source=__name__,
+    )
+
+    # --- web_search ---
+    reg.register(
+        name="web_search",
+        description=(
+            "搜索互联网获取最新信息（实时新闻、数据等知识库未覆盖的内容）。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "搜索关键词，用名词短语或简洁问句。",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "返回结果数量（1-10）。",
+                },
+            },
+            "required": ["query"],
+        },
+        handler=_exec_web_search,
+        source=__name__,
+    )
+
+    # --- list_documents ---
+    reg.register(
+        name="list_documents",
+        description=(
+            "列出知识库中的文档清单。支持 pattern 过滤，list_system=false 仅列用户文档。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "可选的文件名关键词（如「KD」「财报」），不传则列出全部。",
+                },
+                "list_system": {
+                    "type": "boolean",
+                    "description": "是否同时列出系统公开文档。默认为 true（列出全部）。设为 false 则只列用户自己的文档。",
+                    "default": True,
+                },
+            },
+            "required": [],
+        },
+        handler=_exec_list_documents,
+        source=__name__,
+    )
+
+    # --- read_archive ---
+    reg.register(
+        name="read_archive",
+        description=(
+            "读取被压缩归档的历史对话记录。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "archive_id": {
+                    "type": "string",
+                    "description": "归档 ID，格式如 arch_xxx。从历史摘要标记 #[archive_id] 中提取。",
+                },
+            },
+            "required": ["archive_id"],
+        },
+        handler=_exec_read_archive,
+        source=__name__,
+    )
+
+    # --- read_chunk_context ---
+    reg.register(
+        name="read_chunk_context",
+        description=(
+            "读取某一片段前后的相邻文档内容。"
+            "片段内容不完整、图表标题需查看正文、同主题片段分散时使用。"
+            "chunk_id 从检索结果标头 [id=] 获取。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "chunk_id": {
+                    "type": "string",
+                    "description": "目标片段的 ID，从检索结果标头 [id=] 字段获取。",
+                },
+                "before": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "向前取多少块（默认 3，最大 10）。",
+                },
+                "after": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "向后取多少块（默认 3，最大 10）。",
+                },
+            },
+            "required": ["chunk_id"],
+        },
+        handler=_exec_read_chunk_context,
+        source=__name__,
+    )
+
+    # --- read_document_titles ---
+    reg.register(
+        name="read_document_titles",
+        description=(
+            "读取某篇文档的标题目录结构。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "文档文件名（含扩展名），如 KD指标.pdf",
+                },
+            },
+            "required": ["source"],
+        },
+        handler=_exec_read_document_titles,
+        source=__name__,
+    )
+
+    # --- read_section ---
+    reg.register(
+        name="read_section",
+        description=(
+            "根据文档名和标题关键词，读取该标题下的正文内容。"
+            "heading 支持模糊匹配。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "文档文件名（含扩展名），如 KD指标.pdf",
+                },
+                "heading": {
+                    "type": "string",
+                    "description": "标题关键词，匹配任意级别的标题。如「第一章」「1.1 背景」「风险收益」",
+                },
+            },
+            "required": ["source", "heading"],
+        },
+        handler=_exec_read_section,
+        source=__name__,
+    )

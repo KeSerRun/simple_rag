@@ -31,10 +31,10 @@ top_k = conf.retrieval_top_k           # 检索数量（默认 30）
 candidate_k = conf.candidate_top_k     # 重排后保留数（默认 5）
 timeout = conf.openai_timeout          # 超时秒数
 
-# 布尔配置
-enable_rerank = conf.enable_llm_rerank  # 是否启用 LLM 重排
 
-# 路径配置
+[retrieval]
+retrieval_top_k = 30
+candidate_top_k = 5
 data_dir = conf.data_dir               # 数据存储目录
 vector_dir = conf.vector_store_dir     # 向量库存储目录
 log_path = conf.log_path               # 日志存放目录
@@ -85,7 +85,6 @@ vector_store_dir = data/vector_store
 [retrieval]
 retrieval_top_k = 30
 candidate_top_k = 5
-enable_llm_rerank = True
 
 [api]
 chat_api_key = sk-xxx

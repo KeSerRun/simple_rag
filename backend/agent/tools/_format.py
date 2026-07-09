@@ -35,7 +35,7 @@ def _format_chunk(idx: int, chunk: Document) -> str:
         chunk: 检索结果 Document 对象，含 page_content（文本）和 metadata（元数据字典）
 
     返回:
-        格式如 "【片段 1 | 来源 | 章节路径 | p.页码】\n文本内容" 的字符串。
+        格式如 "【片段 1 | 来源 | 章节路径 | p.页码】[id=xxxxxx]\n文本内容" 的字符串。
         如果是图片/图表块且存在图片路径，还会附加 Markdown 图片引用。
     """
     # 从 chunk 对象中取出 metadata 字典，如果 metadata 为空则设为空字典
@@ -75,14 +75,17 @@ def _format_chunk(idx: int, chunk: Document) -> str:
     partition = (meta.get("partition") or "").strip()
     if partition == SYSTEM_PARTITION:
         # 如果分区等于系统分区常量，就在标头中添加一个书本图标和"系统文档"字样
-        parts.append("📖 系统文档")
+        parts.append("\U0001f4d6 系统文档")
     elif partition:
         # 如果分区存在但不是系统分区（说明是用户上传的文档），就添加文档图标和"用户文档"
-        parts.append("📄 用户文档")
+        parts.append("\U0001f4c4 用户文档")
     # 组装最终的标头字符串
-    # 如果 parts 列表不为空，就生成 "【片段 1 | xxx | yyy】" 这种格式
-    # 如果 parts 为空，就只生成 "【片段 1】"
-    header = f"【片段 {idx} | {' | '.join(parts)}】" if parts else f"【片段 {idx}】"
+    # 如果 parts 列表不为空，就生成 "【片段 1 | xxx | yyy】[id=xxxxxx]" 这种格式
+    # 如果 parts 为空，就只生成 "【片段 1】[id=xxxxxx]"
+    # 在标头末尾添加 chunk id（前 8 位）供 read_chunk_context 工具引用
+    chunk_id = (meta.get("id") or "")[:8]
+    id_tag = f" [id={chunk_id}]" if chunk_id else ""
+    header = f"【片段 {idx} | {' | '.join(parts)}】{id_tag}" if parts else f"【片段 {idx}】{id_tag}"
     # --- 正文部分 ---
     # 获取 chunk 的文本内容，并去掉首尾空白字符
     body = chunk.page_content.strip()
@@ -108,6 +111,7 @@ def format_retrieved_chunks(chunks: List[Document]) -> str:
 
     遍历 chunks 列表，为每个块调用 _format_chunk 生成带元数据标头的文本块，
     块之间以两个换行符分隔。空列表返回空字符串。
+    在末尾附加 read_chunk_context 调用提示。
 
     参数:
         chunks: 检索结果 Document 列表
@@ -123,5 +127,21 @@ def format_retrieved_chunks(chunks: List[Document]) -> str:
     # i + 1 让序号从 1 开始，看起来更自然
     # 对每个块调用 _format_chunk 生成格式化文本
     # 最后用 "\n\n"（两个换行符）将所有块的文本连接起来
-    # 这样 LLM 就能看到用空行分隔的多个检索片段
-    return "\n\n".join(_format_chunk(i + 1, c) for i, c in enumerate(chunks))
+    text = "\n\n".join(_format_chunk(i + 1, c) for i, c in enumerate(chunks))
+
+    # 在末尾添加 read_chunk_context 提示
+    if chunks:
+        ids = set()
+        for c in chunks[:3]:
+            cid = (c.metadata.get("id") or "")[:8]
+            if cid:
+                ids.add(cid)
+        if ids:
+            example_id = next(iter(ids))
+            text += (
+                "\n\n---\n"
+                "\U0001f4a1 如需查看某个片段前后的更多上下文，可调用 "
+                "read_chunk_context(chunk_id=\"" + example_id + "\", before=3, after=3)"
+            )
+
+    return text

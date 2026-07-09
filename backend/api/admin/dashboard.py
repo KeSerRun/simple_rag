@@ -32,6 +32,9 @@ from fastapi.responses import JSONResponse
 # 从 FastAPI 导入 JSONResponse，用于返回 JSON 格式的 HTTP 响应
 # 前端拿到 JSON 数据后就能渲染仪表盘页面
 
+from agent.tools import registry as tool_registry
+# 全局工具注册表，用于获取各工具累计调用次数
+
 # ===== 注册仪表盘接口 =====
 @router.get("/dashboard")
 # FastAPI 路由装饰器：当客户端发送 GET 请求到 /dashboard 路径时，执行下面的函数
@@ -240,6 +243,10 @@ async def get_dashboard(request: Request):
 
             "request_stats": stats,
             # 请求统计数据（总请求数、错误数、按方法统计等）
+
+            "tool_call_counts": dict(tool_registry.call_counts),
+            # 各工具累计调用次数（从启动开始统计）
+            # 数据格式: {"search_knowledge_base": 12, "web_search": 3, ...}
 
             "embedding_dim": vs.dimension if vs else None,
             # 向量维度：嵌入模型把文本转成向量的维度数

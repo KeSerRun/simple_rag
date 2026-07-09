@@ -40,7 +40,6 @@ _CONFIG_SCHEMA = [
     # ── 检索 ──
     {"key": "retrieval_top_k", "label": "检索 Top-K", "group": "检索配置", "type": "int", "min": 1, "max": 100},
     {"key": "candidate_top_k", "label": "候选 Top-K", "group": "检索配置", "type": "int", "min": 1, "max": 50},
-    {"key": "enable_llm_rerank", "label": "LLM Rerank", "group": "检索配置", "type": "bool"},
     {"key": "stop_words", "label": "文本停用词", "group": "检索配置", "type": "string", "textarea": True, "placeholder": "用逗号分隔"},
 
     # ── Agent ──

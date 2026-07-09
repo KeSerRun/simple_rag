@@ -5,14 +5,17 @@
 # =============================================================================
 
 # ===== 标准库导入 =====
+import glob
+import mimetypes
 import os  # 导入 os 模块，用于操作文件和路径，比如拼接路径、判断文件是否存在
 import time  # 导入 time 模块，用于获取当前时间戳，这里用来记录服务启动时间
 import threading  # 导入 threading 模块，用于创建线程锁，保证多线程环境下的数据安全
+from pathlib import Path
 
 # ===== FastAPI 相关导入 =====
 from fastapi import FastAPI, HTTPException, Request  # 导入 FastAPI 主类、HTTP 异常类、请求对象类
 from fastapi.middleware.cors import CORSMiddleware  # 导入跨域中间件，允许前端跨域请求后端接口
-from fastapi.responses import HTMLResponse, JSONResponse  # 导入响应类：HTMLResponse 返回 HTML 页面，JSONResponse 返回 JSON 数据
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles  # 导入静态文件挂载类，用于让 FastAPI 托管前端构建产物（JS/CSS/图片等）
 
 # ===== 项目内部模块导入 =====
@@ -184,6 +187,25 @@ async def health_check():
     """
     # 返回一个 JSON 响应，表明服务运行正常
     return JSONResponse(content={"status": "healthy"})
+
+
+# ===== 图片 URL 兼容路由 =====
+# full.md 中的图片引用格式为 ![](images/hash.jpg)，LLM 输出时会转为 /images/hash.jpg
+@app.get("/images/{img_name:path}")
+async def serve_root_image(img_name: str):
+    """搜索并返回图片。处理 LLM 输出的 /images/hash.jpg 格式。"""
+    img_name = img_name.rstrip("/")
+    if img_name.startswith("images/"):
+        img_name = img_name[7:]
+
+    search_pattern = str(Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / img_name)
+    candidates = glob.glob(search_pattern)
+    if not candidates:
+        raise HTTPException(status_code=404, detail="image not found")
+
+    target = Path(candidates[0]).resolve()
+    media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+    return FileResponse(path=str(target), media_type=media_type)
 
 
 # ===== 首页路由 =====

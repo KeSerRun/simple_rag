@@ -16,7 +16,7 @@
 | `tools/__init__.py` | 工具注册入口。导入并注册所有工具 handler |
 | `tools/_handlers.py` | 工具处理函数。`search_knowledge_base`、`search_web`、`read_full_document` 等的具体实现 |
 | `tools/_format.py` | 检索结果格式化。把 Document 列表格式化为 LLM 友好的文本 |
-| `tools/_search_backends.py` | 联网搜索后端封装。DuckDuckGo / SearXNG / 博查 / Bing |
+| `tools/_web_handlers.py` | Web 工具处理函数 + 搜索后端实现。DuckDuckGo / SearXNG / 博查 / Bing |
 
 ---
 
@@ -49,7 +49,7 @@ for chunk in rag.ask_stream(session_id="session_001", query="写一份分析报�
 ### 2. 工具注册与调用 (`ToolRegistry`)
 
 ```python
-from agent.registry import ToolRegistry, ToolContext
+from agent.tools.registry import ToolRegistry, ToolContext
 from rag.vector_store import VectorStore
 
 # 创建注册中心
@@ -115,6 +115,6 @@ print(matched.prompt)          # 匹配到的 system prompt
 ```
 rag_system.py ──→ registry.py / state.py / context_builder.py / workflow_router.py / tools/
 tools/__init__.py ──→ registry.py / _handlers.py
-_handlers.py ──→ registry.py / _format.py / _search_backends.py
+_web_handlers.py ──→ registry.py / _format.py
 workflow_router.py ──→ (读取 route.md 路由文件)
 ```

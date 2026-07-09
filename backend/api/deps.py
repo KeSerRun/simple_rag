@@ -26,9 +26,9 @@ from base.config import conf
 # 从 base.logger 导入日志记录器 logger
 # logger 用于输出运行日志，方便在服务端排查问题
 from base.logger import logger
-# 从 main 模块导入 IntegratedSystem 类
+# 从 agent 模块导入 IntegratedSystem 类
 # IntegratedSystem 是整个后端的"核心引擎"，集成了 RAG 检索、文档处理、向量存储等所有功能
-from main import IntegratedSystem
+from agent import IntegratedSystem
 
 
 # ===== 创建全局单例 =====

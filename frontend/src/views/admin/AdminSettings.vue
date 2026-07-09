@@ -13,12 +13,12 @@
       <n-card v-for="group in groups" :key="group" :title="group" :bordered="true" size="small" style="margin-bottom: 16px">
         <n-form label-placement="left" label-width="160" size="small">
           <n-form-item v-for="field in fieldsByGroup(group)" :key="field.key" :label="field.label">
+            <!-- 多行文本（优先于 string，避免 textarea=true 被 type=string 拦截） -->
+            <n-input v-if="field.textarea" v-model:value="form[field.key]" type="textarea" :rows="3" :placeholder="field.placeholder || ''" />
             <!-- 字符串输入 -->
-            <n-input v-if="field.type === 'string'" v-model:value="form[field.key]" :placeholder="field.placeholder || ''" />
+            <n-input v-else-if="field.type === 'string'" v-model:value="form[field.key]" :placeholder="field.placeholder || ''" />
             <!-- 密码输入 -->
             <n-input v-else-if="field.type === 'password'" v-model:value="form[field.key]" type="password" show-password-on="click" :placeholder="field.placeholder || ''" />
-            <!-- 多行文本 -->
-            <n-input v-else-if="field.textarea" v-model:value="form[field.key]" type="textarea" :rows="3" :placeholder="field.placeholder || ''" />
             <!-- 整数 -->
             <n-input-number v-else-if="field.type === 'int'" v-model:value="form[field.key]" :min="field.min" :max="field.max" style="width:140px" />
             <!-- 开关 -->
@@ -74,7 +74,12 @@ function applyConfig(data) {
   for (const field of store.configSchema) {
     const key = field.key
     if (key in data) {
-      form[key] = data[key]
+      let val = data[key]
+      // 列表类型（如 stop_words）转逗号分隔字符串，让文本输入框正确显示
+      if (Array.isArray(val)) {
+        val = val.join(', ')
+      }
+      form[key] = val
     }
   }
 }

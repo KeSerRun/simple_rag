@@ -29,7 +29,7 @@ from dataclasses import dataclass    # 从 dataclasses 模块导入 dataclass �
 from base.config import conf           # 从 base.config 导入配置对象 conf，里面包含了模型名称、API密钥等全局配置
 from base.logger import logger         # 从 base.logger 导入日志记录器 logger，用于在控制台输出带级别的日志信息
 from rag.llm_client import OpenAIClient    # 从 rag.llm_client 导入 OpenAI 客户端类，用于调用大语言模型 API
-from agent.registry import ToolContext     # 从 agent.registry 导入 ToolContext 类，用于封装工具调用时的上下文环境（向量库、数据存储等）
+from agent.tools.registry import ToolContext     # 从 agent.tools.registry 导入 ToolContext 类
 from agent.tools import registry           # 从 agent.tools 导入 registry 对象，它负责管理和调度所有可用的工具（如知识库搜索）
 
 # ─── 加载测试查询 ─────────────────────────────────
@@ -188,7 +188,6 @@ def test_precision(judge_client: OpenAIClient, queries: List[str] = None) -> Lis
         vector_store=system.vector_store,   # 传入向量数据库实例，用于存储和检索文档的向量表示
         partition=None,                     # 分区参数设为 None，表示不限制检索范围（检索全部数据）
         data_store=system.data_store,       # 传入数据存储实例，用于存取原始文档数据
-        reranker=system.rag_qa.reranker if hasattr(system.rag_qa, 'reranker') else None,  # 如果 RAG 系统有重排序器则传入，否则为 None
     )
 
     results = []                            # 初始化一个空列表，用来存储每个查询的评估结果

@@ -85,7 +85,7 @@ async def run_eval(request: Request):
 
             # ===== 延迟导入（避免循环导入） =====
             from api.deps import system  # 从 api.deps 导入 system 对象（包含系统的各种组件，如向量数据库、数据存储等）
-            from agent.registry import ToolContext  # 从 agent.registry 导入 ToolContext 类，这是一个工具上下文，包含了工具箱需要的各种资源
+            from agent.tools.registry import ToolContext  # 从 agent.tools.registry 导入 ToolContext 类
             from agent.tools import registry  # 从 agent.tools 导入 registry 对象，这是工具注册表，可以调用各种注册好的工具
             import json  # 导入 json 模块，用于 JSON 序列化和反序列化
             import re as _re  # 导入 re 模块并重命名为 _re，用于正则表达式操作（提取检索结果中的文本片段）
@@ -95,9 +95,6 @@ async def run_eval(request: Request):
                 vector_store=system.vector_store,  # 向量数据库实例（用于语义搜索）
                 partition=None,  # 分区参数设为 None（表示不分区，搜索所有数据）
                 data_store=system.data_store,  # 数据存储实例（用于读写原始数据）
-                reranker=system.rag_qa.reranker if hasattr(system.rag_qa, 'reranker') else None,  # 重排序器（如果有的话就用，没有就用 None）
-                # hasattr 用于判断 system.rag_qa 对象是否有 reranker 属性
-                # reranker 用于对检索结果进行重新排序，提高结果质量
             )
 
             # ===== 开始逐个评估查询 =====

@@ -124,7 +124,6 @@ def _write_config_ini(updates: dict) -> bool:
         # 检索相关配置
         "retrieval_top_k": ("retrieval", "retrieval_top_k"),     # 检索返回的最相似文档数量
         "candidate_top_k": ("retrieval", "candidate_top_k"),     # 候选文档数量（重排序前的候选数）
-        "enable_llm_rerank": ("retrieval", "enable_llm_rerank"),# 是否启用 LLM 重排序
         "min_chunk_length": ("retrieval", "min_chunk_length"),   # 文档块的最小长度
         "stop_words": ("retrieval", "stop_words"),               # 停用词列表
         # API 相关配置
@@ -190,7 +189,11 @@ def _write_config_ini(updates: dict) -> bool:
         changed = True
         # 同步更新内存中的 conf 实例，让当前运行的程序也能立即感知到配置变化
         if hasattr(conf, key):
-            setattr(conf, key, val)
+            # stop_words 在 conf 中是 list 类型，从前端回传的是逗号分隔字符串，需要转换回来
+            if key == 'stop_words' and isinstance(val, str):
+                setattr(conf, key, [w.strip() for w in val.split(',') if w.strip()])
+            else:
+                setattr(conf, key, val)
 
     # 如果没有任何配置被修改（比如传入的 key 都不在映射表中），返回 False
     if not changed:
@@ -206,6 +209,8 @@ def _write_config_ini(updates: dict) -> bool:
         cfg.write(f, space_around_delimiters=True)
     # 记录日志：通知配置已经更新，并显示配置文件路径
     logger.info(f"配置已更新: {config_path}")
+    # 同步 config.ini 文件 hash，使下一轮对话的 reload_if_changed 感知到已同步
+    conf._update_config_hash()
     # 返回 True 表示配置更新成功
     return True
 

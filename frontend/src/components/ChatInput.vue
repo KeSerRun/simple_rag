@@ -64,16 +64,29 @@
       </div>
 
       <div class="right-actions">
+        <!-- 发送按钮：非 loading 状态 -->
         <n-button
+          v-if="!isLoading"
           type="primary"
           size="large"
           circle
-          :loading="isLoading"
           :disabled="!inputValue.trim() || isLoading || isUploading"
           @click="handleSend"
         >
           <template #icon>
             <n-icon :component="ArrowUpOutline" />
+          </template>
+        </n-button>
+        <!-- 停止按钮：loading 状态，中断生成 -->
+        <n-button
+          v-else
+          type="error"
+          size="large"
+          circle
+          @click="$emit('stop')"
+        >
+          <template #icon>
+            <n-icon :component="StopOutline" />
           </template>
         </n-button>
       </div>
@@ -97,14 +110,14 @@ import {
   NTooltip,
   NText,
 } from 'naive-ui'
-import { AttachOutline, ArrowUpOutline, FolderOpenOutline } from '@vicons/ionicons5'
+import { AttachOutline, ArrowUpOutline, FolderOpenOutline, StopOutline } from '@vicons/ionicons5'
 
 const props = defineProps({
   isLoading: { type: Boolean, default: false },
   isUploading: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['send', 'upload'])
+const emit = defineEmits(['send', 'stop', 'upload'])
 
 const inputValue = ref('')
 

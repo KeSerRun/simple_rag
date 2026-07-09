@@ -120,6 +120,19 @@
           </n-card>
         </n-grid-item>
       </n-grid>
+
+      <!-- 工具调用统计 -->
+      <n-card title="工具调用统计" :bordered="true" size="small" style="margin-top: 16px">
+        <n-data-table
+          v-if="toolCallRows.length > 0"
+          :columns="toolCallColumns"
+          :data="toolCallRows"
+          :bordered="false"
+          :single-line="true"
+          size="small"
+        />
+        <n-empty v-else description="暂无工具调用数据" style="padding: 12px 0" />
+      </n-card>
     </template>
 
     <!-- 无数据 -->
@@ -180,6 +193,19 @@ const partitionColumns = [
   { title: '切块数', key: 'chunks', width: 80 },
   { title: '文档数', key: 'sources', width: 80 },
 ]
+
+const toolCallColumns = [
+  { title: '工具', key: 'name', width: 200 },
+  { title: '调用次数', key: 'count', width: 100 },
+]
+
+const toolCallRows = computed(() => {
+  const counts = store.dashboardData?.tool_call_counts
+  if (!counts) return []
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])  // 按调用次数降序
+    .map(([name, count]) => ({ name, count }))
+})
 
 function loadData() {
   store.fetchDashboard()

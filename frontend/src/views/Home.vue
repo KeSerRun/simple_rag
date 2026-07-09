@@ -32,6 +32,7 @@
         :is-loading="isLoading"
         :is-uploading="isUploading"
         @send="sendQuestion"
+        @stop="stopGeneration"
         @upload="handleFileUpload"
       />
 
@@ -450,6 +451,18 @@ const sendQuestion = async (text) => {
                     } else {
                       agentStatus.value = { visible: false, text: '' }
                     }
+                  } else if (content.status === 'cancelled') {
+                    // 中断事件：在消息列表中插入中断提示
+                    const cancelMsg = {
+                      role: 'ai',
+                      content: '',
+                      renderedContent: '',
+                      isCancelled: true,
+                    }
+                    messages.value[aiIndex] ?
+                      Object.assign(messages.value[aiIndex], cancelMsg) :
+                      messages.value.push(cancelMsg)
+                    agentStatus.value = { visible: false, text: '' }
                   }
                   continue
                 }
@@ -495,6 +508,14 @@ const sendQuestion = async (text) => {
     isLoading.value = false
     sseBuffer = ''
     nextTick(() => messageListRef.value?.scrollToBottom())
+  }
+}
+
+const stopGeneration = async () => {
+  try {
+    await axios.post('/api/query/cancel', { session_id: currentSessionId.value })
+  } catch {
+    // 忽略取消请求的异常
   }
 }
 

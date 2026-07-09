@@ -46,6 +46,10 @@
           class="ai-content"
           v-html="parseMarkdown(msg.content)"
         ></div>
+        <!-- 中断提示 -->
+        <div v-if="msg.isCancelled" class="cancelled-hint">
+          <n-text depth="3" style="font-size: 12px">━━ 回答已中断 ━━</n-text>
+        </div>
       </div>
     </div>
 

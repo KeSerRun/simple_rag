@@ -1,3 +1,127 @@
+"""Web 工具 handlers: 联网搜索 / 读取网页全文 + 搜索后端实现。
+注册统一在 registry.py 的 register_all_builtins() 中。"""
+from __future__ import annotations
+
+from base.config import conf
+from base.logger import logger
+from .registry import ToolContext
+
+
+# ===== web_search =====
+def _exec_web_search(args: dict, ctx: ToolContext) -> str:
+    """
+    工具 handler: web_search
+    多后端联网搜索（duckduckgo / searxng / bocha / bing）。
+    """
+    query = (args.get("query") or "").strip()
+    if not query:
+        return "(未提供搜索 query)"
+    max_results = min(int(args.get("max_results", 5)), 10)
+
+    logger.debug(f"tool web_search query={query!r} max={max_results} backend={conf.search_backend}")
+
+    # 自动补充年份
+    from datetime import datetime as _dt
+    _now = _dt.now()
+    if not __import__('re').search(r'(?<!\d)(?:19|20)\d{2}(?!\d)', query):
+        query = f"{_now.year}年 {query}"
+        logger.debug(f"tool web_search 已补年份: {query!r}")
+
+    backend = conf.search_backend or "duckduckgo"
+    if backend == "searxng":
+        results = _search_searxng(query, max_results)
+    elif backend == "bocha":
+        results = _search_bocha(query, max_results)
+    elif backend == "bing":
+        results = _search_bing(query, max_results)
+    else:
+        results = _search_duckduckgo(query, max_results)
+
+    if results is None:
+        return "(联网搜索暂时不可用，请直接回答，不要重试。)"
+    if not results:
+        return "(未找到相关搜索结果)"
+
+    lines = []
+    for i, r in enumerate(results, 1):
+        title = r.get("title", "").strip()
+        snippet = r.get("body", "").strip()
+        url = r.get("href", "").strip()
+        lines.append(f"[搜索结果 {i}] {title}")
+        if snippet:
+            lines.append(f"   {snippet}")
+        if url:
+            lines.append(f"   {url}")
+        lines.append("")
+
+    output = "\n".join(lines).strip()
+    logger.debug(f"tool web_search 返回 {len(results)} 条结果, 长度={len(output)}")
+    return output
+
+
+# ===== read_url =====
+def _exec_read_url(args: dict, ctx: ToolContext) -> str:
+    """
+    工具 handler: read_url
+    抓取网页 HTML 并提取纯文本（stdlib HTMLParser）。
+    """
+    url = (args.get("url") or "").strip()
+    if not url:
+        return "(未提供 URL 参数)"
+
+    logger.debug(f"tool read_url: 开始抓取 {url}")
+    try:
+        import requests as _req
+        resp = _req.get(
+            url,
+            timeout=15,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            },
+        )
+        resp.raise_for_status()
+
+        from html.parser import HTMLParser as _HTMLParser
+
+        class _TextExtractor(_HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self._text = []
+                self._skip = False
+            def handle_starttag(self, tag, attrs):
+                if tag in ("script", "style"):
+                    self._skip = True
+            def handle_endtag(self, tag):
+                if tag in ("script", "style"):
+                    self._skip = False
+                if tag in ("p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "div"):
+                    self._text.append("\n")
+            def handle_data(self, data):
+                if not self._skip:
+                    self._text.append(data.strip())
+            def get_text(self):
+                return "".join(self._text)
+
+        extractor = _TextExtractor()
+        extractor.feed(resp.text)
+        text = extractor.get_text()
+
+        import re as _re
+        text = _re.sub(r"\n{3,}", "\n\n", text).strip()
+
+        if len(text) > 20000:
+            text = text[:20000] + "\n\n...(网页内容过长，已截取前 20000 字符)..."
+
+        logger.debug(f"tool read_url 成功: {url} ({len(text)} 字符)")
+        return text
+
+    except Exception as e:
+        logger.warning(f"tool read_url 失败 ({url}): {e}")
+        return f"(读取网页失败: {e})"
 # ===== 模块文档字符串 =====
 """Web 搜索后端实现。  # 这个文档字符串说明本模块的功能：实现了多个搜索引擎的后端
 # 本模块支持四个不同的搜索后端，可以根据配置自由切换

@@ -149,7 +149,6 @@ class Config:
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=6)
         self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
         self.parse_workers = config.getint('agent', 'parse_workers', fallback=3)
-        self.tool_call_workers = config.getint('agent', 'tool_call_workers', fallback=4)
 
         # ===== Superuser =====
         self.superuser_usernames = [u.strip() for u in config.get('superuser', 'users').split(',')]

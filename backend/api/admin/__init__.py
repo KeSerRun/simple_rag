@@ -146,7 +146,6 @@ def _write_config_ini(updates: dict) -> bool:
         "max_tool_iter": ("agent", "max_tool_iter"),             # 工具调用的最大迭代次数
         "max_output_tokens": ("agent", "max_output_tokens"),     # 输出的最大 Token 数量
         "parse_workers": ("agent", "parse_workers"),                 # MinerU 解析并发线程数
-        "tool_call_workers": ("agent", "tool_call_workers"),         # 工具调用并发数
         # 搜索相关配置
         "search_backend": ("search", "backend"),                 # 搜索后端类型（如 searxng、bocha、bing）
         "searxng_url": ("search", "searxng_url"),               # SearXNG 搜索服务地址

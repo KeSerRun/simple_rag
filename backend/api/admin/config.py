@@ -46,7 +46,6 @@ _CONFIG_SCHEMA = [
     {"key": "max_tool_iter", "label": "最大工具迭代次数", "group": "Agent 配置", "type": "int", "min": 1, "max": 30},
     {"key": "max_output_tokens", "label": "最大输出 Token", "group": "Agent 配置", "type": "int", "min": 512, "max": 65536},
     {"key": "parse_workers", "label": "PDF 解析并发数", "group": "Agent 配置", "type": "int", "min": 1, "max": 8},
-    {"key": "tool_call_workers", "label": "工具调用并发数", "group": "Agent 配置", "type": "int", "min": 1, "max": 16},
 
     # ── 搜索 ──
     {"key": "search_backend", "label": "搜索后端", "group": "联网搜索配置", "type": "select",

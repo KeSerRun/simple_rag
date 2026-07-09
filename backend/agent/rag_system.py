@@ -796,13 +796,18 @@ class RAGSystem:
             # 首轮过后不再强制调用工具
             tool_choice = "auto"  # 第一轮之后恢复为自动模式，让 LLM 自己决定
 
-            # 中间注入：检查是否有子 Agent 结果
+            # 中间注入：检查是否有子 Agent 结果（最多 5 轮，防止无限注入）
+            _MAX_INJECTION_CYCLES = 5
+            _injection_round = 0
             if drain_pending:
                 pending = drain_pending()
-                for msg in pending:
-                    state.messages.append(msg)
-                    if msg.get("role") == "user":
-                        logger.debug(f"中间注入: {msg.get('content', '')[:60]}...")
+                while pending and _injection_round < _MAX_INJECTION_CYCLES:
+                    _injection_round += 1
+                    for msg in pending:
+                        state.messages.append(msg)
+                        if msg.get("role") == "user":
+                            logger.debug(f"中间注入 ({_injection_round}): {msg.get('content', '')[:60]}...")
+                    pending = drain_pending()
 
         # ── 达上限: 用已收集的信息生成最终答案 ──────────
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")

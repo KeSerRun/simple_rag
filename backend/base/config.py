@@ -127,8 +127,9 @@ class Config:
         self.chat_reasoning_effort = _strip_quotes(config.get('api', 'chat_reasoning_effort', fallback='')) or None
 
         # ===== Conversation History =====
-        self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=10)
-        self.max_history_chars = config.getint('conversation_history', 'max_history_chars', fallback=10000)
+        self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=500)
+        self.context_window_tokens = config.getint('conversation_history', 'context_window_tokens', fallback=32768)
+        self.consolidation_ratio = config.getfloat('conversation_history', 'consolidation_ratio', fallback=0.5)
 
         # ===== Search =====
         self.search_backend = _strip_quotes(config.get('search', 'backend', fallback='duckduckgo'))

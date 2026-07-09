@@ -56,8 +56,9 @@ _CONFIG_SCHEMA = [
     {"key": "search_timeout", "label": "搜索超时(秒)", "group": "联网搜索配置", "type": "int", "min": 5, "max": 60},
 
     # ── 对话历史 ──
-    {"key": "max_history_length", "label": "最大保留轮次", "group": "对话历史配置", "type": "int", "min": 10, "max": 1000},
-    {"key": "max_history_chars", "label": "最大字符数", "group": "对话历史配置", "type": "int", "min": 1000, "max": 500000},
+    {"key": "max_history_length", "label": "最大保留轮次", "group": "对话历史配置", "type": "int", "min": 10, "max": 2000},
+    {"key": "context_window_tokens", "label": "上下文窗口(Token)", "group": "对话历史配置", "type": "int", "min": 4096, "max": 524288},
+    {"key": "consolidation_ratio", "label": "压缩触发比例(%)", "group": "对话历史配置", "type": "int", "min": 10, "max": 90},
 
     # ── 日志 ──
     {"key": "app_log_level", "label": "应用日志级别", "group": "日志配置", "type": "select",

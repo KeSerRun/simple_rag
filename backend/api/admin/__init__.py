@@ -154,7 +154,8 @@ def _write_config_ini(updates: dict) -> bool:
         "search_timeout": ("search", "timeout"),                 # 搜索请求超时时间
         # 对话历史相关配置
         "max_history_length": ("conversation_history", "max_history_length"), # 对话历史最大条数
-        "max_history_chars": ("conversation_history", "max_history_chars"),   # 对话历史最大字符数
+        "context_window_tokens": ("conversation_history", "context_window_tokens"), # 上下文窗口(token)
+        "consolidation_ratio": ("conversation_history", "consolidation_ratio"), # 压缩触发比例
         # 日志相关配置
         "log_path": ("logger", "log_path"),                     # 日志文件存放路径
         "app_log_level": ("logger", "app_log_level"),           # 应用日志级别
@@ -190,6 +191,9 @@ def _write_config_ini(updates: dict) -> bool:
             # stop_words 在 conf 中是 list 类型，从前端回传的是逗号分隔字符串，需要转换回来
             if key == 'stop_words' and isinstance(val, str):
                 setattr(conf, key, [w.strip() for w in val.split(',') if w.strip()])
+            elif key == 'consolidation_ratio' and isinstance(val, (int, float)) and val > 1:
+                # 前端传百分比(50)，conf 存小数(0.5)
+                setattr(conf, key, val / 100.0)
             else:
                 setattr(conf, key, val)
 

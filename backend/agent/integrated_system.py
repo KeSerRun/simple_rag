@@ -128,7 +128,7 @@ class IntegratedSystem:
             return []
         messages = []
 
-        # 1) 硬截断: 按轮次截取最近 N 条 QA
+        # 1) 硬截断: 按轮次截取最近 N 条 QA（安全阀）
         qa_entries = [h for h in raw if h.get('type') != 'event']
         if len(qa_entries) > conf.max_history_length:
             discard = len(qa_entries) - conf.max_history_length
@@ -136,49 +136,58 @@ class IntegratedSystem:
             raw = [h for h in raw if id(h) not in discard_ids]
             logger.info(f"历史截断: 丢弃前 {discard} 轮, 保留最近 {conf.max_history_length} 轮")
 
-        # 2) 字符数压缩: 超过上限时压缩早期对话
-        qa_entries2 = [h for h in raw if h.get('type') != 'event']
-        total_chars = sum(
-            len(h.get('user', '') or '') + len(h.get('assistant', '') or '')
-            for h in qa_entries2
-        )
-        if total_chars > conf.max_history_chars and len(qa_entries2) > 2:
-            keep = 2
-            compressed_qa = qa_entries2[:-keep]
-            compressed_ids = {id(h) for h in compressed_qa}
-            remaining_raw = [h for h in raw if id(h) not in compressed_ids]
+        # 2) 全部转为 messages
+        for h in raw:
+            self._append_history_item(messages, h)
 
-            # nanobot 模式：LLM 摘要压缩
-            summary_text = self._build_consolidated_summary(compressed_qa)
+        # 3) nanobot 模式：Token 预算压缩
+        qa_entries = [h for h in raw if h.get('type') != 'event']
+        budget = conf.context_window_tokens - conf.max_output_tokens - 1024
+        target = int(budget * conf.consolidation_ratio)
+        estimated = self._estimate_tokens(messages)
 
-            archive_id = self.data_store.insert_archive(
-                session_id=session_id,
-                summary=summary_text,
-                turns=[
-                    {
-                        "user": h.get("user", ""),
-                        "assistant": h.get("assistant", ""),
-                        "timestamp": h.get("timestamp", ""),
-                    }
-                    for h in compressed_qa
-                ],
-            )
-            if summary_text:
-                messages.append({'role': 'user', 'content': summary_text})
-            for h in remaining_raw:
-                self._append_history_item(messages, h)
+        if estimated > budget and len(qa_entries) > 2:
+            # 计算需要释放的 token 量
+            need_to_free = estimated - target
+            # 找到 user-turn 边界
+            boundary = self._pick_consolidation_boundary(qa_entries, estimated, target)
+            if boundary:
+                compressed_qa = qa_entries[:boundary]
+                remaining_qa = qa_entries[boundary:]
 
-            after_chars = sum(len(m.get('content', '') or '') for m in messages)
-            logger.info(
-                f"历史压缩触发: "
-                f"压缩前 {len(compressed_qa)} 轮/{total_chars} 字符, "
-                f"压缩后 {after_chars} 字符, "
-                f"节省 {total_chars - after_chars} 字符, "
-                f"归档={archive_id}"
-            )
-        else:
-            for h in raw:
-                self._append_history_item(messages, h)
+                # LLM 摘要压缩
+                summary_text = self._build_consolidated_summary(compressed_qa)
+
+                archive_id = self.data_store.insert_archive(
+                    session_id=session_id,
+                    summary=summary_text,
+                    turns=[
+                        {"user": h.get("user", ""), "assistant": h.get("assistant", ""),
+                         "timestamp": h.get("timestamp", "")}
+                        for h in compressed_qa
+                    ],
+                )
+
+                # 重新构建 messages：摘要 + 剩余
+                messages.clear()
+                if summary_text:
+                    messages.append({'role': 'user', 'content': summary_text})
+                # 重新追加剩余条目
+                remaining_raw = [h for h in raw if h.get('type') == 'event' or h in remaining_qa]
+                # 用 index 来判断
+                qa_ids = {id(h) for h in compressed_qa}
+                remaining_raw = [h for h in raw if id(h) not in qa_ids]
+                for h in remaining_raw:
+                    self._append_history_item(messages, h)
+
+                after_tokens = self._estimate_tokens(messages)
+                logger.info(
+                    f"Token 预算压缩: "
+                    f"压缩前 {len(compressed_qa)} 轮/{estimated} token, "
+                    f"压缩后 {after_tokens} token, "
+                    f"节省 {estimated - after_tokens} token, "
+                    f"归档={archive_id}"
+                )
 
         return messages
 
@@ -212,6 +221,33 @@ class IntegratedSystem:
             new_style = files[0] if files else 'default'
             return f"<operation：switch answer style to {new_style}>"
         return ""
+
+    # ── nanobot 式 token 预算与边界计算 ──────────
+
+    @staticmethod
+    def _estimate_tokens(messages: list) -> int:
+        """估算消息列表的 token 数（1 token ≈ 2 中文字符 / 4 英文字符）。"""
+        total = 0
+        for m in messages:
+            text = str(m.get("content", "") or "")
+            if text:
+                # 粗略估计：中文为主
+                total += len(text) // 2
+        return total
+
+    @staticmethod
+    def _pick_consolidation_boundary(qa_entries: list, estimated: int, target: int) -> int | None:
+        """从最早的消息开始，找到满足释放需求的 user-turn 边界。"""
+        need_to_free = estimated - target
+        if need_to_free <= 0:
+            return None
+        accumulated = 0
+        for i, entry in enumerate(qa_entries[:-2]):  # 保留最近 2 轮
+            text = (entry.get('user', '') or '') + (entry.get('assistant', '') or '')
+            accumulated += len(text) // 2  # char → token 粗略
+            if accumulated >= need_to_free:
+                return i + 1  # 返回边界索引
+        return len(qa_entries) - 2  # 至少保留 2 轮
 
     def _build_consolidated_summary(self, compressed_qa: list) -> str:
         """用 LLM 对早期对话生成摘要（nanobot 模式）。失败时回退到简单拼接。"""

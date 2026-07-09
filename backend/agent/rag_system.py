@@ -247,9 +247,7 @@ class RAGSystem:
           history         : 历史对话列表
           partition       : 知识库分区
           style           : 回答风格模板名称
-          short_term_tasks: 本次会话的短期任务列表
-          long_term_tasks : 跨会话的长期任务列表
-          cancel_check    : 可选的中断检测函数，返回 True 时中断生成
+          cancel_check    : 可选的中断检测函数
         """
         # 每次对话前检查 config.ini 是否被修改，自动热重载（hash 比对，无 I/O 开销）
         conf.reload_if_changed()
@@ -298,8 +296,6 @@ class RAGSystem:
             messages=messages,        # 传入完整的消息列表
             partition=partition,      # 传入知识库分区
             style=style,              # 传入回答风格
-            short_term_tasks=short_term_tasks or [],  # 传入短期任务，如果没有则给空列表
-            long_term_tasks=long_term_tasks or [],    # 传入长期任务，如果没有则给空列表
             max_iterations=max_iter,      # 传入最大迭代次数
             max_calls_per_tool=max_calls,  # 传入每轮每种工具的最大调用次数
         )

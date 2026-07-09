@@ -170,8 +170,6 @@ class AgentLoop:
             history=ctx.history or [],
             partition=ctx.partition,
             style=ctx.style,
-            short_term_tasks=ctx.short_term_tasks,
-            long_term_tasks=ctx.long_term_tasks,
             cancel_check=lambda: self._cancel_event.is_set(),
         )
 

@@ -8,7 +8,7 @@
   - 追踪短期/长期任务 (跨提问轮次持久化)
 
 使用方式:
-  state = AgentState(messages, partition=..., short_term_tasks=[...])
+  state = AgentState(messages, partition=...)
   while state.should_continue():
       ...
 """
@@ -41,8 +41,6 @@ class AgentState:
         max_iterations: 最多允许的 tool-call 轮数
         partition: 向量检索分区 (用户名)
         style: 回答风格 skill 名 (如 style-formal), None 表示默认
-        short_term_tasks: 当前会话的短期任务列表（本轮对话的核心目标）
-        long_term_tasks: 当前会话的长期任务列表（多轮对话中持续追踪的目标）
     """
     # ===== 实例字段定义 =====
     # messages: 整个对话的消息历史，按 OpenAI API 格式组织，包含 system / user / assistant / tool 四种角色

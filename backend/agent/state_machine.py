@@ -113,6 +113,4 @@ class StateContext:
         self.is_cancelled: bool = False
 
         # 运行时数据
-        self.short_term_tasks: list = kwargs.get("short_term_tasks") or []
-        self.long_term_tasks: list = kwargs.get("long_term_tasks") or []
         self.metadata: dict = {}  # 供 checkpoint 等使用

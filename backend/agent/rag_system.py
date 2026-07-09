@@ -519,11 +519,6 @@ class RAGSystem:
             # —— 4. 定义单个工具的 dispatch 任务 ——
             def _dispatch_task(tc):  # 定义一个内部函数，负责执行单个工具的调用
                 # 防止重复调用或单工具超限
-                is_blocked, block_msg = state.check_and_record_tool_call(tc["name"], tc["arguments"])  # 检查该工具调用是否被阻止
-                if is_blocked:  # 如果工具调用被拦截了（重复调用或超过次数限制）
-                    logger.warning(f"工具调用被拦截: {tc['name']} 原因: {block_msg}")  # 打印警告日志
-                    return tc["id"], block_msg  # 返回工具调用 ID 和阻止原因（代替正常结果）
-
                 try:  # 尝试执行工具
                     # 通过注册表调度到具体的工具实现
                     res = registry.dispatch(  # 调用工具注册表，根据工具名称找到对应的实现并执行
@@ -719,11 +714,6 @@ class RAGSystem:
                     pass  # 忽略，不影响工具执行
 
                 # 防重检测与单工具超限
-                is_blocked, block_msg = state.check_and_record_tool_call(tc["name"], tc["arguments"])  # 检查工具调用是否被拦截
-                if is_blocked:  # 如果被拦截
-                    logger.warning(f"工具调用被拦截: {tc['name']} 原因: {block_msg}")  # 打印警告日志
-                    return tc["id"], tool_info, block_msg  # 返回 ID、信息和阻止原因
-
                 try:  # 尝试执行工具
                     res = registry.dispatch(  # 通过注册表调度工具
                         tc["name"], tc["arguments"],  # 工具名称和参数

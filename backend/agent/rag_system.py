@@ -584,21 +584,23 @@ class RAGSystem:
             # 这条消息告诉 LLM："检索结束了，不能再调工具了，用你已经查到的内容来回答吧"
         })
 
-        try:  # 捕获可能的异常
-            # 注意：此处调用的是 chat() 而非 chat_with_tools() —— 不再传 tools，
-            # 相当于强制 LLM 无法再调用工具，只能基于已有内容生成自然语言回答
-            resp = self.client.chat(  # 调用纯对话接口（不带工具）
-                messages=final_messages,  # 传入强制终止后的消息列表
-                model=self.chat_model,    # 使用配置的对话模型
-                stream=False,             # 非流式输出
-                temperature=0.7,          # 温度参数
-                max_tokens=conf.max_output_tokens,  # 最大输出 token 数
-                reasoning_effort=conf.chat_reasoning_effort,  # 推理努力程度
+        try:
+            resp = self.client.chat(
+                messages=final_messages,
+                model=self.chat_model,
+                stream=False,
+                temperature=0.7,
+                max_tokens=conf.max_output_tokens,
+                reasoning_effort=conf.chat_reasoning_effort,
             )
-            return resp  # 返回 LLM 生成的最终答案
-        except Exception as e:  # 如果生成最终答案时出错
+            # nanobot 模式：空响应或非文本响应 → 回退到静态模板
+            if not resp or not resp.strip():
+                logger.warning("最终回答为空，使用回退消息")
+                return "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"
+            return resp
+        except Exception as e:
             logger.error(f"最终回答生成失败: {e}")
-            return "抱歉，生成最终回答时发生了错误。"  # 返回友好的错误提示
+            return "抱歉，生成最终回答时发生了错误。"
 
     # ─── Tool-call 循环 (流式) ─────────────────
 
@@ -830,8 +832,13 @@ class RAGSystem:
                 max_tokens=conf.max_output_tokens,  # 最大输出 token 数
                 reasoning_effort=conf.chat_reasoning_effort,  # 推理努力程度
             )
-            for text in events:  # 遍历 LLM 返回的文本流
-                yield {"type": "token", "text": text}  # 逐块发送给前端
+            has_content = False
+            for text in events:
+                has_content = True
+                yield {"type": "token", "text": text}
+            if not has_content:
+                logger.warning("最终回答为空，使用回退消息")
+                yield {"type": "token", "text": "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"}
         except Exception as e:  # 如果出错
             logger.error(f"最终回答流式生成失败: {e}")
             yield {"type": "token", "text": "\n\n抱歉，生成最终回答时发生了错误。"}  # 发送错误提示

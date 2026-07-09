@@ -462,8 +462,9 @@ class RAGSystem:
             # 发送前裁剪（避免上下文窗口溢出）
             truncated_messages = self._govern_context(state.messages)  # 上下文治理：去孤/压缩/裁剪
 
-            # 记录实际发送给 LLM 的输入（截断后）
-            _log_input(truncated_messages, round=state.iteration, suffix="_sent")  # 把裁剪后的消息也记录到日志
+            # 记录实际发送给 LLM 的输入（仅在最后迭代时记录，避免重复）
+            if state.iteration == state.max_iterations - 1:
+                _log_input(truncated_messages, round=state.iteration, suffix="_final")
 
             # —— 1. 调用 LLM，传入 tools 让 LLM 自主决定是否调用 ——
             try:  # 捕获可能的异常（网络错误、API 错误等）

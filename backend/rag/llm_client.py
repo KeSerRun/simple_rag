@@ -265,8 +265,12 @@ class OpenAIClient:
                     "arguments": tc.function.arguments or "",  # 工具调用的参数（JSON 字符串）
                 })
 
-            # 返回包含文本内容和工具调用列表的字典
-            return {"content": msg.content or "", "tool_calls": tool_calls}
+            # 返回包含文本内容、工具调用列表和结束原因的字典
+            return {
+                "content": msg.content or "",
+                "tool_calls": tool_calls,
+                "finish_reason": resp.choices[0].finish_reason or "stop",
+            }
 
         # ---- 流式 ----
         # 在请求参数中加入流式标志
@@ -300,6 +304,7 @@ class OpenAIClient:
         # 结构：{index: {"id": "", "name": "", "arguments": ""}}
         # key 是工具调用的序号，value 是逐步拼接起来的完整调用信息
         accumulated: dict = {}
+        finish_reason: str | None = None  # 记录最终的 finish_reason
 
         # 使用 try...finally 确保即使发生异常也能处理已累积的数据
         try:
@@ -401,6 +406,10 @@ class OpenAIClient:
             if accumulated:
                 # 如果有残余数据，确保它们被 yield 出去
                 yield {"type": "tool_calls", "calls": list(accumulated.values())}
+
+            # 产出 finish_reason 事件，供调用方做续写等处理
+            if finish_reason:
+                yield {"type": "finish", "reason": finish_reason}
 
     # ========================================================================
     # embed() —— 批量文本向量化

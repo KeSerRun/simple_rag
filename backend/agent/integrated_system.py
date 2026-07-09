@@ -11,6 +11,9 @@ else:
     from storage import JSONFileStore as DataStore
 from agent import RAGSystem
 
+from .checkpoint import CheckpointStore
+from .subagent import SubagentManager
+
 import uuid
 import os
 import sys
@@ -39,6 +42,10 @@ class IntegratedSystem:
         self.session_turn: dict[str, int] = {}
         # 生成取消事件：key=session_id, value=Event（set 时中断当前生成）
         self._cancel_events: dict[str, threading.Event] = {}
+        # 检查点存储（内存中，支持会话恢复）
+        self.checkpoints = CheckpointStore()
+        # 子 Agent 管理器
+        self.subagent_manager = SubagentManager(max_concurrent=4)
 
     def cancel_generation(self, session_id: str):
         """中断指定会话的正在进行的生成。"""

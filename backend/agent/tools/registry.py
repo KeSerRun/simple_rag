@@ -94,6 +94,12 @@ class ToolRegistry:
             logger.warning(f"未注册的工具: {name!r}, 已注册: {sorted(self._tools.keys())}")
             return f"(未知工具: {name})"
 
+        # 参数校验
+        error = self._validate_params(args, tool.parameters)
+        if error:
+            logger.warning(f"工具 {name!r} 参数校验失败: {error}")
+            return f"(工具 {name!r} 参数错误: {error})"
+
         # 累计调用次数
         self.call_counts[name] = self.call_counts.get(name, 0) + 1
 
@@ -104,7 +110,34 @@ class ToolRegistry:
             return result or ""
         except Exception as e:
             logger.error(f"工具 {name!r} 执行失败: {e}")
-            return f"(工具执行失败: {e})"
+            return f"(工具执行失败: {e}。请尝试其他工具或根据已有信息回答。)"
+
+    @staticmethod
+    def _validate_params(args: dict, schema: dict) -> str | None:
+        """轻量参数校验。返回错误消息或 None。"""
+        props = schema.get("properties", {})
+        required = schema.get("required", [])
+
+        # 检查必填参数
+        for key in required:
+            if key not in args or args[key] is None:
+                return f"缺少必填参数: {key}"
+            val = args[key]
+            if isinstance(val, str) and not val.strip():
+                return f"参数 {key} 不能为空"
+
+        # 检查参数类型（只校验 JSON Schema 中的 type）
+        for key, val in args.items():
+            if key in props:
+                expected = props[key].get("type", "")
+                if expected == "array" and not isinstance(val, (list, tuple)):
+                    return f"参数 {key} 应为数组"
+                elif expected == "integer" and not isinstance(val, int):
+                    return f"参数 {key} 应为整数"
+                elif expected == "boolean" and not isinstance(val, bool):
+                    return f"参数 {key} 应为布尔值"
+
+        return None
 
 
 # ===== 内建工具注册入口 =====

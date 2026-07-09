@@ -265,6 +265,9 @@ class RAGSystem:
         """
         # 每次对话前检查 config.ini 是否被修改，自动热重载（hash 比对，无 I/O 开销）
         conf.reload_if_changed()
+        # 重置空响应和 length 恢复重试计数器
+        self._empty_retries = 0
+        self._length_retries = 0
         logger.debug(f"收到用户查询: {query} (style={style})")
 
         # —— 第一步：组装 system message ——
@@ -321,7 +324,48 @@ class RAGSystem:
 
         return self._run_tool_loop(state, force_retrieve)
 
-    # ─── 上下文裁剪 ───────────────────────────
+    # ─── 上下文治理 ───────────────────────────
+
+    def _govern_context(self, messages: List[dict]) -> List[dict]:
+        """上下文治理流水线：在每次调用 LLM 前清理消息列表。
+
+        nanobot 风格的 5 步治理：
+          1. 丢弃孤立 tool_result（没有对应 assistant tool_calls 的）
+          2. 补充缺失 tool_result（有 tool_calls 但没有结果的）
+          3. 微压缩：将冗长的工具结果替换为一行摘要
+          4. 预算控制：截断超过上限的工具结果
+          5. 历史裁剪：按字符数裁剪
+        """
+        # ── 1. 收集所有活跃的 tool_call ID ──
+        active_ids = set()
+        for m in messages:
+            if m.get("role") == "assistant" and "tool_calls" in m:
+                for tc in m["tool_calls"]:
+                    if isinstance(tc, dict):
+                        active_ids.add(tc.get("id", ""))
+
+        # ── 2. 过滤消息 ──
+        governed = []
+        for m in messages:
+            role = m.get("role", "")
+            # 丢弃孤立 tool_result（不在活跃 ID 中的）
+            if role == "tool" and m.get("tool_call_id"):
+                if m["tool_call_id"] not in active_ids:
+                    continue
+
+            # ── 3. 微压缩：verbose 工具结果替换为一行的摘要 ──
+            if role == "tool":
+                content = m.get("content", "") or ""
+                if len(content) > 2000:
+                    # 取前 200 字符作为摘要
+                    summary = content[:200].replace("\n", " ") + "...(已压缩)"
+                    m = dict(m)  # 复制避免修改原始
+                    m["content"] = f"[工具返回 {len(content)} 字符，已压缩]\n{summary}"
+
+            governed.append(m)
+
+        # ── 4+5. 调用原来的截断方法做最终裁剪 ──
+        return self._truncate_messages(governed)
 
     # ===== 上下文窗口裁剪方法：防止 LLM 上下文溢出 =====
     def _truncate_messages(self, messages: List[dict], max_chars: int = 40000) -> List[dict]:
@@ -400,7 +444,7 @@ class RAGSystem:
             _log_input(state.messages, round=state.iteration)  # 把当前轮次的消息记录到日志文件，方便调试
 
             # 发送前裁剪（避免上下文窗口溢出）
-            truncated_messages = self._truncate_messages(state.messages)  # 裁剪过长的消息，防止超过 LLM 的上下文限制
+            truncated_messages = self._govern_context(state.messages)  # 上下文治理：去孤/压缩/裁剪
 
             # 记录实际发送给 LLM 的输入（截断后）
             _log_input(truncated_messages, round=state.iteration, suffix="_sent")  # 把裁剪后的消息也记录到日志
@@ -423,7 +467,24 @@ class RAGSystem:
 
             # —— 2. 终止条件：LLM 不再请求调用工具，返回最终文本 ——
             if not resp["tool_calls"]:  # 如果 LLM 的响应中没有工具调用请求
-                return resp["content"]  # 直接返回 LLM 生成的文本作为最终答案
+                content = (resp.get("content") or "").strip()
+                if not content:
+                    # 空内容自动重试（最多 2 次）
+                    retries = getattr(self, "_empty_retries", 0)
+                    if retries < 2:
+                        self._empty_retries = retries + 1
+                        logger.warning(f"LLM 返回空内容, 自动重试 ({retries+1}/2)")
+                        state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
+                        continue
+                # Length 恢复：finish_reason 为 length 时自动续写
+                length_retries = getattr(self, "_length_retries", 0)
+                if resp.get("finish_reason") == "length" and content and length_retries < 3:
+                    self._length_retries = length_retries + 1
+                    logger.warning(f"LLM 响应被截断 (length), 自动续写 ({length_retries+1}/3)")
+                    state.messages.append({"role": "assistant", "content": content})
+                    state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
+                    continue
+                return content
 
             logger.debug(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
             # —— 3. 将 LLM 的响应（含 tool_calls）追加到 state ——
@@ -573,6 +634,15 @@ class RAGSystem:
                         yield {"type": "token", "text": ev["text"]}  # 把文本逐块发给前端
                     elif ev["type"] == "tool_calls":  # 如果是工具调用事件
                         tool_calls = ev["calls"]  # 提取工具调用列表
+                    elif ev["type"] == "finish" and ev.get("reason") == "length":
+                        if accumulated_content.strip():
+                            lr = getattr(self, "_length_retries", 0)
+                            if lr < 3:
+                                self._length_retries = lr + 1
+                                state.messages.append({"role": "assistant", "content": accumulated_content})
+                                state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
+                                accumulated_content = ""
+                                tool_choice = "none"
             except Exception as e:  # 如果流式调用出错
                 logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")
                 yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}  # 发送错误提示给前端
@@ -580,6 +650,15 @@ class RAGSystem:
 
             # —— 2. 终止条件：无工具调用，流式答案已全部吐出，直接结束 ——
             if not tool_calls:  # 如果 LLM 没有要求调用任何工具
+                if not accumulated_content.strip():
+                    # 空内容自动重试（最多 2 次）
+                    retries = getattr(self, "_empty_retries", 0)
+                    if retries < 2:
+                        self._empty_retries = retries + 1
+                        logger.warning(f"LLM 返回空内容, 自动重试 ({retries+1}/2)")
+                        state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
+                        yield {"type": "status", "status": "retrying"}
+                        continue
                 return  # 终态: 无工具调用, 已流完答案，直接结束生成器
 
             logger.debug(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")

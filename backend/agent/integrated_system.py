@@ -14,6 +14,7 @@ from agent import RAGSystem
 from .checkpoint import CheckpointStore
 from .subagent import SubagentManager
 from .agent_loop import SessionManager
+from .hooks import CompositeHook, LoggingHook
 
 import uuid
 import os
@@ -49,6 +50,9 @@ class IntegratedSystem:
         self.subagent_manager = SubagentManager(max_concurrent=4)
         # 会话管理器（AgentLoop 实例池）
         self.session_manager = SessionManager()
+        # 钩子系统
+        self.hooks = CompositeHook()
+        self.hooks.add(LoggingHook())
 
     def cancel_generation(self, session_id: str):
         """中断指定会话的正在进行的生成。"""

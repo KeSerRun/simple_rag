@@ -10,6 +10,7 @@ from .state_machine import StateMachine, StateContext, TurnState
 from .checkpoint import CheckpointStore, Checkpoint, restore_messages
 from .subagent import SubagentManager
 from .agent_loop import AgentLoop, SessionManager
+from .hooks import AgentHook, CompositeHook, LoggingHook
 
 __all__ = [
     "RAGSystem", "IntegratedSystem",
@@ -22,4 +23,5 @@ __all__ = [
     "CheckpointStore", "Checkpoint", "restore_messages",
     "SubagentManager",
     "AgentLoop", "SessionManager",
+    "AgentHook", "CompositeHook", "LoggingHook",
 ]

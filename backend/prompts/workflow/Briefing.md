@@ -1,7 +1,6 @@
 ---
 name: Briefing
 description: 新闻简报工作流 —— 快速搜索 → 要点提炼 → 结构化简报
-max_tool_iter: 8
 ---
 
 ## ⚠️ 新闻简报工作流

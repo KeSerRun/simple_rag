@@ -94,11 +94,9 @@ class WorkflowRouter:
         # 初始化一个空字典，用来存储所有加载的工作流信息。
         # 字典的 key 是工作流名称（字符串），value 是包含模板内容、描述、来源路径等信息的字典。
         self._workflows: dict[str, dict] = {}
-        # _keyword_map: 关键词（小写）→ 工作流名称 的映射表。
         # 用于 match() 方法做快速查找，key 统一小写以实现大小写不敏感匹配。
         # 初始化一个空字典，用来存储关键词到工作流名称的映射关系。
         # 例如 {"美股": "USstocks", "纳斯达克": "USstocks", "A股": "CNstocks"}
-        self._keyword_map: dict[str, str] = {}
 
         # 初始化时立即加载所有工作流
         # 在构造方法最后一步，立即调用 _load_workflows() 方法，
@@ -141,42 +139,11 @@ class WorkflowRouter:
             f"WorkflowRouter 就绪: {len(self._workflows)} 个工作流"
         )
     def match(self, query: str) -> Optional[str]:
-        """检测用户查询是否匹配某个 workflow 的领域。
-
-        匹配策略 — 长词优先（Long-Word-First Matching）:
-          1. 将用户查询转为小写。
-          2. 将 _keyword_map 中所有关键词按长度降序排列。
-          3. 逐个检查：如果关键词是查询字符串的子串，则视为匹配。
-          4. 优先匹配更长的关键词，避免短关键词误触。
-             例如：查询 "纳斯达克综合指数" 同时包含 "纳斯达克"（3字）和
-             "纳斯达克综合"（5字），长词优先保证匹配更精确的工作流。
-
-        这种简单子串匹配的优缺点：
-          - 优点：速度快（O(n*k)），无需 NLP 模型，适合关键词路由场景。
-          - 缺点：无法处理同义词、语义相似度等，规则完全依赖 route.md 中的关键词定义。
-
-        Args:
-            query: 用户输入的查询文本。
-
-        Returns:
-            匹配的 workflow 名称；无匹配时返回 None。
-        """
-        # 检查查询字符串是否为空，或者 _keyword_map 字典是否为空（没有注册任何关键词）。
-        if not query or not self._keyword_map:
-            # 如果查询为空或者没有关键词可匹配，直接返回 None。
-            return None
-
-        # 将用户输入的查询文本全部转换为小写，实现大小写不敏感的匹配。
-        query_lower = query.lower()
-
-        # 按关键词长度降序匹配（长关键词优先，避免短词误触）
-        # sorted(..., key=lambda x: -len(x[0])) 对 (keyword, workflow_name) 对
-        # 按 keyword 的长度取负值排序，即最长的 keyword 排在最前面。
+        """检测用户查询是否匹配某个 workflow（已弃用，保留兼容）。"""
+        return None
         # 这样遍历时先检查长关键词，命中后立即返回，不再检查短关键词。
-        # 遍历 _keyword_map 中的每一对（关键词, 工作流名称），
         # 并且按关键词长度从长到短排序（key=lambda x: -len(x[0]) 表示按关键词长度取负数排序）。
         for kw, wf_name in sorted(
-            self._keyword_map.items(),
             key=lambda x: -len(x[0]),
         ):
             # 子串匹配：检查关键词是否出现在用户查询中
@@ -251,28 +218,3 @@ class WorkflowRouter:
                 lines.append(n)
         return "\n".join(lines)
 
-    def list_workflows(self) -> dict:
-        """列出所有已加载的工作流及其元信息。
-
-        反向查询 _keyword_map，找出每个工作流注册了哪些关键词。
-        用于管理后台或调试接口展示当前路由规则。
-        """
-        # 使用字典推导式，遍历 _workflows 中所有已加载的工作流，构建返回结果。
-        return {
-            # key 是工作流名称，value 是该工作流的详细信息字典。
-            name: {
-                # description：工作流的描述信息（来自 frontmatter）。
-                "description": info["description"],
-                # 从 _keyword_map 中反向查找属于当前工作流的所有关键词
-                # keywords：通过列表推导式从 _keyword_map 中反向查找，
-                # 找出所有映射到当前工作流名称的关键词。
-                "keywords": [
-                    kw for kw, wf in self._keyword_map.items()
-                    if wf == name
-                ],
-                # source：工作流文件的绝对路径，方便定位文件位置。
-                "source": info["source"],
-            }
-            # 遍历 _workflows 字典，name 是工作流名称，info 是工作流信息字典。
-            for name, info in self._workflows.items()
-        }

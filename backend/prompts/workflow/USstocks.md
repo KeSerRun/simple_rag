@@ -1,7 +1,6 @@
 ---
 name: USstocks
 description: 美股分析工作流 —— 严格分步执行，不得跳过或改变顺序
-max_tool_iter: 20
 ---
 
 ## ⚠️ 美股分析工作流

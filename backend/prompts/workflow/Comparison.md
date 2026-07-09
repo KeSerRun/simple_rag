@@ -1,7 +1,6 @@
 ---
 name: Comparison
 description: 对比分析工作流 —— 多实体并行搜索 → 维度提取 → 对比表格 → 推荐建议
-max_tool_iter: 15
 ---
 
 ## ⚠️ 对比分析工作流

@@ -370,6 +370,7 @@ class IntegratedSystem:
                 short_term_tasks=short_tasks,
                 long_term_tasks=long_tasks,
                 cancel_check=is_cancelled,
+                on_checkpoint=save_cp,
             )
             ans = []
             for event in answer_iter:
@@ -461,6 +462,7 @@ class IntegratedSystem:
                 short_term_tasks=short_tasks,
                 long_term_tasks=long_tasks,
                 cancel_check=is_cancelled,
+                on_checkpoint=save_cp,
             )
             ans = []
             for event in answer_iter:

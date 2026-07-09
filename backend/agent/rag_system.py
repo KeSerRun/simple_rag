@@ -249,6 +249,7 @@ class RAGSystem:
         short_term_tasks: Optional[List[str]] = None,
         long_term_tasks: Optional[List[str]] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
+        on_checkpoint: Optional[Callable[[str, dict], None]] = None,
     ):
         """生成答案的顶层入口。
 
@@ -320,9 +321,9 @@ class RAGSystem:
 
         # —— 第五步：分发到流式或非流式执行路径 ——
         if stream:
-            return self._run_tool_loop_stream(state, force_retrieve, cancel_check=cancel_check)
+            return self._run_tool_loop_stream(state, force_retrieve, cancel_check=cancel_check, on_checkpoint=on_checkpoint)
 
-        return self._run_tool_loop(state, force_retrieve)
+        return self._run_tool_loop(state, force_retrieve, on_checkpoint=on_checkpoint)
 
     # ─── 上下文治理 ───────────────────────────
 
@@ -364,7 +365,32 @@ class RAGSystem:
 
             governed.append(m)
 
-        # ── 4+5. 调用原来的截断方法做最终裁剪 ──
+        # ── 4. Backfill：补充缺失的 tool_result ──
+        # 如果 assistant 有 tool_calls 但没有对应的 tool 消息（中断场景），
+        # 注入合成错误结果，防止 LLM 以为工具还没执行
+        backfill_needed = {}
+        for m in governed:
+            if m.get("role") == "assistant" and "tool_calls" in m:
+                for tc in m["tool_calls"]:
+                    tc_id = tc.get("id", "") if isinstance(tc, dict) else ""
+                    if tc_id:
+                        backfill_needed[tc_id] = tc
+
+        # 移除已有结果的 ID
+        for m in governed:
+            if m.get("role") == "tool" and m.get("tool_call_id"):
+                backfill_needed.pop(m["tool_call_id"], None)
+
+        # 为剩余未完成的调用补结果
+        for tc_id, tc in backfill_needed.items():
+            tc_name = tc.get("name", "") if isinstance(tc, dict) else ""
+            governed.append({
+                "role": "tool",
+                "tool_call_id": tc_id,
+                "content": f"(工具 {tc_name} 在上一轮执行后被中断，结果不可用。请根据已有信息继续。)",
+            })
+
+        # ── 5. 调用原来的截断方法做最终裁剪 ──
         return self._truncate_messages(governed)
 
     # ===== 上下文窗口裁剪方法：防止 LLM 上下文溢出 =====
@@ -422,7 +448,8 @@ class RAGSystem:
     # ─── Tool-call 循环 (非流式) ─────────────────
 
     # ===== 非流式工具调用主循环 =====
-    def _run_tool_loop(self, state: AgentState, force_retrieve: bool) -> str:
+    def _run_tool_loop(self, state: AgentState, force_retrieve: bool,
+                       on_checkpoint: Optional[Callable[[str, dict], None]] = None) -> str:
         """非流式工具调用主循环。
 
         循环逻辑（LLM 驱动的工具调用循环）：
@@ -634,6 +661,12 @@ class RAGSystem:
                         yield {"type": "token", "text": ev["text"]}  # 把文本逐块发给前端
                     elif ev["type"] == "tool_calls":  # 如果是工具调用事件
                         tool_calls = ev["calls"]  # 提取工具调用列表
+                        # 保存 awaiting_tools 检查点
+                        if on_checkpoint:
+                            on_checkpoint("awaiting_tools", {
+                                "iteration": it,
+                                "pending_calls": tool_calls,
+                            })
                     elif ev["type"] == "finish" and ev.get("reason") == "length":
                         if accumulated_content.strip():
                             lr = getattr(self, "_length_retries", 0)
@@ -738,7 +771,12 @@ class RAGSystem:
                         if _cnt:  # 如果找到了
                             tool_info["chunks"] = _cnt  # 把搜索结果数量加入工具信息
                     yield {"type": "status", "status": "tool_result", **tool_info}  # 通知前端：工具执行完毕
-
+                        # ä¿å­ tools_completed æ£æ¥ç¹
+                    if on_checkpoint:
+                        on_checkpoint("tools_completed", {
+                            "iteration": it,
+                            "tool_name": tool_info.get("tool", ""),
+                        })
             # —— 6. 提前退出检查：流式模式下 ——
             for tc in tool_calls:  # 遍历所有工具调用
                 if tc["name"] == "ask_user_for_clarification":  # 如果是"向用户提问"工具

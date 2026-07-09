@@ -250,6 +250,7 @@ class RAGSystem:
         long_term_tasks: Optional[List[str]] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
         on_checkpoint: Optional[Callable[[str, dict], None]] = None,
+        drain_pending: Optional[Callable[[], list[dict]]] = None,
     ):
         """生成答案的顶层入口。
 
@@ -321,7 +322,12 @@ class RAGSystem:
 
         # —— 第五步：分发到流式或非流式执行路径 ——
         if stream:
-            return self._run_tool_loop_stream(state, force_retrieve, cancel_check=cancel_check, on_checkpoint=on_checkpoint)
+            return self._run_tool_loop_stream(
+                state, force_retrieve,
+                cancel_check=cancel_check,
+                on_checkpoint=on_checkpoint,
+                drain_pending=drain_pending,
+            )
 
         return self._run_tool_loop(state, force_retrieve, on_checkpoint=on_checkpoint)
 
@@ -614,7 +620,9 @@ class RAGSystem:
 
     # ===== 流式工具调用主循环（生成器函数） =====
     def _run_tool_loop_stream(self, state: AgentState, force_retrieve: bool,
-                               cancel_check: Optional[Callable[[], bool]] = None):
+                               cancel_check: Optional[Callable[[], bool]] = None,
+                               on_checkpoint: Optional[Callable[[str, dict], None]] = None,
+                               drain_pending: Optional[Callable[[], list[dict]]] = None):
         """流式生成器: 逐 token 产出, 中间穿插 status 事件。
 
         与非流式版本的核心逻辑相同，但：
@@ -803,6 +811,14 @@ class RAGSystem:
 
             # 首轮过后不再强制调用工具
             tool_choice = "auto"  # 第一轮之后恢复为自动模式，让 LLM 自己决定
+
+            # 中间注入：检查是否有子 Agent 结果
+            if drain_pending:
+                pending = drain_pending()
+                for msg in pending:
+                    state.messages.append(msg)
+                    if msg.get("role") == "user":
+                        logger.debug(f"中间注入: {msg.get('content', '')[:60]}...")
 
         # ── 达上限: 用已收集的信息生成最终答案 ──────────
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")

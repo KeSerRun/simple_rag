@@ -389,6 +389,7 @@ class IntegratedSystem:
                 long_term_tasks=long_tasks,
                 cancel_check=is_cancelled,
                 on_checkpoint=save_cp,
+                drain_pending=drain_pending,
             )
             ans = []
             for event in answer_iter:
@@ -471,6 +472,18 @@ class IntegratedSystem:
         def is_cancelled():
             return cancel_event.is_set()
 
+        def drain_pending() -> list[dict]:
+            """æ£æ¥å¹¶æ ¼å¼åå­ Agent ç»æã"""
+            results = self.subagent_manager.drain_results(session_id)
+            msgs = []
+            for r in results:
+                if r.success and r.content:
+                    content = f"[å­ä»»å¡ {{r.task_id}} å®æ]\n{{r.content[:500]}}"
+                    msgs.append({"role": "user", "content": content})
+                    logger.info(f"ä¸­é´æ³¨å¥å­ Agent: {{r.task_id}}")
+            return msgs
+
+
         try:
             answer_iter = self.rag_qa.generate_answer(
                 question,
@@ -482,6 +495,7 @@ class IntegratedSystem:
                 long_term_tasks=long_tasks,
                 cancel_check=is_cancelled,
                 on_checkpoint=save_cp,
+                drain_pending=drain_pending,
             )
             ans = []
             for event in answer_iter:

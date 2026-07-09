@@ -89,10 +89,9 @@ class Config:
         self.log_path = normalize_path(config.get('logger', 'log_path', fallback='logs'))
         self.app_log_level = config.get('logger', 'app_log_level', fallback='INFO')
         self.http_log_level = config.get('logger', 'http_log_level', fallback='INFO')
-        self.user_log_level = config.get('logger', 'user_log_level', fallback='INFO')
         self.console_log_level = config.get('logger', 'console_log_level', fallback='DEBUG')
-        self.log_file_format = '%(levelname)s %(asctime)s %(module)s:%(lineno)d : %(message)s'
-        self.log_console_format = '%(levelname)s %(asctime)s %(module)s:%(lineno)d : %(message)s'
+        self.log_file_format = '%(asctime)s | %(levelname)-5s | %(module)s:%(lineno)d | %(message)s'
+        self.log_console_format = '%(levelname)-5s %(module)s:%(lineno)d | %(message)s'
 
         # ===== API — Chat =====
         self.openai_api_key = (

@@ -52,6 +52,12 @@ class ToolDef:
 class ToolRegistry:
     """工具注册中心。"""
 
+    # 并发安全的白名单（只读操作，可同时执行）
+    _CONCURRENT_SAFE = {
+        "search_knowledge_base", "read_chunk_context",
+        "read_document_titles", "list_documents", "read_archive",
+    }
+
     def __init__(self):
         self._tools: dict[str, ToolDef] = {}
         self.call_counts: dict[str, int] = {}  # 各工具累计调用次数
@@ -81,6 +87,33 @@ class ToolRegistry:
 
     def get(self, name: str) -> Optional[ToolDef]:
         return self._tools.get(name)
+
+    @classmethod
+    def is_concurrent_safe(cls, tool_name: str) -> bool:
+        """工具是否可以与其他工具并行执行。"""
+        return tool_name in cls._CONCURRENT_SAFE
+
+    @classmethod
+    def partition_tool_batches(cls, tool_calls: list[dict]) -> list[list[dict]]:
+        """将工具调用分批：并发安全的一批，不安全的一个一个来。
+
+        对应 nanobot 的 _partition_tool_batches 模式。
+        """
+        concurrent = []
+        sequential = []
+        for tc in tool_calls:
+            name = tc.get("name", "") if isinstance(tc, dict) else ""
+            if cls.is_concurrent_safe(name):
+                concurrent.append(tc)
+            else:
+                sequential.append(tc)
+
+        batches = []
+        if concurrent:
+            batches.append(concurrent)
+        for tc in sequential:
+            batches.append([tc])
+        return batches
 
     def dispatch(self, name: str, args_json: str, *, ctx: ToolContext) -> str:
         try:

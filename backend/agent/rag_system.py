@@ -763,31 +763,31 @@ class RAGSystem:
                      pass  # 忽略
                  yield {"type": "status", "status": "calling_tool", **tmp_info}  # 通知前端：正在调用某个工具
 
-            # —— 5. 并发执行所有工具 ——
-            with concurrent.futures.ThreadPoolExecutor(max_workers=conf.tool_call_workers) as executor:
-                # 创建线程池，线程数等于工具数量
-                futures = [executor.submit(_dispatch_task_stream, tc) for tc in tool_calls]  # 提交所有工具任务
-                for future in concurrent.futures.as_completed(futures):  # 遍历已完成的任务
-                    tc_id, tool_info, result = future.result()  # 获取执行结果
-                    state.add_tool_result(tc_id, result)  # 把工具结果添加到状态的消息列表中
+            # —— 5. 按并发安全性分批执行工具 ——
+            from .tools.registry import ToolRegistry
+            batches = ToolRegistry.partition_tool_batches(tool_calls)
+            for batch in batches:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                    futures = [executor.submit(_dispatch_task_stream, tc) for tc in batch]
+                    for future in concurrent.futures.as_completed(futures):
+                        tc_id, tool_info, result = future.result()
+                        state.add_tool_result(tc_id, result)
 
-                    # 收到结果，通知前端该工具完成并附上摘要
-                    import re as _re  # 导入正则表达式模块，用于统计结果数量
-                    if tool_info.get("tool") == "search_knowledge_base":  # 如果是知识库搜索工具
-                        _cnt = len(_re.findall(r"【片段 \d+", result))  # 用正则统计找到了几个相关片段
-                        if _cnt:  # 如果找到了
-                            tool_info["chunks"] = _cnt  # 把片段数量加入工具信息
-                    elif tool_info.get("tool") == "web_search":  # 如果是网络搜索工具
-                        _cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))  # 用正则统计搜索结果数量
-                        if _cnt:  # 如果找到了
-                            tool_info["chunks"] = _cnt  # 把搜索结果数量加入工具信息
-                    yield {"type": "status", "status": "tool_result", **tool_info}  # 通知前端：工具执行完毕
-                        # ä¿å­ tools_completed æ£æ¥ç¹
-                    if on_checkpoint:
-                        on_checkpoint("tools_completed", {
-                            "iteration": it,
-                            "tool_name": tool_info.get("tool", ""),
-                        })
+                        import re as _re
+                        if tool_info.get("tool") == "search_knowledge_base":
+                            _cnt = len(_re.findall(r"【片段 \d+", result))
+                            if _cnt:
+                                tool_info["chunks"] = _cnt
+                        elif tool_info.get("tool") == "web_search":
+                            _cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))
+                            if _cnt:
+                                tool_info["chunks"] = _cnt
+                        yield {"type": "status", "status": "tool_result", **tool_info}
+                        if on_checkpoint:
+                            on_checkpoint("tools_completed", {
+                                "iteration": it,
+                                "tool_name": tool_info.get("tool", ""),
+                            })
             # —— 6. 提前退出检查：流式模式下 ——
             for tc in tool_calls:  # 遍历所有工具调用
                 if tc["name"] == "ask_user_for_clarification":  # 如果是"向用户提问"工具

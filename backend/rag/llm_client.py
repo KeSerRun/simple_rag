@@ -102,6 +102,54 @@ class OpenAIClient:
         logger.debug(f"{client_name} OpenAI 客户端初始化完成,base_url={base_url or 'https://api.openai.com/v1'}")
 
     # ========================================================================
+    # 错误分类与重试
+    # ========================================================================
+
+    @staticmethod
+    def classify_error(e: Exception) -> str:
+        """将 API 错误分类为用户友好的消息。"""
+        msg = str(e)
+        if "402" in msg or "Insufficient Balance" in msg or "insufficient_balance" in msg:
+            return "API 余额不足，请检查账户余额或更换 API Key。"
+        if "401" in msg or "Unauthorized" in msg or "invalid_api_key" in msg:
+            return "API Key 无效，请在配置中检查 API Key。"
+        if "429" in msg or "Rate limit" in msg or "rate_limit" in msg:
+            return "API 请求频率过高，请稍后重试。"
+        if "500" in msg or "502" in msg or "503" in msg or "server_error" in msg:
+            return "API 服务暂时不可用，请稍后重试。"
+        if "timeout" in msg.lower():
+            return "API 请求超时，请检查网络连接。"
+        if "model" in msg.lower() and "not found" in msg.lower():
+            return f"模型不存在或不可用，请检查模型名称配置。"
+        return f"LLM 调用失败: {e}"
+
+    def chat_with_retry(self, **kwargs):
+        """带重试和错误分类的 chat 调用。
+
+        自动重试 429 和 5xx 错误最多 2 次。
+        """
+        from time import sleep
+        max_attempts = 3
+        last_error = None
+        for attempt in range(max_attempts):
+            try:
+                return self.chat(**kwargs)
+            except Exception as e:
+                cls = self.classify_error(e)
+                last_error = cls
+                # 只有 429/5xx 才重试
+                msg = str(e)
+                if "429" in msg or "500" in msg or "502" in msg or "503" in msg:
+                    if attempt < max_attempts - 1:
+                        wait = 2 ** attempt
+                        logger.warning(f"API 错误, {wait}秒后重试 ({attempt+1}/{max_attempts}): {cls}")
+                        sleep(wait)
+                        continue
+                # 其余错误直接返回
+                return f"({cls})"
+        return f"({last_error})"
+
+    # ========================================================================
     # chat() —— 纯文本对话（不带工具/函数调用）
     # ========================================================================
     # 适用场景:

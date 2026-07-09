@@ -721,6 +721,8 @@ class RAGSystem:
                             vector_store=self.vector_store,  # 向量存储
                             partition=state.partition,        # 知识库分区
                             data_store=self.data_store,       # 数据存储
+                            session_id=state.partition or "",
+                            subagent_manager=getattr(self, "subagent_manager", None),
                         )
                     )
                 except Exception as e:  # 工具执行异常

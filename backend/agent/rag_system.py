@@ -546,6 +546,7 @@ class RAGSystem:
                             vector_store=self.vector_store,  # 向量存储，用于检索知识库
                             partition=state.partition,        # 知识库分区
                             data_store=self.data_store,       # 数据存储
+                            session_id=state.partition or "",
                         )
                     )
                     return tc["id"], res  # 返回工具调用 ID 和执行结果
@@ -554,15 +555,15 @@ class RAGSystem:
                     return tc["id"], f"(系统提示: 执行工具 {tc['name']} 时发生了严重错误: {e}，请尝试使用其他工具或根据现有信息回答)"
                     # 返回错误信息作为工具结果，让 LLM 知道这个工具出错了
 
-            # —— 5. 并发执行所有工具（ThreadPoolExecutor） ——
-            # 每个工具的执行是独立的 I/O 密集型任务，并发可以大幅减少总耗时
-            with concurrent.futures.ThreadPoolExecutor(max_workers=conf.tool_call_workers) as executor:
-                # 创建一个线程池，线程数量等于这次需要执行的工具数量
-                futures = [executor.submit(_dispatch_task, tc) for tc in resp["tool_calls"]]
-                # 把每个工具提交给线程池，返回一个 future 对象列表
-                for future in concurrent.futures.as_completed(futures):  # 遍历所有已完成的任务（按完成顺序）
-                    tc_id, result = future.result()  # 获取任务的返回值（工具调用 ID 和结果）
-                    state.add_tool_result(tc_id, result)  # 把工具的执行结果添加到状态的消息列表中
+            # —— 5. 按并发安全性分批执行工具 ——
+            from .tools.registry import ToolRegistry
+            batches = ToolRegistry.partition_tool_batches(resp["tool_calls"])
+            for batch in batches:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                    futures = [executor.submit(_dispatch_task, tc) for tc in batch]
+                    for future in concurrent.futures.as_completed(futures):
+                        tc_id, result = future.result()
+                        state.add_tool_result(tc_id, result)
 
             # —— 6. 提前退出检查：如果包含 ask_user_for_clarification，则终止并抛出问题 ——
             # ask_user_for_clarification 是一个特殊工具，当 LLM 认为信息不足需要向用户提问时调用

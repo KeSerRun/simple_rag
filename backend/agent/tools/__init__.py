@@ -26,7 +26,7 @@ from .registry import register_all_builtins
 register_all_builtins(registry)
 
 # ── 安全导出 handler 函数 ───────────────────────
-from ._infra_handlers import _exec_ask_clarification  # noqa: E402
+from ._infra_handlers import _exec_ask_clarification, _exec_spawn_subagent  # noqa: E402
 from ._kb_handlers import (                            # noqa: E402
     _exec_search_kb, _exec_read_full_document,
     _exec_list_documents, _exec_read_archive,

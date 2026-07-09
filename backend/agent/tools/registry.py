@@ -22,6 +22,7 @@ class ToolContext:
     vector_store: VectorStore
     partition: Optional[str] = None
     data_store: Optional[object] = None
+    session_id: str = ""  # 当前会话 ID，供 subagent 等使用
 
 
 # ===== ToolDef：单个工具的定义 =====
@@ -184,7 +185,10 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         _exec_read_document_titles, _exec_read_section,
     )
     from ._web_handlers import _exec_web_search, _exec_read_url
-    from ._infra_handlers import _exec_ask_clarification
+    from ._infra_handlers import (
+        _exec_ask_clarification,
+        _exec_spawn_subagent,
+    )
 
     # --- ask_user_for_clarification（虚拟工具） ---
     reg.register(
@@ -204,6 +208,34 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": ["question"],
         },
         handler=_exec_ask_clarification,
+        source=__name__,
+    )
+
+    # --- spawn_subagent ---
+    reg.register(
+        name="spawn_subagent",
+        description=(
+            "将子任务派发给后台 sub-agent 并行执行。"
+            "sub-agent 完成后结果会自动注入当前对话。"
+            "适用于需要独立搜索、计算、比较、多角度分析的任务。"
+            "task 是子任务的详细指令，allowed_tools 可选限制子 agent 可用的工具。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "子任务的完整指令，包括目标、要求和输出格式。",
+                },
+                "allowed_tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "可选：限制子 agent 可使用的工具列表，不传则可用全部工具。",
+                },
+            },
+            "required": ["task"],
+        },
+        handler=_exec_spawn_subagent,
         source=__name__,
     )
 

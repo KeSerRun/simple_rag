@@ -276,7 +276,7 @@ class IntegratedSystem:
         # 准备工作
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
-        logger.debug(f"会话任务 session={session_id} 短期={short_tasks} 长期={long_tasks}")
+        logger.debug(f"会话 session={session_id}")
 
         # 注册取消事件
         cancel_event = threading.Event()

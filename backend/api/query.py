@@ -85,20 +85,26 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
             # 抛出 HTTP 400 错误（请求参数不合法）
             raise HTTPException(status_code=400, detail="Missing session_id or question")
 
+        # ===== 会话级锁：防止并发请求污染状态 =====
+        lock = system.session_manager.get_lock(session_id)
+
         # ===== 根据是否流式选择不同的响应方式 =====
         if stream:  # 如果前端请求使用流式响应
-            # 返回 StreamingResponse（流式 HTTP 响应）
+            def _stream_with_lock():
+                """在流式生成器外层持有会话锁。"""
+                with lock:
+                    yield from _sse_wrapper(
+                        system.answer_generator(session_id, question, partition=username, style=style)
+                    )
             return StreamingResponse(
-                # 调用 system.answer_generator 获取流式生成器，并用 _sse_wrapper 包装成 SSE 格式
-                # session_id: 会话ID，question: 用户问题，partition=username: 按用户名分区检索
-                # style=style: 指定回答风格
-                _sse_wrapper(system.answer_generator(session_id, question, partition=username, style=style)),
+                _stream_with_lock(),
                 media_type="text/event-stream",  # 设置媒体类型为 SSE 流
             )
         # 非流式模式：直接返回完整的 JSON 响应
+        with lock:
+            answer = system.get_answer(session_id, question, partition=username, style=style)
         return JSONResponse(content={
-            # 调用 system.get_answer 获取完整的回答内容
-            "answer": system.get_answer(session_id, question, partition=username, style=style)
+            "answer": answer
         })
 
     # ===== 异常处理 =====

@@ -390,7 +390,18 @@ class RAGSystem:
                 "content": f"(工具 {tc_name} 在上一轮执行后被中断，结果不可用。请根据已有信息继续。)",
             })
 
-        # ── 5. 调用原来的截断方法做最终裁剪 ──
+        # ── 5. Tool Result Budget：单个工具结果上限 8000 字符 ──
+        MAX_TOOL_CHARS = 8000
+        for i, m in enumerate(governed):
+            if m.get("role") == "tool":
+                content = m.get("content", "") or ""
+                if len(content) > MAX_TOOL_CHARS:
+                    truncated = content[:MAX_TOOL_CHARS]
+                    governed[i] = dict(m)
+                    governed[i]["content"] = truncated + "\n\n...(工具结果过长，已截断)..."
+                    logger.debug(f"工具结果预算截断: {len(content)} → {MAX_TOOL_CHARS} 字符")
+
+        # ── 6. 调用原来的截断方法做最终裁剪 ──
         return self._truncate_messages(governed)
 
     # ===== 上下文窗口裁剪方法：防止 LLM 上下文溢出 =====

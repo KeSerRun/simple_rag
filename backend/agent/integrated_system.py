@@ -342,7 +342,7 @@ class IntegratedSystem:
         return answer
 
     def _run_agent_stream(self, session_id, question, partition=None, style=None):
-        """流式版本的 run_agent。"""
+        """流式版本的 run_agent（基于 queue.Queue 的 nanobot 模式）。"""
         # 准备工作
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
@@ -356,58 +356,83 @@ class IntegratedSystem:
             return cancel_event.is_set()
 
         def drain_pending() -> list[dict]:
-            """æ£æ¥å¹¶æ ¼å¼åå­ Agent ç»æã"""
+            """检查并格式化子 Agent 结果。"""
             results = self.subagent_manager.drain_results(session_id)
             msgs = []
             for r in results:
                 if r.success and r.content:
-                    content = f"[å­ä»»å¡ {r.task_id} å®æ]\n{r.content[:500]}"
+                    content = f"[子任务 {r.task_id} 完成]\n{r.content[:500]}"
                     msgs.append({"role": "user", "content": content})
-                    logger.info(f"ä¸­é´æ³¨å¥å­ Agent: {r.task_id}")
+                    logger.info(f"中间注入子 Agent: {r.task_id}")
             return msgs
 
         def save_cp(phase: str, payload: dict):
-                """ä¿å­æ£æ¥ç¹ã"""
-                from .checkpoint import Checkpoint
-                cp = Checkpoint(
-                    phase=phase,
-                    iteration=payload.get("iteration", 0),
-                    model=getattr(self.rag_qa, "chat_model", ""),
-                    pending_calls=payload.get("pending_calls"),
-                    completed_results=payload.get("completed_results"),
-                )
-                self.checkpoints.save(session_id, cp)
-
-        try:
-            answer_iter = self.rag_qa.generate_answer(
-                question,
-                stream=True,
-                history=history,
-                partition=partition,
-                style=style,
-                cancel_check=is_cancelled,
-                on_checkpoint=save_cp,
-                drain_pending=drain_pending,
+            """保存检查点。"""
+            from .checkpoint import Checkpoint
+            cp = Checkpoint(
+                phase=phase,
+                iteration=payload.get("iteration", 0),
+                model=getattr(self.rag_qa, "chat_model", ""),
+                pending_calls=payload.get("pending_calls"),
+                completed_results=payload.get("completed_results"),
             )
-            ans = []
-            for event in answer_iter:
+            self.checkpoints.save(session_id, cp)
+
+        # nanobot 模式：队列 + 后台线程
+        import queue
+        ev_queue: queue.Queue = queue.Queue()
+        _DONE = object()
+
+        def _worker():
+            """后台线程执行 generate_answer，通过 queue 发送事件。"""
+            try:
+                gen = self.rag_qa.generate_answer(
+                    question,
+                    stream=True,
+                    history=history,
+                    partition=partition,
+                    style=style,
+                    cancel_check=is_cancelled,
+                    on_checkpoint=save_cp,
+                    drain_pending=drain_pending,
+                    emit_event=ev_queue.put,
+                )
+                # 驱动生成器运行（emit_event 已在 rag_system 内部发送事件到队列）
+                for _ in gen:
+                    pass
+            except Exception as e:
+                logger.error(f"生成回答异常: {e}")
+                ev_queue.put({"type": "status", "status": "error", "error": str(e)})
+            finally:
+                ev_queue.put(_DONE)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+        ans = []
+        try:
+            while True:
+                ev = ev_queue.get()
+                if ev is _DONE:
+                    break
                 if is_cancelled():
                     yield {"type": "status", "status": "cancelled"}
                     logger.info(f"生成被中断: session={session_id}")
                     return
-                if event.get("type") == "token":
-                    ans.append(event.get("text", ""))
-                yield event
-            answer = ''.join(ans)
+                if ev.get("type") == "token":
+                    ans.append(ev.get("text", ""))
+                yield ev
         finally:
+            # 等待线程结束，清理取消事件
             self._cancel_events.pop(session_id, None)
+            t.join(timeout=2)
+
+        answer = ''.join(ans)
 
         # 更新任务
-        wf_name = self.rag_qa.workflow_router.match(question)
         self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
         logger.debug(f"回答成功 len={len(answer)}")
-
     def run_cli(self, args):
         """CLI entry point - æ ¹æ® args.command ååå°å¯¹åºæä½ã"""
         if hasattr(args, "session") and args.session:

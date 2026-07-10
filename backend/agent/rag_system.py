@@ -237,6 +237,7 @@ class RAGSystem:
         cancel_check: Optional[Callable[[], bool]] = None,
         on_checkpoint: Optional[Callable[[str, dict], None]] = None,
         drain_pending: Optional[Callable[[], list[dict]]] = None,
+        emit_event: Optional[Callable[[dict], None]] = None,
     ):
         """生成答案的顶层入口。
 
@@ -300,6 +301,7 @@ class RAGSystem:
                 cancel_check=cancel_check,
                 on_checkpoint=on_checkpoint,
                 drain_pending=drain_pending,
+                emit_event=emit_event,
             )
 
         return self._run_tool_loop(state, force_retrieve, on_checkpoint=on_checkpoint)
@@ -594,7 +596,8 @@ class RAGSystem:
     def _run_tool_loop_stream(self, state: AgentState, force_retrieve: bool,
                                cancel_check: Optional[Callable[[], bool]] = None,
                                on_checkpoint: Optional[Callable[[str, dict], None]] = None,
-                               drain_pending: Optional[Callable[[], list[dict]]] = None):
+                               drain_pending: Optional[Callable[[], list[dict]]] = None,
+                               emit_event: Optional[Callable[[dict], None]] = None):
         """流式生成器: 逐 token 产出, 中间穿插 status 事件。
 
         与非流式版本的核心逻辑相同，但：
@@ -621,6 +624,7 @@ class RAGSystem:
             tool_calls: List[dict] = []  # 用于存储 LLM 请求的工具调用列表
 
             # —— 通知前端开始思考 ——
+            if emit_event: emit_event({"type": "status", "status": "thinking"})
             yield {"type": "status", "status": "thinking"}  # 发送状态事件给前端：AI 正在思考中
 
             # 发送前裁剪
@@ -649,6 +653,7 @@ class RAGSystem:
                         return
                     if ev["type"] == "content":  # 如果是文本内容事件
                         accumulated_content += ev["text"]  # 累积文本内容
+                        if emit_event: emit_event({"type": "token", "text": ev["text"]})
                         yield {"type": "token", "text": ev["text"]}  # 把文本逐块发给前端
                     elif ev["type"] == "tool_calls":  # 如果是工具调用事件
                         tool_calls = ev["calls"]  # 提取工具调用列表
@@ -681,6 +686,7 @@ class RAGSystem:
                         self._empty_retries = retries + 1
                         logger.warning(f"LLM 返回空内容, 自动重试 ({retries+1}/2)")
                         state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
+                        if emit_event: emit_event({"type": "status", "status": "retrying"})
                         yield {"type": "status", "status": "retrying"}
                         continue
                 return  # 终态: 无工具调用, 已流完答案，直接结束生成器
@@ -739,6 +745,7 @@ class RAGSystem:
                          tmp_info["query"] = [_args["query"]]  # 包装为列表
                  except Exception:  # 解析异常
                      pass  # 忽略
+                 if emit_event: emit_event({"type": "status", "status": "calling_tool", **tmp_info})
                  yield {"type": "status", "status": "calling_tool", **tmp_info}  # 通知前端：正在调用某个工具
 
             # —— 5. 按并发安全性分批执行工具 ——
@@ -760,6 +767,7 @@ class RAGSystem:
                             _cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))
                             if _cnt:
                                 tool_info["chunks"] = _cnt
+                        if emit_event: emit_event({"type": "status", "status": "tool_result", **tool_info})
                         yield {"type": "status", "status": "tool_result", **tool_info}
                         if on_checkpoint:
                             on_checkpoint("tools_completed", {
@@ -818,9 +826,11 @@ class RAGSystem:
             has_content = False
             for text in events:
                 has_content = True
+                if emit_event: emit_event({"type": "token", "text": text})
                 yield {"type": "token", "text": text}
             if not has_content:
                 logger.warning("最终回答为空，使用回退消息")
+                if emit_event: emit_event({"type": "token", "text": "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"})
                 yield {"type": "token", "text": "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"}
         except Exception as e:  # 如果出错
             logger.error(f"最终回答流式生成失败: {e}")

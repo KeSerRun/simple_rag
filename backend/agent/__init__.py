@@ -5,7 +5,7 @@ from .state_machine import AgentState, StateMachine, StateContext, TurnState
 from .tools.registry import ToolRegistry, ToolContext, ToolDef
 from .tools import registry, TOOL_SCHEMAS, execute_tool
 from .workflow_router import WorkflowRouter
-from .bus import MessageBus, bus as agent_bus
+from .bus import MessageBus, agent_bus
 from .checkpoint import CheckpointStore, Checkpoint, restore_messages
 from .subagent import SubagentManager
 from .agent_loop import AgentLoop, SessionManager

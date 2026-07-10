@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from queue import Queue, Empty
 from typing import Any, Optional
 
 
@@ -21,6 +21,12 @@ class AgentEvent:
     session_id: str              # 所属会话
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class InboundMessage(AgentEvent):
+    """进入 Agent 的用户消息。"""
+    content: str = ""
 
 
 @dataclass
@@ -59,56 +65,51 @@ class ErrorEvent(AgentEvent):
 
 
 # ===== 消息总线 =====
+import threading
+import queue
 
 class MessageBus:
-    """Agent 内部消息总线。
+    """Agent 内部消息总线（基于 nanobot 模型，采用线程安全队列）。
 
     双队列模型：
-      - inbound:  外部 → Agent 的消息（用户输入、子 agent 结果）
-      - outbound: Agent → 外部的消息（LLM 回复、状态更新、错误）
+      - inbound: 外部 → Agent 的消息（用户请求）
+      - outbound: 按会话隔离的输出队列（LLM 事件流 → API 响应流）
     """
 
     def __init__(self):
-        self.inbound: Queue[AgentEvent] = Queue()
-        self.outbound: Queue[AgentEvent] = Queue()
+        self.inbound: queue.Queue[dict] = queue.Queue()
+        self._outbound_queues: dict[str, queue.Queue[AgentEvent]] = {}
+        self._lock = threading.Lock()
 
-    def publish(self, event: AgentEvent):
-        """发布事件到总线。自动根据事件类型路由到对应队列。"""
-        self.outbound.put(event)
+    def get_outbound(self, session_id: str) -> queue.Queue[AgentEvent]:
+        """获取指定会话的输出队列。"""
+        with self._lock:
+            if session_id not in self._outbound_queues:
+                self._outbound_queues[session_id] = queue.Queue()
+            return self._outbound_queues[session_id]
 
-    def publish_inbound(self, event: AgentEvent):
-        """发布外部消息到 inbound 队列。"""
-        self.inbound.put(event)
+    def remove_outbound(self, session_id: str):
+        """清理指定会话的输出队列。"""
+        with self._lock:
+            self._outbound_queues.pop(session_id, None)
 
-    def consume(self, timeout: float = 0.1) -> Optional[AgentEvent]:
-        """从 inbound 消费一条消息。非阻塞。"""
+    def publish(self, session_id: str, event: dict):
+        """发布事件到指定会话的 outbound 队列。"""
+        q = self.get_outbound(session_id)
+        q.put(event)
+
+    def publish_inbound(self, request: dict):
+        """发布外部请求到 inbound 队列。"""
+        self.inbound.put(request)
+
+    def consume_inbound(self, timeout: float = 0.5) -> Optional[dict]:
+        """从 inbound 消费一个请求。阻塞带超时。"""
         try:
             return self.inbound.get(timeout=timeout)
-        except Empty:
+        except queue.Empty:
             return None
-
-    def read_outbound(self, timeout: float = 0.1) -> Optional[AgentEvent]:
-        """从 outbound 读取一条消息。非阻塞。"""
-        try:
-            return self.outbound.get(timeout=timeout)
-        except Empty:
-            return None
-
-    def clear_session_events(self, session_id: str):
-        """清空指定会话的所有待处理事件。"""
-        for q in (self.inbound, self.outbound):
-            remaining = []
-            while True:
-                try:
-                    ev = q.get_nowait()
-                    if ev.session_id != session_id:
-                        remaining.append(ev)
-                except Empty:
-                    break
-            for ev in remaining:
-                q.put(ev)
 
 
 # ===== 全局实例 =====
 # 应用启动时创建，各模块共享
-bus = MessageBus()
+agent_bus = MessageBus()

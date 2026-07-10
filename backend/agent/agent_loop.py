@@ -16,7 +16,7 @@ from base.logger import logger
 
 from .state_machine import StateMachine, StateContext, TurnState
 from .checkpoint import CheckpointStore, Checkpoint, restore_messages
-from .bus import bus, AgentEvent, StateChangeEvent, ToolCallEvent, ErrorEvent
+from .bus import agent_bus, AgentEvent, StateChangeEvent, ToolCallEvent, ErrorEvent
 
 
 class AgentLoop:
@@ -115,7 +115,7 @@ class AgentLoop:
                 logger.info(f"已恢复 {len(restored)} 条消息")
 
         # 发布状态事件
-        bus.publish(StateChangeEvent(
+        agent_bus.publish(StateChangeEvent(
             type="state_change",
             session_id=self.session_id,
             from_state="init",

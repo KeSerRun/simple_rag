@@ -39,7 +39,7 @@ class IntegratedSystem:
         # 生成取消事件：key=session_id, value=Event（set 时中断当前生成）
         self._cancel_events: dict[str, threading.Event] = {}
         # 检查点存储（内存中，支持会话恢复）
-        self.checkpoints = CheckpointStore()
+        self.checkpoints = CheckpointStore(data_store=self.data_store)
         # 子 Agent 管理器
         self.subagent_manager = SubagentManager(max_concurrent=4)
         # 将 subagent_manager 注入 RAGSystem，使其能传递给 ToolContext
@@ -342,13 +342,11 @@ class IntegratedSystem:
         return answer
 
     def _run_agent_stream(self, session_id, question, partition=None, style=None):
-        """流式版本的 run_agent（基于 queue.Queue 的 nanobot 模式）。"""
-        # 准备工作
+        """流式版本的 run_agent（基于 agent_bus 的 nanobot 模式）。"""
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
         logger.debug(f"会话 session={session_id}")
 
-        # 注册取消事件
         cancel_event = threading.Event()
         self._cancel_events[session_id] = cancel_event
 
@@ -356,7 +354,6 @@ class IntegratedSystem:
             return cancel_event.is_set()
 
         def drain_pending() -> list[dict]:
-            """检查并格式化子 Agent 结果。"""
             results = self.subagent_manager.drain_results(session_id)
             msgs = []
             for r in results:
@@ -367,7 +364,6 @@ class IntegratedSystem:
             return msgs
 
         def save_cp(phase: str, payload: dict):
-            """保存检查点。"""
             from .checkpoint import Checkpoint
             cp = Checkpoint(
                 phase=phase,
@@ -378,13 +374,12 @@ class IntegratedSystem:
             )
             self.checkpoints.save(session_id, cp)
 
-        # nanobot 模式：队列 + 后台线程
-        import queue
-        ev_queue: queue.Queue = queue.Queue()
+        # 使用全局 agent_bus（nanobot 模式）
+        from .bus import agent_bus
+        session_queue = agent_bus.get_outbound(session_id)
         _DONE = object()
 
         def _worker():
-            """后台线程执行 generate_answer，通过 queue 发送事件。"""
             try:
                 gen = self.rag_qa.generate_answer(
                     question,
@@ -395,16 +390,15 @@ class IntegratedSystem:
                     cancel_check=is_cancelled,
                     on_checkpoint=save_cp,
                     drain_pending=drain_pending,
-                    emit_event=ev_queue.put,
+                    emit_event=session_queue.put,
                 )
-                # 驱动生成器运行（emit_event 已在 rag_system 内部发送事件到队列）
                 for _ in gen:
                     pass
             except Exception as e:
                 logger.error(f"生成回答异常: {e}")
-                ev_queue.put({"type": "status", "status": "error", "error": str(e)})
+                session_queue.put({"type": "status", "status": "error", "error": str(e)})
             finally:
-                ev_queue.put(_DONE)
+                session_queue.put(_DONE)
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
@@ -412,7 +406,7 @@ class IntegratedSystem:
         ans = []
         try:
             while True:
-                ev = ev_queue.get()
+                ev = session_queue.get()
                 if ev is _DONE:
                     break
                 if is_cancelled():
@@ -423,9 +417,10 @@ class IntegratedSystem:
                     ans.append(ev.get("text", ""))
                 yield ev
         finally:
-            # 等待线程结束，清理取消事件
+            from .bus import agent_bus
             self._cancel_events.pop(session_id, None)
             t.join(timeout=2)
+            agent_bus.remove_outbound(session_id)
 
         answer = ''.join(ans)
 

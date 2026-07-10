@@ -34,13 +34,16 @@ class Checkpoint:
 
 
 class CheckpointStore:
-    """内存检查点存储。由 IntegratedSystem 持有。"""
+    """检查点存储（内存 + data_store 持久化）。"""
 
-    def __init__(self):
+    _CHECKPOINT_KEY = "_agent_checkpoint"
+
+    def __init__(self, data_store=None):
         self._store: dict[str, dict] = {}
+        self._data_store = data_store
 
-    def save(self, session_id: str, cp: Checkpoint) -> None:
-        payload = {
+    def _to_payload(self, cp: Checkpoint) -> dict:
+        return {
             "phase": cp.phase,
             "iteration": cp.iteration,
             "model": cp.model,
@@ -48,11 +51,31 @@ class CheckpointStore:
             "completed_results": cp.completed_results or [],
             "pending_calls": cp.pending_calls or [],
         }
+
+    def save(self, session_id: str, cp: Checkpoint) -> None:
+        payload = self._to_payload(cp)
         self._store[session_id] = payload
+        # 持久化到 data_store
+        if self._data_store:
+            try:
+                tasks = self._data_store.get_session_tasks(session_id) or {}
+                tasks[self._CHECKPOINT_KEY] = payload
+                self._data_store.save_session_tasks(session_id, tasks)
+            except Exception as e:
+                logger.warning(f"检查点持久化失败: {e}")
         logger.debug(f"检查点已保存: session={session_id[:8]} phase={cp.phase} iter={cp.iteration}")
 
     def load(self, session_id: str) -> Optional[Checkpoint]:
         raw = self._store.get(session_id)
+        if not raw and self._data_store:
+            # 从持久化恢复
+            try:
+                tasks = self._data_store.get_session_tasks(session_id) or {}
+                raw = tasks.get(self._CHECKPOINT_KEY)
+                if raw:
+                    self._store[session_id] = raw
+            except Exception:
+                pass
         if not raw:
             return None
         try:
@@ -70,6 +93,13 @@ class CheckpointStore:
 
     def clear(self, session_id: str) -> None:
         self._store.pop(session_id, None)
+        if self._data_store:
+            try:
+                tasks = self._data_store.get_session_tasks(session_id) or {}
+                tasks.pop(self._CHECKPOINT_KEY, None)
+                self._data_store.save_session_tasks(session_id, tasks)
+            except Exception:
+                pass
 
 
 def restore_messages(cp: Checkpoint) -> list[dict]:

@@ -223,34 +223,75 @@ class MinerUClient:
     # max_wait: 最大等待时间（秒），默认 600 秒（10 分钟）
     # 返回值: 解析结果列表，每个元素是一个字典
     def _poll_batch(self, batch_id: str, interval: float = 5.0,
-                    max_wait: float = 600.0) -> list[dict]:
+                    max_wait: float = 1200.0) -> list[dict]:
         """轮询解析结果，返回 extract_result 列表。"""
-        # 计算超时截止时间戳（当前时间 + 最大等待秒数）。
-        # time.time() 返回当前时间戳（从 1970-01-01 开始的秒数）。
         deadline = time.time() + max_wait
-        # 构造查询结果的 API URL，使用 batch_id 来指定要查询的批次。
+        start = time.time()
         url = f"{self._base}/extract-results/batch/{batch_id}"
-        # 开始无限循环，直到遇到 return 或 raise 才退出。
+        last_heartbeat = -1
+        # 首次拿到非空 results 的时间戳（用于 graceful period）
+        first_data_ts: float | None = None
+
         while True:
-            # 调用 _get 方法发送 GET 请求获取当前解析状态。
+            # ── 1. 请求 API ──────────────────────────────────
             body = self._get(url)
-            # 从返回体中获取 "extract_result" 字段，默认为空列表。
-            # extract_result 是一个列表，每个元素代表一个文件的最新解析状态。
-            results = body.get("extract_result", [])
-            # 使用列表推导式计算已完成（done）或失败（failed）的任务数量。
-            # sum() 函数对布尔值列表求和，True 计为 1，False 计为 0。
-            done_count = sum(1 for it in results if it.get("state") in ("done", "failed"))
-            # 如果 results 不为空，且已完成/失败的任务数量等于总任务数，
-            # 说明所有文件都已处理完毕（无论成功还是失败）。
+
+            # ── 2. 防御：body 必须是 dict ─────────────────────
+            if not isinstance(body, dict):
+                raise MinerUError(
+                    f"API 返回了意外的 data 类型: {type(body).__name__}, "
+                    f"期望 dict, 内容: {str(body)[:200]}"
+                )
+
+            # ── 3. 提取 extract_result，处理 null/缺失 ────────
+            raw = body.get("extract_result")      # 可能是 None / [] / [items]
+            results = raw if isinstance(raw, list) else []
+
+            # ── 4. 显示所有文件的原始 state ──────────────────
+            if results:
+                states = {
+                    it.get("data_id") or it.get("file_name", "?"):
+                        it.get("state", "unknown")
+                    for it in results
+                }
+                logger.info(f"轮询状态: {states}")
+            else:
+                elapsed = time.time() - start
+                logger.info(f"extract_result 为空 (已等待 {elapsed:.0f}s), 继续等待...")
+
+            # ── 5. 判定完成 ──────────────────────────────────
+            done_count = sum(
+                1 for it in results
+                if it.get("state") in ("done", "failed")
+            )
             if results and done_count == len(results):
-                # 返回解析结果列表给调用方。
                 return results
-            # 检查当前时间是否超过了截止时间戳。
+
+            # ── 6. 超时检查 ──────────────────────────────────
+            elapsed = time.time() - start
             if time.time() > deadline:
-                # 超时了，抛出异常。
-                raise MinerUError(f"轮询超时 ({max_wait:.0f}s)")
-            # 还没完成也没超时，则等待 interval 秒后再继续查询。
-            # time.sleep() 会让程序暂停指定的秒数，避免过于频繁地请求 API。
+                # 超时 — 附加已有信息方便排查
+                parts = [f"轮询超时 ({max_wait:.0f}s) batch={batch_id}"]
+                if results:
+                    parts.append(f"{done_count}/{len(results)} done")
+                    states = {
+                        it.get("data_id") or it.get("file_name", "?"):
+                            it.get("state", "unknown")
+                        for it in results
+                    }
+                    parts.append(f"states={states}")
+                raise MinerUError(" ".join(parts))
+
+            # ── 7. 30 秒心跳 ─────────────────────────────────
+            heartbeat = int(elapsed) // 30
+            if heartbeat > last_heartbeat:
+                last_heartbeat = heartbeat
+                status = (
+                    f"{done_count}/{len(results)} 完成"
+                    if results else "等待 API 返回结果"
+                )
+                logger.info(f"[3/4] 仍在等待 (已等待 {elapsed:.0f}s, {status})...")
+
             time.sleep(interval)
 
 
@@ -322,15 +363,28 @@ class MinerUClient:
             raise MinerUError(
                 f"非 JSON 响应 status={resp.status_code} body={resp.text[:300]}"
             )
-        # 检查 API 返回的业务状态码，MinerU API 规定 code 为 0 代表请求成功。
+        # MinerU API 响应有两种格式:
+        #   成功: {"code": 0, "data": {...}}
+        #   失败: {"success": false, "msgCode": "A0202", "msg": "...", "traceId": "..."}
+        # 先处理"success: false"格式的失败响应
+        if body.get("success") is False:
+            err_code = body.get("msgCode") or "?"
+            err_msg = body.get("msg") or "未知错误"
+            trace = body.get("traceId") or body.get("trace_id") or ""
+            raise MinerUError(
+                f"API 错误 code={err_code} msg={err_msg} trace={trace}"
+            )
+        # 再检查标准的 code ≠ 0
         if body.get("code") != 0:
-            # 如果业务状态码不是 0，说明 API 返回了错误，抛出异常。
-            # 显示错误码、错误信息和追踪 ID（用于向 MinerU 技术支持排查问题）。
             raise MinerUError(
                 f"API 错误 code={body.get('code')} msg={body.get('msg')} "
                 f"trace={body.get('trace_id')}"
             )
-        # 一切正常，返回 body 中的 "data" 字段，这是 API 返回的有效数据部分。
+        if "data" not in body:
+            raise MinerUError(
+                f"API 响应缺少 data 字段, body keys={list(body.keys())[:10]}, "
+                f"msg={body.get('msg', '')}"
+            )
         return body["data"]
 
 

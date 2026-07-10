@@ -313,9 +313,14 @@ class OpenAIClient:
                     "arguments": tc.function.arguments or "",  # 工具调用的参数（JSON 字符串）
                 })
 
-            # 返回包含文本内容、工具调用列表和结束原因的字典
+            # 返回包含文本内容、推理过程、工具调用列表和结束原因的字典
+            reasoning = getattr(msg, "reasoning_content", None)
+            if reasoning is None:
+                extra = getattr(msg, "model_extra", None) or {}
+                reasoning = extra.get("reasoning_content")
             return {
                 "content": msg.content or "",
+                "reasoning_content": reasoning,
                 "tool_calls": tool_calls,
                 "finish_reason": resp.choices[0].finish_reason or "stop",
             }
@@ -374,6 +379,17 @@ class OpenAIClient:
                 if content:
                     # 如果有文本内容，以 {"type": "content", "text": "..."} 的格式产出
                     yield {"type": "content", "text": content}
+
+                # ---- 1.5 处理推理过程增量（reasoning_content） ----
+                # DeepSeek R1 / QwQ / Gemini 等模型的思考链通过 SSE 原始 JSON 的
+                # choices[0].delta.reasoning_content 字段返回，但 OpenAI SDK 的
+                # ChoiceDelta 对象不解析该字段（非标准字段存于 model_extra）。
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning is None:
+                    extra = getattr(delta, "model_extra", None) or {}
+                    reasoning = extra.get("reasoning_content")
+                if reasoning:
+                    yield {"type": "reasoning", "text": reasoning}
 
                 # ---- 2. 处理工具调用增量 ----
                 # 安全地获取 delta 中的 tool_calls 字段（工具调用增量）

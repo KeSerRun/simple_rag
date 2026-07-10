@@ -5,6 +5,7 @@
 """RAG 问答查询接口(支持流式 SSE)"""
 
 # ===== 导入 Python 标准库 =====
+import asyncio
 import json  # 导入 json 模块，用于处理 JSON 格式的数据（序列化/反序列化）
 import os    # 导入 os 模块，用于与操作系统交互（如文件路径、环境变量等）
 
@@ -52,13 +53,9 @@ async def list_styles():  # 定义异步函数，用于处理获取风格列表�
 
 
 # ===== SSE（Server-Sent Events）流式响应包装器 =====
-def _sse_wrapper(generator):  # 定义私有函数，用于将生成器包装成 SSE 格式
-    """把普通字符串生成器包装成 SSE `data: ...\n\n` 流。
-    token 内容用 JSON 编码，避免换行符等特殊字符破坏 SSE 帧结构。"""
-    # 遍历生成器产生的每一个数据项
+def _sse_wrapper(generator):
+    """把普通字符串生成器包装成 SSE `data: ...\n\n` 流。"""
     for item in generator:
-        # 将每个数据项用 json.dumps 编码为 JSON 字符串（确保中文不乱码）
-        # 然后按照 SSE 协议格式包装：以 "data: " 开头，以两个换行符结尾
         yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
 
@@ -99,9 +96,12 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
                 _stream_with_lock(),
                 media_type="text/event-stream",
             )
-        # 非流式模式
-        with lock:
-            answer = system.run_agent(session_id, question, partition=username, style=style, stream=False)
+        # 非流式模式：放到线程池执行，避免阻塞事件循环
+        def _run_sync():
+            with lock:
+                return system.run_agent(session_id, question, partition=username, style=style, stream=False)
+        answer = await asyncio.to_thread(_run_sync)
+        return JSONResponse(content={"answer": answer})
 
     # ===== 异常处理 =====
     except json.JSONDecodeError:  # 捕获 JSON 解析错误（前端传的不是合法的 JSON）

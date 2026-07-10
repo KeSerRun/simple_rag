@@ -42,6 +42,8 @@ dependencies = [
     "rich>=13.7",
     "duckduckgo-search>=8.1.1",
     "ddgs>=9.14.4",
+    # Token 估算
+    "tiktoken>=0.9",
 ]
 
 [tool.setuptools.packages.find]

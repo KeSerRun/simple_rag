@@ -351,33 +351,37 @@ const agentStatus = ref({ visible: false, text: '' })
 const statusLabels = {
   thinking: '深度思考中…',
   calling_tool: (info) => {
+    const prefix = info.total ? `[${info.total}个工具] ` : ''
     if (info.tool === 'search_knowledge_base' && info.query) {
       const q = Array.isArray(info.query) ? info.query.join(', ') : info.query
-      return `正在检索知识库: ${q}…`
+      return `${prefix}正在检索知识库: ${q}…`
     }
     if (info.tool === 'read_full_document' && info.filename) {
-      return `正在阅读: ${info.filename}…`
+      return `${prefix}正在阅读: ${info.filename}…`
     }
     if (info.tool === 'web_search' && info.query) {
       const q = Array.isArray(info.query) ? info.query[0] : info.query
-      return `正在联网搜索: ${q}…`
+      return `${prefix}正在联网搜索: ${q}…`
     }
     const toolNames = {
-      search_knowledge_base: '正在检索知识库…',
-      read_full_document: '正在阅读文档全文…',
-      web_search: '正在联网搜索…',
+      search_knowledge_base: `${prefix}正在检索知识库…`,
+      read_full_document: `${prefix}正在阅读文档全文…`,
+      web_search: `${prefix}正在联网搜索…`,
     }
-    return toolNames[info.tool] || `正在调用工具: ${info.tool}…`
+    return toolNames[info.tool] || `${prefix}正在调用工具: ${info.tool}…`
   },
   tool_result: (info) => {
     if (info.chunks !== undefined) {
-      return `检索完成，找到 ${info.chunks} 条结果`
+      return `✅ 检索完成，找到 ${info.chunks} 条结果`
     }
     if (info.tool === 'web_search') {
-      return '联网搜索完成'
+      return `✅ 联网搜索完成`
     }
     if (info.tool === 'read_full_document') {
-      return '文档阅读完成'
+      return `✅ 文档阅读完成`
+    }
+    if (info.tool === 'ask_user_for_clarification') {
+      return '❓ 需要向您提问'
     }
     return ''
   },
@@ -391,9 +395,10 @@ const sendQuestion = async (text) => {
   throttleScroll()
 
   // 立即推入占位 AI 消息，后续通过索引替换来更新（触发 Vue 数组响应式）
-  messages.value.push({ role: 'ai', content: '', renderedContent: '', _v: 0 })
+  messages.value.push({ role: 'ai', content: '', renderedContent: '', reasoning: '', reasoningRendered: '', _v: 0 })
   const aiIndex = messages.value.length - 1
   let aiContent = ''
+  let aiReasoning = ''
   let aiVersion = 0
   sseBuffer = ''
   lastProcessedLength = 0
@@ -435,7 +440,7 @@ const sendQuestion = async (text) => {
               if (!content) continue
 
               // 处理状态事件（tool call / thinking）
-              if (typeof content === 'object' && content.type) {
+              if (typeof content === 'object') {
                 if (content.type === 'status') {
                   const label = statusLabels[content.status]
                   if (content.status === 'thinking' || content.status === 'calling_tool') {
@@ -472,10 +477,26 @@ const sendQuestion = async (text) => {
                   chunk += content.text || ''
                   continue
                 }
+                if (content.type === 'reasoning') {
+                  // 推理过程（思考链），单独累积，不混入主回答
+                  aiReasoning += (content.text || '')
+                  messages.value[aiIndex] = {
+                    role: 'ai',
+                    content: aiContent,
+                    renderedContent: renderMarkdown(aiContent),
+                    reasoning: aiReasoning,
+                    reasoningRendered: renderMarkdown(aiReasoning),
+                    _v: aiVersion,
+                  }
+                  throttleScroll()
+                  continue
+                }
               }
 
               // 旧格式（纯字符串 token）
-              chunk += content
+              if (typeof content === 'string') {
+                chunk += content
+              }
             }
           }
 
@@ -487,6 +508,8 @@ const sendQuestion = async (text) => {
               role: 'ai',
               content: aiContent,
               renderedContent: renderMarkdown(aiContent),
+              reasoning: aiReasoning,
+              reasoningRendered: aiReasoning ? renderMarkdown(aiReasoning) : '',
               _v: aiVersion,
             }
             throttleScroll()
@@ -501,6 +524,8 @@ const sendQuestion = async (text) => {
       role: 'ai',
       content: aiContent,
       renderedContent: renderMarkdown(aiContent),
+      reasoning: aiReasoning,
+      reasoningRendered: aiReasoning ? renderMarkdown(aiReasoning) : '',
       _v: aiVersion,
     }
     message.error('请求失败，请重试')

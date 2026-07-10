@@ -13,8 +13,13 @@
 
 AgentState 封装了循环中的 messages / 轮次 / 上下文参数。  # AgentState 负责管理整个循环过程中的状态
 """
-# ===== 标准库导入 =====
+# ===== 导入标准库模块 =====
+import hashlib
+import json
 import os  # 导入操作系统模块，用于文件路径操作（拼接路径、获取目录等）
+import threading
+from functools import lru_cache
+from pathlib import Path
 
 from typing import Callable, List, Optional
 
@@ -84,11 +89,76 @@ def _log_input(messages: list, round: int = 0, suffix: str = ""):
             # indent=2 表示 JSON 缩进 2 个空格，方便阅读
 
             _f.write("\n")  # 末尾加一个换行，分隔不同的日志记录
-    except Exception:  # 捕获所有异常，避免日志错误影响主程序
-        pass  # 什么都不做，静默忽略
+    except Exception:
+        pass
 
 
-# ===== RAGSystem 主类：RAG 系统的核心入口 =====
+# ===== Token 估算（基于 tiktoken） =====
+
+@lru_cache(maxsize=1)
+def _get_token_encoder():
+    import tiktoken
+    return tiktoken.get_encoding("cl100k_base")
+
+
+def _count_tokens(text: str) -> int:
+    """估算文本 token 数。"""
+    try:
+        enc = _get_token_encoder()
+        return len(enc.encode(text, disallowed_special=()))
+    except Exception:
+        return len(text) // 2
+
+
+def _count_message_tokens(m: dict) -> int:
+    """估算一条消息的 token 数。"""
+    content = m.get("content", "") or ""
+    base = 4
+    if isinstance(content, str):
+        return base + _count_tokens(content)
+    return base + _count_tokens(str(content))
+
+
+# ===== 工具结果持久化 =====
+
+_TOOL_RESULTS_DIR = ".tool_results"
+_PREVIEW_CHARS = 200
+_MAX_PERSIST_CHARS = 2000  # 超过此长度的工具结果写入文件
+
+
+def _persist_tool_result(session_id: str, tool_name: str, content: str) -> str:
+    """将过长的工具结果写入文件，返回引用字符串。"""
+    if len(content) <= _MAX_PERSIST_CHARS:
+        return content  # 不长，直接返回
+
+    try:
+        work_dir = Path(conf.data_dir) / _TOOL_RESULTS_DIR / (session_id or "default")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        # 用 MD5 去重，避免同一结果重复存多份
+        digest = hashlib.md5(content.encode("utf-8")).hexdigest()[:12]
+        path = work_dir / f"{tool_name}_{digest}.txt"
+
+        if not path.exists():
+            path.write_text(content, encoding="utf-8")
+            # 清理过期文件（保留最近 50 个）
+            files = sorted(work_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+            for old in files[50:]:
+                old.unlink(missing_ok=True)
+
+        preview = content[:_PREVIEW_CHARS].replace("\n", " ")
+        reference = (
+            f"[工具结果已保存至 {path}]\n"
+            f"原始长度: {len(content)} 字符, 预览: {preview}..."
+        )
+        logger.debug(f"工具结果持久化: {tool_name} ({len(content)} chars → {path.name})")
+        return reference
+    except Exception as e:
+        logger.warning(f"工具结果持久化失败: {e}, 返回原始内容")
+        return content
+
+
+# ===== RAGSystem 主类 =====
 class RAGSystem:
     """RAG 系统的核心入口，管理 LLM 客户端、向量库、工具注册表和工作流路由。
 
@@ -371,8 +441,8 @@ class RAGSystem:
                 "content": f"(工具 {tc_name} 在上一轮执行后被中断，结果不可用。请根据已有信息继续。)",
             })
 
-        # ── 5. Tool Result Budget：单个工具结果上限 8000 字符 ──
-        MAX_TOOL_CHARS = 8000
+        # ── 5. Tool Result Budget：单个工具结果上限（默认 8000 字符） ──
+        MAX_TOOL_CHARS = getattr(conf, 'max_tool_result_chars', 8000)
         for i, m in enumerate(governed):
             if m.get("role") == "tool":
                 content = m.get("content", "") or ""
@@ -382,60 +452,57 @@ class RAGSystem:
                     governed[i]["content"] = truncated + "\n\n...(工具结果过长，已截断)..."
                     logger.debug(f"工具结果预算截断: {len(content)} → {MAX_TOOL_CHARS} 字符")
 
-        # ── 6. 调用原来的截断方法做最终裁剪 ──
+        # ── 6. 调用截断方法做最终裁剪 ──
         return self._truncate_messages(governed)
 
-    # ===== 上下文窗口裁剪方法：防止 LLM 上下文溢出 =====
-    def _truncate_messages(self, messages: List[dict], max_chars: int = 40000) -> List[dict]:
-        """按需裁剪消息长度。保留首尾（system, 最新用户提问），裁剪中间的检索结果。
+    # ===== 上下文窗口裁剪：基于 token 估算 =====
+    def _truncate_messages(self, messages: List[dict]) -> List[dict]:
+        """按 token 预算裁剪消息。保留首尾，裁剪中间过长工具结果。
 
-        由于 LLM 上下文窗口有限，当 tool loop 多次迭代后，大量的检索结果和中间消息
-        会撑爆上下文。该方法在每次调用 LLM 之前执行"瘦身"。
-
-        裁剪策略：
-          - system message 始终完整保留       # 系统提示必须完整，不能丢
-          - 最后一条消息（最新用户问题）始终完整保留  # 用户的最新问题也要完整保留
-          - 中间过长的 tool 消息截取首尾各 1500 字符，中间用省略提示替换  # 中间的工具返回内容太长就砍掉中间
-          - 非 tool 的中间消息保持不动         # 其他类型的消息不动
-          - 如果裁剪后仍然超长，不做二次处理（仅记录日志）  # 一次裁剪不够的话不继续裁了，只记日志
+        阈值：conf.context_window_tokens 的 80%（留出 20% 给输出）。
         """
-        # 简单粗暴的字符长度计算 (1 token ~ 2 汉字 / 4 英文字符，40000字符约合 1~2 万 token)
-        total_len = sum(len(str(m.get("content", ""))) for m in messages)  # 计算所有消息的字符数总和
-        if total_len <= max_chars:  # 如果总长度没有超过上限
-            return messages  # 直接返回原始消息列表，无需裁剪
+        budget = int(conf.context_window_tokens * 0.8)
+        total = sum(_count_message_tokens(m) for m in messages)
+        if total <= budget:
+            return messages
 
-        logger.warning(f"上下文总长度={total_len} 超过阈值={max_chars}，进行截断...")
+        logger.warning(
+            f"上下文超预算: ~{total} tokens > {budget} "
+            f"(context_window_tokens={conf.context_window_tokens}), 截断中..."
+        )
 
-        new_messages = []  # 创建一个新列表，用于存放裁剪后的消息
-        # 始终保留 system 提示（必须是第一个）和最后一个用户的问题及周边
-        system_msg = messages[0] if messages and messages[0].get("role") == "system" else None  # 获取第一条 system 消息
+        new_messages = []
+        system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
 
-        # 遍历每条消息，按规则决定保留或截断
-        for idx, m in enumerate(messages):  # 遍历所有消息，idx 是索引，m 是消息字典
-            # 第一条 system 消息完整保留
-            if idx == 0 and system_msg:  # 如果是第一条消息并且是 system 类型
-                new_messages.append(m)  # 直接完整保留，不做任何裁剪
-                continue  # 继续处理下一条
+        for idx, m in enumerate(messages):
+            # system 始终完整保留
+            if idx == 0 and system_msg:
+                new_messages.append(m)
+                continue
+            # 最后一条始终保留
+            if idx == len(messages) - 1:
+                new_messages.append(m)
+                continue
 
-            # 最后一个 message 总是保留完整（通常是用户的最新问题或 LLM 的最后回复）
-            if idx == len(messages) - 1:  # 如果是最后一条消息（最新用户问题）
-                new_messages.append(m)  # 完整保留
-                continue  # 继续处理下一条
+            # 中间 tool 消息过长时截断（阈值：3000 token）
+            if m.get("role") == "tool":
+                content = m.get("content", "") or ""
+                tok = _count_tokens(content)
+                if tok > 3000:
+                    # 保留首尾各 1500 字符，中间替换为摘要
+                    truncated = content[:1500] + (
+                        f"\n...(工具结果过长，原 ~{tok} tokens，已截断)...\n"
+                    ) + content[-1500:]
+                    m_copy = m.copy()
+                    m_copy["content"] = truncated
+                    new_messages.append(m_copy)
+                    continue
 
-            # 中间的 message，如果是 tool role 且过长，则截断
-            if m.get("role") == "tool" and len(str(m.get("content", ""))) > 3000:  # 如果是工具返回的消息且内容超过 3000 字符
-                truncated_content = m["content"][:1500] + "\n...(部分检索内容已因超长被系统截断)...\n" + m["content"][-1500:]
-                # 截断策略：取前 1500 字符 + 提示文字 + 后 1500 字符
-                m_copy = m.copy()  # 复制原始消息字典
-                m_copy["content"] = truncated_content  # 用截断后的内容替换原始内容
-                new_messages.append(m_copy)  # 把裁剪后的消息添加到新列表
-            else:  # 其他情况（非 tool 消息，或者虽然 tool 但长度不超）
-                new_messages.append(m)  # 直接完整保留
+            new_messages.append(m)
 
-        # 再次检查
-        new_len = sum(len(str(m.get("content", ""))) for m in new_messages)  # 计算裁剪后的总字符数
-        logger.debug(f"截断后上下文总长度为: {new_len}")
-        return new_messages  # 返回裁剪后的消息列表
+        after = sum(_count_message_tokens(m) for m in new_messages)
+        logger.debug(f"截断后: ~{after} tokens ({int((1-after/total)*100)}% 压缩)")
+        return new_messages
 
     # ─── Tool-call 循环 (非流式) ─────────────────
 
@@ -468,34 +535,32 @@ class RAGSystem:
             if state.iteration == state.max_iterations - 1:
                 _log_input(truncated_messages, round=state.iteration, suffix="_final")
 
-            # —— 1. 调用 LLM，传入 tools 让 LLM 自主决定是否调用 ——
-            try:  # 捕获可能的异常（网络错误、API 错误等）
-                resp = self.client.chat_with_tools(  # 调用 LLM，并告诉它可以使用的工具
-                    messages=truncated_messages,  # 传入裁剪后的消息列表
-                    model=self.chat_model,        # 指定使用的对话模型
-                    tools=registry.schemas,       # 传入所有已注册工具的定义（schema），让 LLM 知道有哪些工具可用
-                    tool_choice=tool_choice,      # 工具调用策略："auto" 让 LLM 自己决定，"required" 强制 LLM 必须调工具
-                    stream=False,                 # 非流式模式，一次性获取完整响应
-                    temperature=0.7,              # 生成温度，0.7 是比较适中的创意程度（0=保守，1=创意）
-                    max_tokens=conf.max_output_tokens,  # 最大输出 token 数，防止 LLM 生成过长的内容
-                    reasoning_effort=conf.chat_reasoning_effort,  # 推理努力程度（用于支持推理的模型，如 o1 系列）
+            # —— 1. LLM 调用（不带流式） ——
+            try:
+                resp = self.client.chat_with_tools(
+                    messages=truncated_messages,
+                    model=self.chat_model,
+                    tools=registry.schemas,
+                    tool_choice=tool_choice,
+                    stream=False,
+                    temperature=0.7,
+                    max_tokens=conf.max_output_tokens,
+                    reasoning_effort=conf.chat_reasoning_effort,
                 )
-            except Exception as e:  # 如果 LLM 调用过程中发生任何错误
+            except Exception as e:
                 logger.error(f"LLM tool 调用失败 (round {state.iteration}): {e}")
-                return "抱歉，模型处理请求时发生了错误。"  # 返回友好的错误提示给用户
+                return "抱歉，模型处理请求时发生了错误。"
 
-            # —— 2. 终止条件：LLM 不再请求调用工具，返回最终文本 ——
-            if not resp["tool_calls"]:  # 如果 LLM 的响应中没有工具调用请求
+            # —— 2. 终止条件 ——
+            if not resp["tool_calls"]:
                 content = (resp.get("content") or "").strip()
                 if not content:
-                    # 空内容自动重试（最多 2 次）
                     retries = getattr(self, "_empty_retries", 0)
                     if retries < 2:
                         self._empty_retries = retries + 1
                         logger.warning(f"LLM 返回空内容, 自动重试 ({retries+1}/2)")
                         state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
                         continue
-                # Length 恢复：finish_reason 为 length 时自动续写
                 length_retries = getattr(self, "_length_retries", 0)
                 if resp.get("finish_reason") == "length" and content and length_retries < 3:
                     self._length_retries = length_retries + 1
@@ -506,89 +571,111 @@ class RAGSystem:
                 return content
 
             logger.debug(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
-            # —— 3. 将 LLM 的响应（含 tool_calls）追加到 state ——
-            state.add_assistant_response(resp["content"], resp["tool_calls"])  # 把 LLM 的回复内容和工具调用请求记录到状态中
+            state.add_assistant_response(resp["content"], resp["tool_calls"])
 
-            import concurrent.futures  # 导入并发执行模块，用于同时执行多个工具
+            # —— 3. 执行工具（共享一个线程池，避免反复创建开销） ——
+            import concurrent.futures
 
-            # —— 4. 定义单个工具的 dispatch 任务 ——
-            def _dispatch_task(tc):  # 定义一个内部函数，负责执行单个工具的调用
-                # 防止重复调用或单工具超限
-                try:  # 尝试执行工具
-                    # 通过注册表调度到具体的工具实现
-                    res = registry.dispatch(  # 调用工具注册表，根据工具名称找到对应的实现并执行
-                        tc["name"], tc["arguments"],  # 传入工具名称和参数（JSON 字符串）
-                        ctx=ToolContext(  # 创建工具执行上下文
-                            vector_store=self.vector_store,  # 向量存储，用于检索知识库
-                            partition=state.partition,        # 知识库分区
-                            data_store=self.data_store,       # 数据存储
+            def _dispatch_task(tc):
+                try:
+                    res = registry.dispatch(
+                        tc["name"], tc["arguments"],
+                        ctx=ToolContext(
+                            vector_store=self.vector_store,
+                            partition=state.partition,
+                            data_store=self.data_store,
                             session_id=state.partition or "",
                             subagent_manager=getattr(self, "subagent_manager", None),
                             workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
-                    return tc["id"], res  # 返回工具调用 ID 和执行结果
-                except Exception as e:  # 如果工具执行过程中发生异常
+                    # 工具结果持久化：过长结果写入文件
+                    if isinstance(res, str):
+                        res = _persist_tool_result(state.partition or "", tc["name"], res)
+                    return tc["id"], res
+                except Exception as e:
                     logger.error(f"工具 {tc['name']} 执行发生严重异常: {e}", exc_info=True)
                     return tc["id"], f"(系统提示: 执行工具 {tc['name']} 时发生了严重错误: {e}，请尝试使用其他工具或根据现有信息回答)"
-                    # 返回错误信息作为工具结果，让 LLM 知道这个工具出错了
 
-            # —— 5. 按并发安全性分批执行工具 ——
             from .tools.registry import ToolRegistry
             batches = ToolRegistry.partition_tool_batches(resp["tool_calls"])
-            for batch in batches:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(resp["tool_calls"])
+            ) as executor:
+                for batch in batches:
                     futures = [executor.submit(_dispatch_task, tc) for tc in batch]
                     for future in concurrent.futures.as_completed(futures):
                         tc_id, result = future.result()
                         state.add_tool_result(tc_id, result)
 
-            # —— 6. 提前退出检查：如果包含 ask_user_for_clarification，则终止并抛出问题 ——
-            # ask_user_for_clarification 是一个特殊工具，当 LLM 认为信息不足需要向用户提问时调用
-            for tc in resp["tool_calls"]:  # 遍历 LLM 请求的所有工具调用
-                if tc["name"] == "ask_user_for_clarification":  # 如果工具名是"向用户提问"
-                    import json  # 导入 JSON 解析模块
-                    try:  # 尝试解析参数
-                        q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")  # 从参数中提取 LLM 想问的问题
-                    except:  # 如果解析失败
-                        q = "我需要您提供更多背景信息。"  # 使用默认的提问文本
+            # —— 4. 提前退出检查：LLM 需要向用户提问 ——
+            for tc in resp["tool_calls"]:
+                if tc["name"] == "ask_user_for_clarification":
+                    import json
+                    try:
+                        q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")
+                    except:
+                        q = "我需要您提供更多背景信息。"
                     logger.debug("提前中断工具循环：LLM 需要澄清")
-                    return q  # 直接将 LLM 的问题返回给用户，不再继续循环
+                    return q
 
-            # 首轮过后不再强制 tool_choice，让 LLM 自由选择是否继续调用工具
-            tool_choice = "auto"  # 第一轮之后把策略设为 auto，让 LLM 自己决定后续是否还需要调工具
+            # 首轮过后不再强制 tool_choice
+            tool_choice = "auto"
 
         # ── 达上限: 用已收集的信息生成最终答案 ──────────
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")
-        # 打印警告日志：工具循环到达了最大迭代次数
+        return self._finalize_answer(state.messages, stream=False)
 
-        # 强制切断模型对工具的执念
-        # 注入一条 system 风格的 user 消息，明确告诉 LLM 不再允许调工具，
-        # 让 LLM 退而基于已有信息（检索结果）综合回答
-        final_messages = list(state.messages)  # 复制当前的状态消息列表
-        final_messages.append({  # 追加一条用户消息，强制终止工具调用
-            "role": "user",  # 角色是用户
-            "content": "（本轮工具调用额度已用完。请仅根据已有对话和工具结果，直接给出最终回答。不要请求或调用任何工具。如果信息不足以做出完整回答，如实说明已获取的信息和仍缺少的部分。）"
-            # 这条消息告诉 LLM："检索结束了，不能再调工具了，用你已经查到的内容来回答吧"
-        })
+    # ─── 共享：最终答案生成（非流式 + 流式复用） ─────────
+
+    _FORCE_STOP_MSG = (
+        "（本轮工具调用额度已用完。请仅根据已有对话和工具结果，"
+        "直接给出最终回答。不要请求或调用任何工具。"
+        "如果信息不足以做出完整回答，如实说明已获取的信息和仍缺少的部分。）"
+    )
+    _FALLBACK_MSG = "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"
+
+    def _finalize_answer(self, messages, stream=False, emit_event=None):
+        """强制 LLM 基于已有信息生成最终答案（无工具可用）。"""
+        final = list(messages)
+        final.append({"role": "user", "content": self._FORCE_STOP_MSG})
 
         try:
-            resp = self.client.chat(
-                messages=final_messages,
-                model=self.chat_model,
-                stream=False,
-                temperature=0.7,
-                max_tokens=conf.max_output_tokens,
-                reasoning_effort=conf.chat_reasoning_effort,
-            )
-            # nanobot 模式：空响应或非文本响应 → 回退到静态模板
-            if not resp or not resp.strip():
-                logger.warning("最终回答为空，使用回退消息")
-                return "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"
-            return resp
+            if stream:
+                events = self.client.chat(
+                    messages=final, model=self.chat_model,
+                    stream=True, temperature=0.7,
+                    max_tokens=conf.max_output_tokens,
+                    reasoning_effort=conf.chat_reasoning_effort,
+                )
+                has_content = False
+                for text in events:
+                    has_content = True
+                    if emit_event:
+                        emit_event({"type": "token", "text": text})
+                    yield {"type": "token", "text": text}
+                if not has_content:
+                    logger.warning("最终回答为空，使用回退消息")
+                    if emit_event:
+                        emit_event({"type": "token", "text": self._FALLBACK_MSG})
+                    yield {"type": "token", "text": self._FALLBACK_MSG}
+            else:
+                resp = self.client.chat(
+                    messages=final, model=self.chat_model,
+                    stream=False, temperature=0.7,
+                    max_tokens=conf.max_output_tokens,
+                    reasoning_effort=conf.chat_reasoning_effort,
+                )
+                if not resp or not resp.strip():
+                    logger.warning("最终回答为空，使用回退消息")
+                    return self._FALLBACK_MSG
+                return resp
         except Exception as e:
             logger.error(f"最终回答生成失败: {e}")
-            return "抱歉，生成最终回答时发生了错误。"
+            if stream:
+                yield {"type": "token", "text": "\n\n抱歉，生成最终回答时发生了错误。"}
+            else:
+                return "抱歉，生成最终回答时发生了错误。"
 
     # ─── Tool-call 循环 (流式) ─────────────────
 
@@ -618,6 +705,13 @@ class RAGSystem:
             # ä¸­æ­æ£æ¥
             if cancel_check and cancel_check():
                 logger.info("工具循环被中断")
+                # 保存检查点，允许下次恢复
+                if on_checkpoint and state.messages:
+                    on_checkpoint("tools_completed", {
+                        "iteration": it,
+                        "model": self.chat_model,
+                        "pending_calls": tool_calls if tool_calls else None,
+                    })
                 return
         
             accumulated_content = ""  # 用于累积本次 LLM 回复的文本内容
@@ -655,6 +749,9 @@ class RAGSystem:
                         accumulated_content += ev["text"]  # 累积文本内容
                         if emit_event: emit_event({"type": "token", "text": ev["text"]})
                         yield {"type": "token", "text": ev["text"]}  # 把文本逐块发给前端
+                    elif ev["type"] == "reasoning":  # 推理过程（如 DeepSeek R1 的思考链）
+                        if emit_event: emit_event({"type": "reasoning", "text": ev["text"]})
+                        yield {"type": "reasoning", "text": ev["text"]}
                     elif ev["type"] == "tool_calls":  # 如果是工具调用事件
                         tool_calls = ev["calls"]  # 提取工具调用列表
                         # 保存 awaiting_tools 检查点
@@ -671,11 +768,18 @@ class RAGSystem:
                                 state.messages.append({"role": "assistant", "content": accumulated_content})
                                 state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
                                 accumulated_content = ""
-                                tool_choice = "none"
+                                tool_choice = "auto"
             except Exception as e:  # 如果流式调用出错
                 logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")
-                yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}  # 发送错误提示给前端
-                return  # 终止生成器
+                # 保存检查点，让下次查询可以恢复已完成的工具结果
+                if on_checkpoint and state.messages:
+                    on_checkpoint("tools_completed", {
+                        "iteration": it,
+                        "model": self.chat_model,
+                        "pending_calls": tool_calls if tool_calls else None,
+                    })
+                yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}
+                return
 
             # —— 2. 终止条件：无工具调用，流式答案已全部吐出，直接结束 ——
             if not tool_calls:  # 如果 LLM 没有要求调用任何工具
@@ -725,34 +829,40 @@ class RAGSystem:
                             workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
+                    # 工具结果持久化
+                    if isinstance(res, str):
+                        res = _persist_tool_result(state.partition or "", tc["name"], res)
                 except Exception as e:  # 工具执行异常
                     logger.error(f"工具 {tc['name']} 异常: {e}", exc_info=True)
                     res = f"(系统提示: 执行工具 {tc['name']} 发生错误: {e}，请尝试其他策略)"  # 构造错误信息
 
                 return tc["id"], tool_info, res  # 返回工具调用 ID、信息字典和执行结果
 
-            # —— 4. 先通知前端即将调用的所有工具 ——
-            for tc in tool_calls:  # 遍历所有将要调用的工具
-                 import json as _json  # 导入 JSON 解析模块
-                 tmp_info = {"tool": tc["name"]}  # 创建临时信息字典
-                 try:  # 尝试解析参数
-                     _args = _json.loads(tc.get("arguments") or "{}")  # 解析参数
-                     if "queries" in _args:  # 如果有 queries 参数
-                         tmp_info["query"] = _args["queries"]  # 提取查询词
-                     if "filename" in _args:  # 如果有 filename 参数
-                         tmp_info["filename"] = _args["filename"]  # 提取文件名
-                     if "query" in _args:  # 如果有单数 query 参数
-                         tmp_info["query"] = [_args["query"]]  # 包装为列表
-                 except Exception:  # 解析异常
-                     pass  # 忽略
+            # —— 4. 先通知前端即将调用的所有工具（带进度计数） ——
+            _tool_total = len(tool_calls)
+            for _tool_idx, tc in enumerate(tool_calls, start=1):
+                 import json as _json
+                 tmp_info = {"tool": tc["name"], "total": _tool_total}
+                 try:
+                     _args = _json.loads(tc.get("arguments") or "{}")
+                     if "queries" in _args:
+                         tmp_info["query"] = _args["queries"]
+                     if "filename" in _args:
+                         tmp_info["filename"] = _args["filename"]
+                     if "query" in _args:
+                         tmp_info["query"] = [_args["query"]]
+                 except Exception:
+                     pass
                  if emit_event: emit_event({"type": "status", "status": "calling_tool", **tmp_info})
-                 yield {"type": "status", "status": "calling_tool", **tmp_info}  # 通知前端：正在调用某个工具
+                 yield {"type": "status", "status": "calling_tool", **tmp_info}
 
-            # —— 5. 按并发安全性分批执行工具 ——
+            # —— 5. 按并发安全性分批执行工具（共享线程池，避免反复创建开销） ——
             from .tools.registry import ToolRegistry
             batches = ToolRegistry.partition_tool_batches(tool_calls)
-            for batch in batches:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(tool_calls)
+            ) as executor:
+                for batch in batches:
                     futures = [executor.submit(_dispatch_task_stream, tc) for tc in batch]
                     for future in concurrent.futures.as_completed(futures):
                         tc_id, tool_info, result = future.result()
@@ -802,39 +912,9 @@ class RAGSystem:
                             logger.debug(f"中间注入 ({_injection_round}): {msg.get('content', '')[:60]}...")
                     pending = drain_pending()
 
-        # ── 达上限: 用已收集的信息生成最终答案 ──────────
+        # ── 达上限: 用已收集的信息生成最终答案（共享 _finalize_answer） ──
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")
-        # 打印警告日志：到达最大迭代次数
-
-        # 强制切断模型对工具的执念（同非流式版本）
-        final_messages = list(state.messages)  # 复制消息列表
-        final_messages.append({  # 追加强制终止指令
-            "role": "user",  # 用 user 角色发送
-            "content": "（本轮工具调用额度已用完。请仅根据已有对话和工具结果，直接给出最终回答。不要请求或调用任何工具。如果信息不足以做出完整回答，如实说明已获取的信息和仍缺少的部分。）"
-            # 这条消息强制 LLM 停止调用工具，基于已有信息生成最终回复
-        })
-
-        try:  # 尝试调用 LLM 生成最终答案
-            events = self.client.chat(  # 调用纯对话接口（不带工具）
-                messages=final_messages,  # 传入强制终止后的消息列表
-                model=self.chat_model,    # 使用配置的模型
-                stream=True,              # 流式输出
-                temperature=0.7,          # 温度参数
-                max_tokens=conf.max_output_tokens,  # 最大输出 token 数
-                reasoning_effort=conf.chat_reasoning_effort,  # 推理努力程度
-            )
-            has_content = False
-            for text in events:
-                has_content = True
-                if emit_event: emit_event({"type": "token", "text": text})
-                yield {"type": "token", "text": text}
-            if not has_content:
-                logger.warning("最终回答为空，使用回退消息")
-                if emit_event: emit_event({"type": "token", "text": "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"})
-                yield {"type": "token", "text": "我已尽力根据已有信息完成分析。如需更深入的回答，请补充更多细节或分步骤提问。"}
-        except Exception as e:  # 如果出错
-            logger.error(f"最终回答流式生成失败: {e}")
-            yield {"type": "token", "text": "\n\n抱歉，生成最终回答时发生了错误。"}  # 发送错误提示
+        yield from self._finalize_answer(state.messages, stream=True, emit_event=emit_event)
 
 
 # ===== 模块入口：直接运行时执行简单的测试 =====

@@ -274,8 +274,11 @@ class VectorStore:
                     # "table_body": 表格正文（如果是表格块），从 metadata 获取，默认空字符串
                     "table_body": doc.metadata.get("table_body", ""),
                 })
-            # 所有文档添加完毕后，调用 _rebuild_index 重新构建 FAISS 索引
-            self._rebuild_index()
+            # 增量添加：新向量追加到现有 FAISS 索引，避免全量重建
+            # embeddings 已在 _embed 中做过 L2 归一化，直接 add
+            if self.dense_index is None:
+                self.dense_index = faiss.IndexFlatIP(self.dimension)
+            self.dense_index.add(embeddings)
             # 调用 _save_to_disk 将更新后的向量和元数据保存到磁盘
             self._save_to_disk()
         # 输出日志：成功插入文档到本地向量存储，显示插入的文档数量
@@ -354,8 +357,13 @@ class VectorStore:
         self.dense_vectors = [v for i, v in enumerate(self.dense_vectors) if i in keep_set]
         # 使用列表推导式：遍历 self.metadata，只保留索引在 keep_set 中的元数据
         self.metadata = [m for i, m in enumerate(self.metadata) if i in keep_set]
-        # 调用 _rebuild_index 方法，用保留的向量重新构建 FAISS 索引
-        self._rebuild_index()
+        # 重建 FAISS 索引（向量已归一化，直接建索引，跳过多余的 normalize）
+        if self.dense_vectors:
+            arr = np.array(self.dense_vectors, dtype=np.float32)
+            self.dense_index = faiss.IndexFlatIP(self.dimension)
+            self.dense_index.add(arr)
+        else:
+            self.dense_index = None
         # 调用 _save_to_disk 方法，将更新后的数据保存到磁盘
         self._save_to_disk()
 

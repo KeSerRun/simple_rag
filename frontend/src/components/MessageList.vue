@@ -41,11 +41,17 @@
 
       <div class="bubble">
         <div v-if="msg.role === 'user'" class="user-content">{{ msg.content }}</div>
-        <div
-          v-else
-          class="ai-content"
-          v-html="parseMarkdown(msg.content)"
-        ></div>
+        <div v-else>
+          <!-- 推理过程（可折叠） -->
+          <details v-if="msg.reasoning" class="reasoning-block">
+            <summary class="reasoning-header">
+              <span class="reasoning-toggle">🤔 思考过程</span>
+            </summary>
+            <div class="reasoning-content" v-html="parseMarkdown(msg.reasoning)"></div>
+          </details>
+          <!-- 主回答 -->
+          <div class="ai-content" v-html="parseMarkdown(msg.content)"></div>
+        </div>
         <!-- 中断提示 -->
         <div v-if="msg.isCancelled" class="cancelled-hint">
           <n-text depth="3" style="font-size: 12px">━━ 回答已中断 ━━</n-text>
@@ -397,6 +403,46 @@ defineExpose({ scrollToBottom })
 
 .ai-content :deep(a):hover {
   text-decoration: underline;
+}
+
+/* 推理过程（思考链）折叠块 */
+.reasoning-block {
+  margin-bottom: 12px;
+  border: 1px solid var(--n-divider-color, #e0dcd6);
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: rgba(120, 112, 104, 0.03);
+}
+
+.reasoning-header {
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--n-text-color-3, #6e6760);
+  transition: background-color 0.15s;
+}
+
+.reasoning-header:hover {
+  background-color: rgba(120, 112, 104, 0.06);
+}
+
+.reasoning-toggle {
+  font-weight: 500;
+}
+
+.reasoning-content {
+  padding: 4px 12px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--n-text-color-2, #4a4440);
+  border-top: 1px solid var(--n-divider-color, #e0dcd6);
+}
+
+.reasoning-content :deep(p) {
+  margin: 6px 0;
 }
 
 .ai-content :deep(hr) {

@@ -7,6 +7,37 @@ from base.logger import logger
 from .registry import ToolContext
 
 
+def _validate_url(url: str) -> str | None:
+    """SSRF 防护：验证 URL 合法且非内网地址。返回错误信息或 None（通过）。"""
+    import urllib.parse
+    import socket
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return f"不支持的协议: {parsed.scheme}（仅允许 http/https）"
+
+    host = parsed.hostname or ""
+    # 禁止访问内网地址
+    try:
+        ip = socket.gethostbyname(host)
+        # 私有 IP 段
+        parts = ip.split(".")
+        if len(parts) == 4:
+            first = int(parts[0])
+            if (first == 10
+                or (first == 172 and 16 <= int(parts[1]) <= 31)
+                or (first == 192 and parts[1] == "168")
+                or first == 127
+                or first == 0):
+                return f"禁止访问内网地址: {url}"
+        # 保留地址
+        if ip == "255.255.255.255" or ip.startswith("169.254."):
+            return f"禁止访问保留地址: {url}"
+    except socket.gaierror:
+        return None  # 无法解析也放行（可能是临时故障）
+    return None  # 通过
+
+
 # ===== web_search =====
 def _exec_web_search(args: dict, ctx: ToolContext) -> str:
     """
@@ -68,6 +99,12 @@ def _exec_read_url(args: dict, ctx: ToolContext) -> str:
     url = (args.get("url") or "").strip()
     if not url:
         return "(未提供 URL 参数)"
+
+    # SSRF 防护
+    err = _validate_url(url)
+    if err:
+        logger.warning(f"tool read_url 被 SSRF 防护拦截: {err}")
+        return f"({err})"
 
     logger.debug(f"tool read_url: 开始抓取 {url}")
     try:

@@ -107,25 +107,22 @@ class IntegratedSystem:
         """
         raw = self.data_store.get_session_history(session_id) or []
 
-        # 检查点恢复：如果存在未完成的检查点，将之前的工具执行结果注入历史
+        # 检查点恢复：并将已完成的工具结果注入对话 history
         cp = self.checkpoints.load(session_id)
+        restored_msgs = []
         if cp and cp.phase in ("awaiting_tools", "tools_completed"):
             from .checkpoint import restore_messages
-            restored = restore_messages(cp)
-            if restored:
-                logger.info(f"恢复检查点: phase={cp.phase}, {len(restored)} 条消息注入历史")
-                # 将恢复的消息作为合成 qa 条目插入历史
-                if restored:
-                    raw.append({
-                        "type": "qa",
-                        "user": "(系统：检测到上轮对话被中断，以下为已完成的工具执行结果)",
-                        "assistant": f"[系统已恢复 {len(restored)} 条工具执行结果]",
-                    })
-            # 清除检查点（避免重复恢复）
+            restored_msgs = restore_messages(cp)
+            if restored_msgs:
+                logger.info(f"恢复检查点: phase={cp.phase}, {len(restored_msgs)} 条消息")
             self.checkpoints.clear(session_id)
 
         if not raw:
-            return []
+            # 即使没有历史，也可能有检查点恢复的消息
+            messages = []
+            for m in restored_msgs:
+                messages.append(m)
+            return messages
         messages = []
 
         # 1) 硬截断: 按轮次截取最近 N 条 QA（安全阀）
@@ -139,6 +136,10 @@ class IntegratedSystem:
         # 2) 全部转为 messages
         for h in raw:
             self._append_history_item(messages, h)
+
+        # 3) 注入检查点恢复的工具结果（在历史之后，新查询之前）
+        if restored_msgs:
+            messages.extend(restored_msgs)
 
         # 3) nanobot 模式：Token 预算压缩
         qa_entries = [h for h in raw if h.get('type') != 'event']
@@ -222,18 +223,21 @@ class IntegratedSystem:
             return f"<operation：switch answer style to {new_style}>"
         return ""
 
-    # ── nanobot 式 token 预算与边界计算 ──────────
+    # ── Token 预算与记忆合并（基于 tiktoken） ─────
 
     @staticmethod
     def _estimate_tokens(messages: list) -> int:
-        """估算消息列表的 token 数（1 token ≈ 2 中文字符 / 4 英文字符）。"""
-        total = 0
-        for m in messages:
-            text = str(m.get("content", "") or "")
-            if text:
-                # 粗略估计：中文为主
-                total += len(text) // 2
-        return total
+        """估算消息列表的 token 数（使用 tiktoken）。"""
+        try:
+            from agent.rag_system import _count_message_tokens
+            return sum(_count_message_tokens(m) for m in messages)
+        except Exception:
+            total = 0
+            for m in messages:
+                text = str(m.get("content", "") or "")
+                if text:
+                    total += len(text) // 2
+            return total
 
     @staticmethod
     def _pick_consolidation_boundary(qa_entries: list, estimated: int, target: int) -> int | None:
@@ -241,27 +245,36 @@ class IntegratedSystem:
         need_to_free = estimated - target
         if need_to_free <= 0:
             return None
-        accumulated = 0
-        for i, entry in enumerate(qa_entries[:-2]):  # 保留最近 2 轮
-            text = (entry.get('user', '') or '') + (entry.get('assistant', '') or '')
-            accumulated += len(text) // 2  # char → token 粗略
-            if accumulated >= need_to_free:
-                return i + 1  # 返回边界索引
+        try:
+            from agent.rag_system import _count_tokens
+            accumulated = 0
+            for i, entry in enumerate(qa_entries[:-2]):
+                text = (entry.get('user', '') or '') + (entry.get('assistant', '') or '')
+                accumulated += _count_tokens(text)
+                if accumulated >= need_to_free:
+                    return i + 1
+        except Exception:
+            pass
         return len(qa_entries) - 2  # 至少保留 2 轮
 
     def _build_consolidated_summary(self, compressed_qa: list) -> str:
-        """用 LLM 对早期对话生成摘要（nanobot 模式）。失败时回退到简单拼接。"""
+        """用 LLM 对早期对话生成摘要。失败时回退到简单拼接。"""
         try:
-            user_msgs = [h.get('user', '')[:200] for h in compressed_qa if h.get('user')]
-            if not user_msgs:
+            turns = []
+            for h in compressed_qa:
+                q = (h.get('user', '') or '').strip()
+                a = (h.get('assistant', '') or '').strip()
+                if q or a:
+                    turns.append(f"用户: {q[:300]}" if q else "(无问题)")
+                    if a:
+                        turns.append(f"助手: {a[:300]}")
+            if not turns:
                 return ""
-            # 用 LLM 生成摘要
             prompt = (
-                "以下是用户之前提出的问题和回答记录。请用简洁的语言总结用户关心的话题和已获取的信息。"
+                "请用中文总结以下对话中用户的核心问题和已获取的关键信息。"
                 "只输出总结本身，不要附加说明。\n\n"
-                + "\n".join(f"- 用户: {q}" for q in user_msgs)
+                + "\n".join(turns)
             )
-            # 使用已有的 LLM 客户端
             if not hasattr(self, '_summary_client'):
                 from base.llm_client import OpenAIClient
                 self._summary_client = OpenAIClient(
@@ -281,7 +294,6 @@ class IntegratedSystem:
         except Exception as e:
             logger.warning(f"LLM 摘要生成失败，回退到简单拼接: {e}")
 
-        # 回退：简单拼接用户问题
         qs = "；".join(h.get('user', '')[:60] for h in compressed_qa if h.get('user'))
         return f"（历史摘要：用户之前的问题——{qs}。如需查阅完整历史，请调用 read_archive 工具。）"
 

@@ -5,9 +5,12 @@ handler 实现按职责拆分:
   - _web_handlers.py   : 联网搜索 / 读网页全文
   - _infra_handlers.py : 虚拟工具 / 基础设施工具
 
-所有工具的注册集中管理在 registry.py 的 register_all_builtins() 中。
+所有 _handlers.py 模块会被自动扫描发现并注册。
 """
 from __future__ import annotations
+
+import pkgutil
+import importlib
 
 from .registry import ToolContext, ToolRegistry
 
@@ -16,30 +19,32 @@ from base.logger import logger
 # ── 创建全局注册表实例 ──────────────────────────
 registry = ToolRegistry()
 
-# ── 导入 handler 模块（先只加载函数，不注册） ──
-import agent.tools._infra_handlers  # noqa: F401
-import agent.tools._kb_handlers     # noqa: F401
-import agent.tools._web_handlers    # noqa: F401
+# ── 自动发现所有 _handlers 模块 ───────────────
+_HANDLERS_MODULES = []
+for _importer, module_name, _ispkg in pkgutil.iter_modules(__path__):
+    if module_name.endswith("_handlers") and not module_name.startswith("_"):
+        continue  # 跳过非 handler 模块（如 _format）
+    if module_name.startswith("_") or module_name == "registry":
+        continue  # 跳过内部模块
+    _mod = importlib.import_module(f".{module_name}", __package__)
+    _HANDLERS_MODULES.append(_mod)
+    logger.debug(f"自动发现工具模块: {module_name}")
 
 # ── 注册所有内建工具 ────────────────────────────
 from .registry import register_all_builtins
 register_all_builtins(registry)
 
-# ── 安全导出 handler 函数 ───────────────────────
-from ._infra_handlers import _exec_ask_clarification, _exec_spawn_subagent  # noqa: E402
-from ._kb_handlers import (                            # noqa: E402
-    _exec_search_kb, _exec_read_full_document,
-    _exec_list_documents, _exec_read_archive,
-    _exec_read_chunk_context, _exec_read_document_titles,
-    _exec_read_section, _retrieve_and_dedup,
-)
-from ._web_handlers import (                       # noqa: E402
-    _exec_web_search, _exec_read_url,
-)
+# ── 自动导出 handler 函数 ─────────────────────────
+__all__ = []
+for _mod in _HANDLERS_MODULES:
+    for _name in dir(_mod):
+        if _name.startswith("_exec_") or _name.startswith("SYSTEM_") or _name.startswith("format_"):
+            globals()[_name] = getattr(_mod, _name)
+            __all__.append(_name)
 
+# ── 显式导出 ─────────────────────────────────────
 from ._format import SYSTEM_PARTITION, format_retrieved_chunks  # noqa: E402
 
-# ── 向后兼容导出 ────────────────────────────────
 TOOL_SCHEMAS = registry.schemas
 
 

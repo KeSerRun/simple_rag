@@ -148,6 +148,7 @@ class Config:
         # ===== Agent =====
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=15)
         self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
+        self.max_tool_result_chars = config.getint('agent', 'max_tool_result_chars', fallback=8000)
         self.parse_workers = config.getint('agent', 'parse_workers', fallback=3)
 
         # ===== Superuser =====
@@ -170,6 +171,9 @@ class Config:
         # ===== Upload =====
         self.max_user_storage_mb = config.getint('upload', 'max_user_storage_mb', fallback=10)
 
+        # ===== 启动校验 =====
+        self._validate()
+
     def _init_runtime(self):
         """运行时一次性初始化（JWT 密钥生成等，不随热重载重复执行）。"""
         self.index_file = normalize_path("dist/index.html")
@@ -187,6 +191,57 @@ class Config:
             except Exception:
                 pass
         self.jwt_secret_key = _jwt
+
+    # ── 启动校验 ─────────────────────────────────
+
+    def _validate(self):
+        """启动时校验关键配置项，避免运行时才暴露问题。"""
+        errors: list[str] = []
+
+        # API 密钥
+        if not self.openai_api_key:
+            errors.append("openai_api_key / chat_api_key 未配置")
+        if not self.embedding_api_key:
+            errors.append("embedding_api_key 未配置")
+        if not self.mineru_api_key:
+            errors.append("mineru_api_key 未配置（PDF 解析将不可用）")
+        elif not self.mineru_api_key.startswith("eyJ"):
+            errors.append(f"mineru_api_key 格式异常（应为 JWT，当前前缀={self.mineru_api_key[:8]}...）")
+
+        # 数值范围
+        for name, val, minimum in [
+            ("retrieval_top_k", self.retrieval_top_k, 1),
+            ("context_window_tokens", self.context_window_tokens, 1024),
+            ("max_output_tokens", self.max_output_tokens, 128),
+            ("max_tool_result_chars", self.max_tool_result_chars, 256),
+            ("max_tool_iter", self.max_tool_iter, 1),
+            ("max_user_storage_mb", self.max_user_storage_mb, 1),
+            ("openai_embedding_dim", self.openai_embedding_dim, 64),
+        ]:
+            if not isinstance(val, int) or val < minimum:
+                errors.append(f"{name}={val!r} 无效（应 ≥ {minimum} 的整数）")
+
+        # 路径可写（懒创建，只检查父目录）
+        for name, path in [("data_dir", self.data_dir), ("vector_store_dir", self.vector_store_dir)]:
+            parent = os.path.dirname(path)
+            if not os.access(parent or ".", os.W_OK):
+                errors.append(f"{name}={path} 的父目录不可写")
+
+        # 超级用户配置
+        if len(self.superuser_usernames) != len(self.superuser_passwords):
+            errors.append(
+                f"superuser 用户名数({len(self.superuser_usernames)}) "
+                f"与密码数({len(self.superuser_passwords)})不匹配"
+            )
+
+        if errors:
+            msg = "\n  ".join(["配置校验失败:"] + errors)
+            try:
+                from base.logger import logger
+                logger.error(msg)
+            except Exception:
+                pass
+            raise ValueError(msg)
 
     # ── Hash 热重载 ─────────────────────────────────
 

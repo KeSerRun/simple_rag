@@ -162,7 +162,7 @@ def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
     if not filename:
         return "(未提供 filename 参数)"
 
-    base = Path(conf.data_dir) / ".tool_results"
+    base = Path(conf.data_dir) / "json_store" / "tool_results"
     try:
         target = (base / filename).resolve()
         target.relative_to(base.resolve())

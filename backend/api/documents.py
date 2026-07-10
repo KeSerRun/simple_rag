@@ -74,7 +74,7 @@ def _user_upload_dir(username: str) -> str:
     # 定义一个私有函数，根据用户名返回该用户的文件上传存放目录路径
     # 参数 username: 字符串，用户名
     # 返回值: 字符串，该用户的文件上传目录的完整路径
-    return f"{conf.vector_store_dir}/uploads/{username}"
+    return f"{conf.data_dir}/uploads/{username}"
     # 拼接路径：配置中的向量存储目录 + "uploads" + 用户名
     # 例如："./data/uploads/zhangsan/"
 
@@ -194,7 +194,7 @@ async def add_documents(request: Request):
             # 抛出 HTTP 400 错误（客户端请求错误），提示未提供文档路径
 
         # 路径穿越防护
-        upload_root = Path(conf.vector_store_dir) / "uploads" / username
+        upload_root = Path(conf.data_dir) / "uploads" / username
         # 构造用户上传目录的 Path 对象
         # 这是安全基准目录，所有文件操作必须限制在这个目录下
 
@@ -398,7 +398,7 @@ async def upload_file(
             # 获取文件的原始文件名（去掉路径信息，只保留文件名部分）
             # 防止用户上传带路径的文件名造成安全问题
 
-            save_path = f"{conf.vector_store_dir}/uploads/{username}/{basename}"
+            save_path = f"{conf.data_dir}/uploads/{username}/{basename}"
             # 构造文件保存路径：配置目录/uploads/用户名/文件名
 
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -544,7 +544,7 @@ async def upload_embeddings(
         for filename, content, _ct in files_data:
             # 遍历所有文件数据
             # _ct 是 content_type，以下划线开头表示"内部使用，不直接访问"的约定
-            save_path = f"{conf.vector_store_dir}/uploads/{username}/{filename}"
+            save_path = f"{conf.data_dir}/uploads/{username}/{filename}"
             # 构造文件保存路径
 
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -798,7 +798,7 @@ async def serve_mineru_image(
             raise HTTPException(status_code=401, detail="invalid token")
             # 返回 401 未授权错误
 
-    base_dir = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / doc_stem
+    base_dir = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / doc_stem
     # 构造基础搜索路径
     # "*" 是通配符，代表任意用户名
     # 所以路径模式是：数据目录/uploads/*/chunk_out/文档名
@@ -822,7 +822,7 @@ async def serve_mineru_image(
         stem_clean = doc_stem.rsplit(".", 1)[0]
         # 从右侧分割一次，去掉扩展名部分
         # 例如 "report.pdf" → "report"
-        base_dir2 = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / stem_clean
+        base_dir2 = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / stem_clean
         # 使用去掉扩展名后的文档名重新构造搜索路径
         candidates = sorted(glob.glob(str(base_dir2 / f"{img_name}*")))
         # 再次搜索
@@ -830,7 +830,7 @@ async def serve_mineru_image(
     # 4) 容错: 实际目录名比 doc_stem 多了下划线等后缀
     if not candidates:
         # 如果仍然没找到
-        base_dir_fuzzy = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{doc_stem}*"
+        base_dir_fuzzy = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / f"{doc_stem}*"
         # 使用模糊匹配：在 doc_stem 后加 *，匹配以 doc_stem 开头的所有目录
         candidates = sorted(glob.glob(str(base_dir_fuzzy / img_name)))
         # 在匹配到的目录中找 img_name
@@ -843,7 +843,7 @@ async def serve_mineru_image(
             # 如果还没找到，且 doc_stem 可能带扩展名
             stem_clean = doc_stem.rsplit(".", 1)[0]
             # 去掉扩展名
-            base_dir_fuzzy2 = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{stem_clean}*"
+            base_dir_fuzzy2 = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / f"{stem_clean}*"
             # 用去掉扩展名后的文档名做模糊匹配
             candidates = sorted(glob.glob(str(base_dir_fuzzy2 / img_name)))
             # 搜索精确文件名
@@ -860,7 +860,7 @@ async def serve_mineru_image(
         # 在匹配的目录下搜索所有文件（取第一张图）
         if not candidates:
             # 结合目录模糊匹配
-            base_dir_fuzzy = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{doc_stem}*"
+            base_dir_fuzzy = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / f"{doc_stem}*"
             # 使用模糊的文档目录
             candidates = sorted(glob.glob(str(base_dir_fuzzy / prefix / "*")))
             # 在模糊匹配的目录中搜索所有文件
@@ -870,12 +870,12 @@ async def serve_mineru_image(
             # 如果还没找到，且 doc_stem 可能带扩展名
             stem_clean = doc_stem.rsplit(".", 1)[0]
             # 去掉扩展名
-            base_dir_extless = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / stem_clean
+            base_dir_extless = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / stem_clean
             # 使用去掉扩展名的文档名
             candidates = sorted(glob.glob(str(base_dir_extless / prefix / "*")))
             # 搜索所有文件
             if not candidates:
-                base_dir_fuzzy2 = Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / f"{stem_clean}*"
+                base_dir_fuzzy2 = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / f"{stem_clean}*"
                 # 使用模糊匹配（去掉扩展名）
                 candidates = sorted(glob.glob(str(base_dir_fuzzy2 / prefix / "*")))
                 # 搜索所有文件
@@ -949,7 +949,7 @@ async def serve_mineru_image_global(
 
     # 全局搜索该图片
     # pattern: uploads/*/chunk_out/*/images/{img_name}
-    search_pattern = str(Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / img_name)
+    search_pattern = str(Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / img_name)
     # 构造全局搜索模式：
     # 数据目录/uploads/任意用户名/chunk_out/任意文档名/images/图片名
     # 两个 * 通配符分别匹配任意用户名和任意文档名
@@ -965,7 +965,7 @@ async def serve_mineru_image_global(
         # 例如 "abc123.png" → "abc123"
         # 如果不含点号，保持原样
 
-        search_pattern_fuzzy = str(Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / f"{name_without_ext}*")
+        search_pattern_fuzzy = str(Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / f"{name_without_ext}*")
         # 构造模糊匹配模式：在文件名后面加 *
         # 匹配所有以 name_without_ext 开头的文件
         candidates = sorted(glob.glob(search_pattern_fuzzy))
@@ -1030,7 +1030,7 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
     # 阶段 1: 先将所有文件保存到磁盘（I/O 快，串行即可）
     saved_files = []  # [(filename, save_path, content_len, content_type)]
     for idx, (filename, content, _ct) in enumerate(files_data):
-        save_path = f"{conf.vector_store_dir}/uploads/{username}/{filename}"
+        save_path = f"{conf.data_dir}/uploads/{username}/{filename}"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         yield _sse({"status": "uploading", "text": "文档上传", "file": filename, "progress": f"{idx+1}/{len(files_data)}"})
 

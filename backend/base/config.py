@@ -154,6 +154,7 @@ class Config:
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=15)
         self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
         self.max_tool_result_chars = config.getint('agent', 'max_tool_result_chars', fallback=8000)
+        self.eval_max_workers = config.getint('agent', 'eval_max_workers', fallback=3)
         self.parse_workers = config.getint('agent', 'parse_workers', fallback=3)
 
         # ===== Superuser =====

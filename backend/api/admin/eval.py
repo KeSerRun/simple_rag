@@ -36,7 +36,7 @@ from base.llm_client import OpenAIClient  # 用于调用大语言模型 API
 _eval_tasks: dict[str, dict] = {}
 _EVAL_RESULTS_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "data", "eval_results.json",
+    "data", "rag_eval", "eval_results.json",
 )
 
 
@@ -136,63 +136,59 @@ async def run_eval(request: Request):
 
             # ===== 开始逐个评估查询 =====
             results: List[EvalResult] = []
-            for i, query in enumerate(queries):
-                # 暂停检查
-                while task["paused"].is_set():
-                    task["status"] = "paused"
-                    time.sleep(0.5)
-                task["status"] = "running"
-                task["progress"]["current"] = query
+            import concurrent.futures as _cf
 
+            def _eval_one(query: str) -> EvalResult:
+                """评估单个查询。"""
                 # ===== 调用检索工具 =====
-                raw = registry.dispatch(  # 通过工具注册表调用指定工具，dispatch 表示派遣、调度
-                    "search_knowledge_base",  # 工具名称：搜索知识库（这个工具会在知识库中搜索相关内容）
-                    json.dumps({"queries": [query], "search_system": True}),  # 工具参数：将查询打包成 JSON 字符串
-                    # {"queries": [query]} 表示要搜索的查询列表，search_system: True 表示同时搜索系统知识
-                    ctx=ctx,  # 传入工具上下文（包含向量数据库等资源）
+                raw = registry.dispatch(
+                    "search_knowledge_base",
+                    json.dumps({"queries": [query], "search_system": True}),
+                    ctx=ctx,
                 )
-                # raw 是一个字符串，包含了检索结果
 
                 # ===== 提取结果片段 =====
-                chunks = _re.findall(r"【片段 \d+.*?。", raw, _re.DOTALL)  # 用正则表达式提取所有"【片段 N】...。"格式的文本块
-                # r"【片段 \d+.*?。" 是一个正则表达式：
-                # 【片段 ：匹配"【片段 "这几个字
-                # \d+：匹配一个或多个数字（片段的编号）
-                # .*?：匹配任意字符（非贪婪模式），直到遇到句号
-                # 。：匹配句号
-                # _re.DOTALL：让 . 可以匹配换行符
-                if not chunks and raw.strip():  # 如果没有匹配到任何片段，但 raw 内容不为空（去除首尾空格后）
-                    chunks = [raw]  # 那就把整个 raw 当作一个片段来处理
+                chunks = _re.findall(r"【片段 \d+.*?。", raw, _re.DOTALL)
+                if not chunks and raw.strip():
+                    chunks = [raw]
 
                 # ===== 用 LLM 给每个片段打分 =====
-                scores = []  # 创建一个空列表，用于存放每个片段的得分
-                for text in chunks:  # 遍历所有提取到的文本片段
-                    from rag.eval_rag import llm_score  # 延迟导入 llm_score 函数（用 LLM 给片段打分）
-
-                    # 调用 LLM 评判函数，对片段进行评分
-                    # 评判标准：LLM 判断该片段是否与查询相关，相关度越高分数越高（1-5 分）
-                    score = llm_score(judge_client, query, text[:500])  # 只取文本的前 500 个字符（避免超出 LLM 的上下文限制）
-                    scores.append(score)  # 将评分添加到 scores 列表中
+                scores = []
+                for text in chunks:
+                    from rag.eval_rag import llm_score
+                    score = llm_score(judge_client, query, text[:500])
+                    scores.append(score)
 
                 # ===== 计算统计指标 =====
-                relevant = sum(1 for s in scores if s >= 3)  # 计算相关片段数：得分 >= 3 的片段被认为是相关的
-                # sum(1 for ...) 是生成器表达式，对每个符合条件的元素计 1，然后求和
-                avg = sum(scores) / len(scores) if scores else 0.0  # 计算平均分：总分除以数量，如果 scores 为空则默认为 0.0
-                # 如果 scores 不为空，则 avg = 总分 / 数量；否则 avg = 0.0
+                relevant = sum(1 for s in scores if s >= 3)
+                avg = sum(scores) / len(scores) if scores else 0.0
 
-                # ===== 记录单个查询的评估结果 =====
-                results.append(EvalResult(  # 创建一个 EvalResult 对象并添加到 results 列表
-                    query=query,  # 当前查询的文本
-                    retrieved_count=len(scores),  # 检索到的片段数量（即 scores 的长度）
-                    relevant_count=relevant,  # 其中相关的片段数量（得分 >= 3）
-                    avg_score=avg,  # 这些片段的平均得分
-                    scores=scores,  # 每个片段的具体得分列表
-                ))
-                task["progress"]["completed"] = i + 1  # 更新进度：已完成的任务数（i 从 0 开始，所以加 1）
+                return EvalResult(
+                    query=query,
+                    retrieved_count=len(scores),
+                    relevant_count=relevant,
+                    avg_score=avg,
+                    scores=scores,
+                )
 
-                # ===== 记录日志 =====
-                logger.debug(f"[评估] {query}: {relevant}/{len(scores)} 相关, 平均分 {avg:.2f}")
-                # 输出日志：当前查询名称、相关数/总数、平均分（保留两位小数）
+            # 并发执行（最多 N 个查询同时进行，从配置读取）
+            max_workers = min(conf.eval_max_workers, len(queries))
+            with _cf.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_eval_one, q): q for q in queries}
+                for i, future in enumerate(_cf.as_completed(futures)):
+                    query = futures[future]
+                    try:
+                        result = future.result()
+                        results.append(result)
+                        task["progress"]["completed"] = i + 1
+                        logger.debug(f"[评估] {query}: {result.relevant_count}/{result.retrieved_count} 相关, 平均分 {result.avg_score:.2f}")
+                    except Exception as e:
+                        logger.error(f"[评估] {query} 失败: {e}")
+                        results.append(EvalResult(
+                            query=query, retrieved_count=0, relevant_count=0,
+                            avg_score=0.0, scores=[],
+                        ))
+                        task["progress"]["completed"] = i + 1
 
             # ===== 所有查询评估完毕，生成汇总报告 =====
             # 计算所有查询的精确率之和

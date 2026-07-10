@@ -183,7 +183,7 @@ def check_user_storage_limit(username: str, role: str, additional_bytes: int = 0
     # "uploads" 是存放用户上传文件的子目录
     # username 是当前用户名
     # 最终路径类似：/data/vector_store/uploads/张三/
-    upload_dir = os.path.join(conf.vector_store_dir, "uploads", username)
+    upload_dir = os.path.join(conf.data_dir, "uploads", username)
 
     # ---- 第四步：检查目录是否存在并遍历文件 ----
     # os.path.isdir() 判断路径是否是一个已存在的目录

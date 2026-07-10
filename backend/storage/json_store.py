@@ -801,6 +801,12 @@ class JSONFileStore(BaseStore):
             return {"short": [], "long": []}
         return self._read_json(file_path)
 
+    def delete_session_tasks(self, session_id):
+        """删除指定会话的任务数据。"""
+        file_path = os.path.join(self._json_dir, "session_tasks", f"{session_id}.json")
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
     # --- 归档 ---------------------------------------------------------------
     # 以下方法用于操作归档数据（archives/ 目录下的 JSON 文件）。
     # 归档功能用于将较长的对话历史打包存储，避免单个历史文件过大。
@@ -818,7 +824,7 @@ class JSONFileStore(BaseStore):
         # 在函数内部导入 uuid 模块（一种常见的延迟导入写法），
         # uuid 用于生成全局唯一标识符（Universally Unique Identifier）。
 
-        archive_id = f"arch_{_uuid.uuid4().hex[:12]}"
+        archive_id = f"arch_{session_id[:16]}_{_uuid.uuid4().hex[:8]}"
         # 生成归档 ID：前缀 "arch_" + UUID 的十六进制字符串的前 12 位。
         # uuid4() 生成一个随机 UUID，.hex 返回 32 位十六进制字符串，
         # [:12] 只取前 12 位，这样生成的 ID 简短且基本保证唯一性。

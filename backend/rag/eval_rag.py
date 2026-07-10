@@ -38,7 +38,7 @@ from agent.tools import registry           # 从 agent.tools 导入 registry 对
 # 定义一个私有常量，存放测试查询文件的完整路径
 # os.path.dirname(__file__) 获取当前 Python 文件所在的目录路径
 # os.path.join(...) 将目录路径和文件名拼接成完整的文件路径
-_QUERIES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "eval_queries.json")
+_QUERIES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "rag_eval", "eval_queries.json")
 
 
 # 定义一个函数，用于从外部 JSON 文件加载测试查询列表

@@ -13,7 +13,7 @@ from .registry import ToolContext
 def _resolve_document_path(filename: str, partition: str | None = None, search_system: bool = True) -> str | None:
     """统一的文档路径解析（路径穿越防护）。"""
     stem = Path(filename).stem
-    base = Path(conf.vector_store_dir) / "uploads"
+    base = Path(conf.data_dir) / "uploads"
     candidates = [base / (partition or "") / "chunk_out" / stem]
     if search_system and partition and partition != "__system__":
         candidates.append(base / "__system__" / "chunk_out" / stem)
@@ -84,7 +84,7 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
         return "(未提供 filename 参数)"
 
     stem = Path(filename).stem
-    base = Path(conf.vector_store_dir) / "uploads"
+    base = Path(conf.data_dir) / "uploads"
     candidates = [
         base / (ctx.partition or "") / "chunk_out" / stem / "full.md",
     ]
@@ -328,7 +328,7 @@ def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
         return "(未提供 source 参数)"
 
     stem = Path(source).stem
-    base = Path(conf.vector_store_dir) / "uploads"
+    base = Path(conf.data_dir) / "uploads"
     candidates = [
         base / (ctx.partition or "") / "chunk_out" / stem / "full.md",
     ]
@@ -401,7 +401,7 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
 
     # 1. 定位 full.md 源文件（与 read_document_titles / read_full_document 逻辑一致）
     stem = Path(source).stem
-    base = Path(conf.vector_store_dir) / "uploads"
+    base = Path(conf.data_dir) / "uploads"
     candidates = [
         base / (ctx.partition or "") / "chunk_out" / stem / "full.md",
     ]

@@ -198,7 +198,7 @@ async def serve_root_image(img_name: str):
     if img_name.startswith("images/"):
         img_name = img_name[7:]
 
-    search_pattern = str(Path(conf.vector_store_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / img_name)
+    search_pattern = str(Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / "*" / "images" / img_name)
     candidates = glob.glob(search_pattern)
     if not candidates:
         raise HTTPException(status_code=404, detail="image not found")

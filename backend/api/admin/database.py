@@ -206,7 +206,7 @@ async def check_integrity(request: Request):  # 定义异步函数 check_integri
             })
 
         metadata = vs.metadata  # 获取所有元数据
-        uploads_base = Path(conf.vector_store_dir) / "uploads"  # 获取上传文件的根目录路径
+        uploads_base = Path(conf.data_dir) / "uploads"  # 获取上传文件的根目录路径
 
         # ===== 按 (partition, source) 分组统计 =====
         docs: dict[tuple[str, str], dict] = {}  # 创建一个字典，键是 (分区, 来源) 元组，值是文档信息字典
@@ -373,7 +373,7 @@ async def upload_system_data(request: Request, files: list[UploadFile] = File(..
         # ===== 丢弃目录层级，只保留基础文件名 =====
         # 防止用户上传包含路径的文件名（如 "../../恶意文件"），只取文件名
         filename = os.path.basename(file.filename)  # 获取文件的基础名（去掉所有目录路径）
-        save_dir = f"{conf.vector_store_dir}/uploads/{SYSTEM_PARTITION}"  # 构建保存目录：向量存储目录/uploads/系统分区
+        save_dir = f"{conf.data_dir}/uploads/{SYSTEM_PARTITION}"  # 构建保存目录：向量存储目录/uploads/系统分区
         save_path = os.path.normpath(os.path.join(save_dir, filename))  # 构建完整保存路径并规范化（处理../等相对路径）
         if not save_path.startswith(os.path.normpath(save_dir)):  # 安全检查：确保保存路径仍在目标目录内（防止路径穿越攻击）
             logger.warning(f"非法文件路径: {filename}")
@@ -468,7 +468,7 @@ async def delete_document(request: Request, source: str = Query(...), partition:
         system.vector_store.delete_documents_by_sources([source], partition=partition)
 
         # ===== 清理源文件和缓存 =====
-        upload_dir = f"{conf.vector_store_dir}/uploads/{partition}"  # 构建上传目录路径
+        upload_dir = f"{conf.data_dir}/uploads/{partition}"  # 构建上传目录路径
         file_path = os.path.join(upload_dir, source)  # 构建源文件的完整路径
         if os.path.isfile(file_path):  # 如果该文件存在且是一个普通文件
             os.remove(file_path)  # 删除该文件
@@ -508,7 +508,7 @@ async def batch_delete_documents(request: Request):
             try:
                 system.vector_store.delete_documents_by_sources([source], partition=partition)
 
-                upload_dir = f"{conf.vector_store_dir}/uploads/{partition}"
+                upload_dir = f"{conf.data_dir}/uploads/{partition}"
                 file_path = os.path.join(upload_dir, source)
                 if os.path.isfile(file_path):
                     os.remove(file_path)

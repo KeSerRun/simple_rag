@@ -146,6 +146,8 @@ class AgentState:
     # max_iterations: 最大允许的 tool-call 轮次，达到此上限后 should_continue() 返回 False，循环终止
     # 默认值从模块常量 MAX_TOOL_ITER 读取，该常量来自全局配置 conf.max_tool_iter
     max_iterations: int = MAX_TOOL_ITER
+    # session_id: 当前会话 ID（用于工具结果隔离）
+    session_id: str = "default"
     # partition: 向量检索时的命名空间/分区标识（通常为用户标识），用于隔离不同用户的检索数据
     # Optional[str] 表示该字段可为 None（不指定分区时默认为 None）
     partition: Optional[str] = None

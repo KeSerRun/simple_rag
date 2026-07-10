@@ -339,6 +339,7 @@ class IntegratedSystem:
                 stream=False,
                 history=history,
                 partition=partition,
+                session_id=session_id,
                 style=style,
                 workflow_name=workflow,
             )
@@ -399,6 +400,7 @@ class IntegratedSystem:
                     stream=True,
                     history=history,
                     partition=partition,
+                    session_id=session_id,
                     style=style,
                     workflow_name=workflow,
                     cancel_check=is_cancelled,

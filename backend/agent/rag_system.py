@@ -121,7 +121,7 @@ def _count_message_tokens(m: dict) -> int:
 
 # ===== 工具结果持久化 =====
 
-_TOOL_RESULTS_DIR = ".tool_results"
+_TOOL_RESULTS_DIR = Path("json_store") / "tool_results"
 _PREVIEW_CHARS = 200
 _MAX_PERSIST_CHARS = 2000  # 超过此长度的工具结果写入文件
 
@@ -303,6 +303,7 @@ class RAGSystem:
         stream=False,
         history: list = None,
         partition: str = None,
+        session_id: str = "default",
         style: Optional[str] = None,
         workflow_name: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
@@ -372,6 +373,7 @@ class RAGSystem:
         state = AgentState(  # 创建 AgentState 实例，管理工具循环的状态
             messages=messages,        # 传入完整的消息列表
             partition=partition,      # 传入知识库分区
+            session_id=session_id,     # 传入会话 ID
             style=style,              # 传入回答风格
             max_iterations=max_iter,      # 传入最大迭代次数
         )
@@ -605,7 +607,7 @@ class RAGSystem:
                     )
                     # 工具结果持久化：过长结果写入文件
                     if isinstance(res, str):
-                        res = _persist_tool_result(state.partition or "", tc["name"], res)
+                        res = _persist_tool_result(state.session_id, tc["name"], res)
                     return tc["id"], res
                 except Exception as e:
                     logger.error(f"工具 {tc['name']} 执行发生严重异常: {e}", exc_info=True)
@@ -847,7 +849,7 @@ class RAGSystem:
                     )
                     # 工具结果持久化
                     if isinstance(res, str):
-                        res = _persist_tool_result(state.partition or "", tc["name"], res)
+                        res = _persist_tool_result(state.session_id, tc["name"], res)
                 except Exception as e:  # 工具执行异常
                     logger.error(f"工具 {tc['name']} 异常: {e}", exc_info=True)
                     res = f"(系统提示: 执行工具 {tc['name']} 发生错误: {e}，请尝试其他策略)"  # 构造错误信息

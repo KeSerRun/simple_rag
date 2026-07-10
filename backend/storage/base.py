@@ -72,6 +72,10 @@ class BaseStore(ABC):
     def get_session_tasks(self, session_id: str) -> dict:
         """读取会话任务数据，不存在返回 {"short": [], "long": []}。"""
 
+    @abstractmethod
+    def delete_session_tasks(self, session_id: str) -> None:
+        """删除指定会话的任务数据。"""
+
     # ─── 归档 ─────────────────────────────────────────
     @abstractmethod
     def insert_archive(self, session_id: str, summary: str, turns: list) -> str:

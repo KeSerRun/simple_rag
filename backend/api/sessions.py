@@ -150,27 +150,23 @@ async def delete_session(request: Request, session_id: str):
         system.data_store.delete_session(session_id)
         # 再删除该会话关联的所有历史聊天记录
         system.data_store.delete_session_history(session_id)
+        # 删除会话任务数据
+        system.data_store.delete_session_tasks(session_id)
 
         # 清理关联的工具结果持久化文件
-        tool_dir = Path(conf.data_dir) / ".tool_results" / session_id
+        tool_dir = Path(conf.data_dir) / "json_store" / "tool_results" / session_id
         if tool_dir.exists():
             shutil.rmtree(tool_dir)
             logger.debug(f"已清理工具结果文件: {tool_dir}")
 
-        # 清理关联的压缩归档
+        # 清理关联的压缩归档（按文件名前缀匹配，不再逐个读文件）
         archive_base = Path(conf.data_dir) / "json_store" / "archives"
         if archive_base.exists():
             removed = 0
             for f in archive_base.iterdir():
-                if f.suffix == ".json":
-                    try:
-                        import json as _json
-                        data = _json.loads(f.read_text(encoding="utf-8"))
-                        if data.get("session_id") == session_id:
-                            f.unlink()
-                            removed += 1
-                    except Exception:
-                        continue
+                if f.suffix == ".json" and f.stem.startswith(f"arch_{session_id[:16]}"):
+                    f.unlink()
+                    removed += 1
             if removed:
                 logger.debug(f"已清理 {removed} 个归档文件 session={session_id[:8]}")
 

@@ -16,17 +16,6 @@
     </div>
 
     <n-space :size="4" align="center" class="header-actions" :wrap="false">
-      <!-- 回答风格选择器 -->
-      <n-select
-        v-model:value="styleValue"
-        :options="styleOptions"
-        :loading="styleLoading"
-        size="small"
-        class="style-select"
-        placeholder="风格"
-        @update:value="handleStyleChange"
-      />
-
       <n-button quaternary @click="$emit('open-doc-manager')" class="doc-btn" size="small">
         <template #icon>
           <n-icon :component="LibraryOutline" />
@@ -69,13 +58,11 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
   NIcon,
   NSpace,
-  NSelect,
   NTag,
   NTooltip,
   NH3,
@@ -87,7 +74,6 @@ import {
   SettingsOutline,
 } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
-import axios from '@/http/interceptor'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -97,35 +83,7 @@ const props = defineProps({
   documentCount: { type: Number, default: 0 },
 })
 
-defineEmits(['open-doc-manager', 'logout', 'toggle-sidebar', 'style-change'])
-
-// 风格选项从后端动态获取
-const styleOptions = ref([])
-const styleLoading = ref(true)
-
-onMounted(async () => {
-  try {
-    const resp = await axios.get('/api/styles')
-    if (resp.status === 200 && resp.data.styles) {
-      styleOptions.value = resp.data.styles
-    }
-  } catch {
-    // 兜底: 至少给个默认选项
-    styleOptions.value = [{ label: '默认', value: 'style-default' }]
-  } finally {
-    styleLoading.value = false
-  }
-})
-
-// 双向绑定 userStore.answerStyle
-const styleValue = computed({
-  get: () => userStore.answerStyle,
-  set: (v) => { userStore.answerStyle = v },
-})
-
-const handleStyleChange = (value) => {
-  userStore.answerStyle = value
-}
+defineEmits(['open-doc-manager', 'logout', 'toggle-sidebar'])
 
 function goToAdmin() {
   router.push('/admin')
@@ -176,35 +134,13 @@ function goToAdmin() {
   flex-wrap: nowrap !important;
 }
 
-.style-select {
-  width: 112px;
-}
-
 /* 移动端/窄屏响应式 */
 @media (max-width: 600px) {
   .chat-header {
-    padding: 10px 8px; /* 窄屏减少两侧 padding */
+    padding: 10px 8px;
     gap: 4px;
   }
 
-  .style-select {
-    width: 68px; /* 收窄选择器避免和后续按钮重叠 */
-    margin-right: 8px; /* 向左推，拉开和右边按钮的距离（增加 4px） */
-  }
-
-  /* Naive UI Select 的内部 padding 在窄屏也缩一下 */
-  :deep(.n-base-selection) {
-    padding: 0 4px;
-    min-height: 28px;
-  }
-  :deep(.n-base-selection-input) {
-    font-size: 12px;
-  }
-  :deep(.n-base-selection-placeholder) {
-    font-size: 12px;
-  }
-
-  /* 窄屏隐藏"管理文档"文字，只留图标和数字标签 */
   .doc-btn-text {
     display: none;
   }

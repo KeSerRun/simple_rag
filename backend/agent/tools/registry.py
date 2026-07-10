@@ -225,6 +225,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         _exec_complete_goal,
         _exec_my,
         _exec_read_workflow,
+        _exec_read_tool_result,
     )
 
     # --- ask_user_for_clarification（虚拟工具） ---
@@ -358,6 +359,28 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": ["name"],
         },
         handler=_exec_read_workflow,
+        source=__name__,
+    )
+
+    # --- read_tool_result（读取持久化工具结果） ---
+    reg.register(
+        name="read_tool_result",
+        description=(
+            "读取被持久化的工具结果完整内容。"
+            "当工具返回 \"[工具结果已保存至 ...]\" 引用时，"
+            "可调用此工具传入文件名读取原始完整内容。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "持久化结果的文件名（如 search_kb_abc123.txt），不含路径",
+                },
+            },
+            "required": ["filename"],
+        },
+        handler=_exec_read_tool_result,
         source=__name__,
     )
 

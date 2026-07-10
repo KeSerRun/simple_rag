@@ -150,7 +150,7 @@ import { useAdminStore } from '@/stores/admin'
 import {
   NCard, NStatistic, NIcon, NText, NGrid, NGridItem,
   NDescriptions, NDescriptionsItem, NDivider, NTag, NSpace,
-  NList, NListItem, NDataTable, NEmpty, NSpin, NH2, NButton,
+   NDataTable, NEmpty, NSpin, NH2, NButton,
 } from 'naive-ui'
 import {
   PeopleOutline, ChatbubblesOutline, DocumentTextOutline, CubeOutline,

@@ -107,6 +107,12 @@ class LoggingHook(AgentHook):
     def on_tool_call(self, session_id: str, tool_name: str, args: dict):
         logger.debug(f"[Hook] 工具调用 {tool_name} session={session_id[:8]}")
 
+    def on_tool_result(self, session_id: str, tool_name: str, result: str):
+        logger.debug(f"[Hook] 工具结果 {tool_name} session={session_id[:8]} len={len(result)}")
+
+    def on_checkpoint(self, session_id: str, phase: str, iteration: int):
+        logger.debug(f"[Hook] 检查点 {phase} iter={iteration} session={session_id[:8]}")
+
     def on_error(self, session_id: str, error: str, recoverable: bool = False):
         logger.warning(f"[Hook] 错误 session={session_id[:8]} recoverable={recoverable}: {error[:60]}")
 

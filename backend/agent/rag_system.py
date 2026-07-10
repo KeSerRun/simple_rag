@@ -304,6 +304,7 @@ class RAGSystem:
         history: list = None,
         partition: str = None,
         style: Optional[str] = None,
+        workflow_name: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
         on_checkpoint: Optional[Callable[[str, dict], None]] = None,
         drain_pending: Optional[Callable[[], list[dict]]] = None,
@@ -318,13 +319,14 @@ class RAGSystem:
           history         : 历史对话列表
           partition       : 知识库分区
           style           : 回答风格模板名称
+          workflow_name   : 工作流名称（None=Auto）
           cancel_check    : 可选的中断检测函数
         """
         # 每次对话前检查 config.ini 是否被修改，自动热重载（hash 比对，无 I/O 开销）
         conf.reload_if_changed()
-        # 重置空响应和 length 恢复重试计数器
-        self._empty_retries = 0
-        self._length_retries = 0
+        # 重置空响应和 length 恢复重试计数器（局部变量避免并发干扰）
+        _empty_retries = 0
+        _length_retries = 0
         # 重置重复外部查询计数（nanobot 模式）
         from .tools import registry as _reg
         _reg.reset_external_lookup_counts()
@@ -335,15 +337,25 @@ class RAGSystem:
             style=style,                        # 传入回答风格
         )
 
-        # ── Workflow 渐进式加载（nanobot 模式） ─────────
-        # 所有工作流以摘要形式注入 system prompt，LLM 通过 read_workflow 按需获取完整内容
-        wf_summaries = self.workflow_router.get_workflow_summaries()
-        if wf_summaries:
-            system_msg += (
-                f"\n\n---\n# 工作流\n"
-                f"{wf_summaries}\n"
-                f"如需加载完整工作流指令，请调用 read_workflow 工具。"
-            )
+        # ── Workflow 注入（支持指定或自动匹配） ──────
+        wf_name = workflow_name if workflow_name and workflow_name != "__auto__" else self.workflow_router.match(query)
+        if wf_name:
+            # 指定了工作流：加载完整内容替换摘要
+            wf_content = self.workflow_router.get_workflow_content(wf_name)
+            if wf_content:
+                system_msg += f"\n\n---\n# 工作流: {wf_name}\n{wf_content}"
+                logger.info(f"工作流已加载: {wf_name}")
+            else:
+                logger.warning(f"工作流 '{wf_name}' 未找到")
+        else:
+            # Auto 模式：注入所有工作流摘要，LLM 通过 read_workflow 按需加载
+            wf_summaries = self.workflow_router.get_workflow_summaries()
+            if wf_summaries:
+                system_msg += (
+                    f"\n\n---\n# 工作流\n"
+                    f"{wf_summaries}\n"
+                    f"如需加载完整工作流指令，请调用 read_workflow 工具。"
+                )
 
         # —— 第二步：组装完整的 messages ——
         # 结构：[system, ...历史对话, 当前用户问题]
@@ -472,7 +484,7 @@ class RAGSystem:
         )
 
         new_messages = []
-        system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
+        system_msg = messages[0] if messages and messages.get(0, {}).get("role") == "system" else None
 
         for idx, m in enumerate(messages):
             # system 始终完整保留
@@ -512,18 +524,20 @@ class RAGSystem:
         """非流式工具调用主循环。
 
         循环逻辑（LLM 驱动的工具调用循环）：
-          1. LLM 收到完整的 messages（含历史和之前的工具结果）  # LLM 看到所有对话和工具返回结果
-          2. LLM 决定调用哪些工具 → 返回 tool_calls 列表  # LLM 自己决定要不要查资料、查什么
-          3. 如果 tool_calls 为空：LLM 已准备好最终答案，直接返回  # LLM 不需要查了，直接回答
-          4. 如果 tool_calls 包含 ask_user_for_clarification：提前终止，返回澄清问题  # LLM 觉得信息不够，反问用户
-          5. 否则：并发执行所有工具调用（ThreadPoolExecutor），结果写回 state.messages  # 同时执行多个工具
-          6. 回到步骤 1，直到达到 max_iterations  # 重复，把工具结果给 LLM，看它是否还需要更多
+          1. LLM 收到完整的 messages（含历史和之前的工具结果）
+          2. LLM 决定调用哪些工具 → 返回 tool_calls 列表
+          3. 如果 tool_calls 为空：LLM 已准备好最终答案，直接返回
+          4. 如果 tool_calls 包含 ask_user_for_clarification：提前终止，返回澄清问题
+          5. 否则：并发执行所有工具调用（ThreadPoolExecutor），结果写回 state.messages
+          6. 回到步骤 1，直到达到 max_iterations
 
         达上限处理：
-          - 注入一条"不再允许调工具"的 user 消息  # 强制告诉 LLM 不能再调工具了
-          - 调用纯 chat（不带 tools）让 LLM 基于已有信息生成最终答案  # 没有工具可用，LLM 只能直接回答
+          - 注入一条"不再允许调工具"的 user 消息
+          - 调用纯 chat（不带 tools）让 LLM 基于已有信息生成最终答案
         """
-        tool_choice = "required" if force_retrieve else "auto"  # 设置工具调用策略：required 表示必须调，auto 表示让 LLM 自己决定
+        tool_choice = "required" if force_retrieve else "auto"
+        _empty_retries = 0
+        _length_retries = 0
 
         # while 循环直到 should_continue() 返回 False（达上限或主动 break）
         while state.should_continue():  # 检查是否应该继续循环（没达到上限且没有被终止）
@@ -555,16 +569,16 @@ class RAGSystem:
             if not resp["tool_calls"]:
                 content = (resp.get("content") or "").strip()
                 if not content:
-                    retries = getattr(self, "_empty_retries", 0)
+                    retries = _empty_retries
                     if retries < 2:
-                        self._empty_retries = retries + 1
-                        logger.warning(f"LLM 返回空内容, 自动重试 ({retries+1}/2)")
+                        _empty_retries = retries + 1
+                        logger.warning(f"LLM 返回空内容, 自动重试 ({_empty_retries}/2)")
                         state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
                         continue
-                length_retries = getattr(self, "_length_retries", 0)
+                length_retries = _length_retries
                 if resp.get("finish_reason") == "length" and content and length_retries < 3:
-                    self._length_retries = length_retries + 1
-                    logger.warning(f"LLM 响应被截断 (length), 自动续写 ({length_retries+1}/3)")
+                    _length_retries = length_retries + 1
+                    logger.warning(f"LLM 响应被截断 (length), 自动续写 ({_length_retries}/3)")
                     state.messages.append({"role": "assistant", "content": content})
                     state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
                     continue
@@ -698,7 +712,9 @@ class RAGSystem:
           {"type": "status", "status": "calling_tool", "tool": "search_knowledge_base", "args": [...]}  # AI 正在调工具
           {"type": "status", "status": "tool_result", "tool": "search_knowledge_base", "chunks": 5}  # 工具执行完成
         """
-        tool_choice = "required" if force_retrieve else "auto"  # 设置工具调用策略：required 强制调用，auto 让 LLM 自己决定
+        tool_choice = "required" if force_retrieve else "auto"
+        _empty_retries = 0
+        _length_retries = 0
 
         # 使用 for 循环（range 方式）替代 while，上限即为 max_iterations
         for it in range(state.max_iterations):  # 循环最多 max_iterations 次
@@ -722,7 +738,7 @@ class RAGSystem:
             yield {"type": "status", "status": "thinking"}  # 发送状态事件给前端：AI 正在思考中
 
             # 发送前裁剪
-            truncated_messages = self._truncate_messages(state.messages)  # 裁剪过长的消息，控制上下文窗口
+            truncated_messages = self._govern_context(state.messages)  # 上下文治理：去孤/压缩/裁剪
 
             # 记录实际发送给 LLM 的输入（截断后）
             _log_input(truncated_messages, round=it, suffix="_sent")  # 记录实际发送的消息到日志
@@ -762,9 +778,9 @@ class RAGSystem:
                             })
                     elif ev["type"] == "finish" and ev.get("reason") == "length":
                         if accumulated_content.strip():
-                            lr = getattr(self, "_length_retries", 0)
+                            lr = _length_retries
                             if lr < 3:
-                                self._length_retries = lr + 1
+                                _length_retries = lr + 1
                                 state.messages.append({"role": "assistant", "content": accumulated_content})
                                 state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
                                 accumulated_content = ""
@@ -785,10 +801,10 @@ class RAGSystem:
             if not tool_calls:  # 如果 LLM 没有要求调用任何工具
                 if not accumulated_content.strip():
                     # 空内容自动重试（最多 2 次）
-                    retries = getattr(self, "_empty_retries", 0)
+                    retries = _empty_retries
                     if retries < 2:
-                        self._empty_retries = retries + 1
-                        logger.warning(f"LLM 返回空内容, 自动重试 ({retries+1}/2)")
+                        _empty_retries = retries + 1
+                        logger.warning(f"LLM 返回空内容, 自动重试 ({_empty_retries}/2)")
                         state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
                         if emit_event: emit_event({"type": "status", "status": "retrying"})
                         yield {"type": "status", "status": "retrying"}

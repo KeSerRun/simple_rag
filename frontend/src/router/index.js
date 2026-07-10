@@ -42,7 +42,7 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, from) => {
+router.beforeEach((to) => {
     const userStore = useUserStore()
 
     if (to.meta.requiresAuth) {

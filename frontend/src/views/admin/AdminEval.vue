@@ -57,7 +57,7 @@
       </n-text>
 
       <!-- 运行中：进度展示 -->
-      <template v-if="store.evalStatus && store.evalStatus.status === 'running'">
+      <template v-if="store.evalStatus && (store.evalStatus.status === 'running' || store.evalStatus.status === 'paused')">
         <n-divider />
         <n-space vertical>
           <n-progress
@@ -73,7 +73,11 @@
           <n-text depth="3">
             已完成 {{ completedCount }} / {{ totalCount }} 个查询
           </n-text>
-          <n-button size="small" @click="refreshStatus">刷新进度</n-button>
+          <n-space>
+            <n-button size="small" @click="handlePause" :disabled="store.evalStatus?.status !== 'running'">暂停</n-button>
+            <n-button size="small" @click="handleResume" :disabled="store.evalStatus?.status !== 'paused'">继续</n-button>
+            <n-button size="small" @click="refreshStatus">刷新进度</n-button>
+          </n-space>
         </n-space>
       </template>
 
@@ -81,10 +85,10 @@
         <n-button
           type="primary"
           @click="handleRunEval"
-          :loading="isEvalRunning && !store.evalStatus?.progress"
+          :loading="isEvalRunning"
           :disabled="isEvalRunning || queryCount === 0"
         >
-          {{ store.evalResults ? '重新评估' : '启动评估' }}
+          {{ isEvalRunning ? '评估中...' : (store.evalResults ? '重新评估' : '启动评估') }}
         </n-button>
       </template>
     </n-card>
@@ -158,11 +162,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
 import {
   NButton, NCard, NText, NTag, NTable, NProgress,
-  NSpace, NSpin, NResult, NH2, NStatistic, NEllipsis,
+  NSpace, NResult, NH2, NStatistic, NEllipsis,
   NInput, NDivider,
 } from 'naive-ui'
 
@@ -174,11 +178,8 @@ const queriesText = ref('')
 const savedQueriesText = ref('')
 const saveMsg = ref('')
 const saveMsgType = ref('info')
-let pollTimer = null
 
-const isEvalRunning = computed(() =>
-  store.evalStatus?.status === 'running'
-)
+const isEvalRunning = ref(false)
 
 const progressPercent = computed(() => {
   if (!store.evalStatus?.progress) return 0
@@ -255,24 +256,48 @@ function handleResetQueries() {
 }
 
 async function handleRunEval() {
+  if (isEvalRunning.value) return
+  isEvalRunning.value = true
   try {
     const data = await store.runEval()
     if (data?.task_id) {
-      startPolling(data.task_id)
+      // 启动评估成功，用户可手动点"刷新进度"查看状态
     }
   } catch (e) {
-    // error handled by store
+    isEvalRunning.value = false
   }
 }
 
 async function refreshStatus() {
   if (store.evalStatus?.task_id) {
     await store.fetchEvalStatus(store.evalStatus.task_id)
-    if (store.evalStatus?.status === 'running') {
-      startPolling(store.evalStatus.task_id)
+    if (store.evalStatus?.status === 'running' || store.evalStatus?.status === 'paused') {
+      isEvalRunning.value = true
     } else {
-      stopPolling()
+      isEvalRunning.value = false
     }
+  }
+}
+
+async function handlePause() {
+  if (!store.evalStatus?.task_id) return
+  try {
+    await store.pauseEval(store.evalStatus.task_id)
+    store.evalStatus.status = 'paused'
+    message.success('评估已暂停，当前查询完成后将停止')
+  } catch (e) {
+    message.error('暂停失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
+
+async function handleResume() {
+  if (!store.evalStatus?.task_id) return
+  try {
+    await store.resumeEval(store.evalStatus.task_id)
+    store.evalStatus.status = 'running'
+    message.success('评估已继续')
+  } catch (e) {
+    message.error('继续失败: ' + (e.response?.data?.detail || e.message))
   }
 }
 
@@ -281,34 +306,30 @@ function startPolling(taskId) {
   pollTimer = setInterval(async () => {
     try {
       await store.fetchEvalStatus(taskId)
-      if (store.evalStatus?.status !== 'running') {
+      if (store.evalStatus?.status === 'finished' || store.evalStatus?.status === 'failed') {
+        isEvalRunning.value = false
         stopPolling()
       }
     } catch {
+      isEvalRunning.value = false
       stopPolling()
     }
-  }, 5000)
+  }, 2000)
 }
 
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
 
 onMounted(async () => {
   await loadQueries()
 
-  // 如果有运行中的任务，继续轮询
+  // 尝试加载持久化的评估结果
+  await store.fetchLastEvalResult()
   if (store.evalStatus?.status === 'running') {
-    startPolling(store.evalStatus.task_id)
+    isEvalRunning.value = true
+  } else {
+    isEvalRunning.value = false
   }
 })
 
-onUnmounted(() => {
-  stopPolling()
-})
 </script>
 
 <style scoped>

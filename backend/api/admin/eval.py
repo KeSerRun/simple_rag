@@ -4,6 +4,8 @@
 # 精确率 = 相关片段数 / 总检索片段数，用来衡量检索质量好不好
 
 # ===== 导入 Python 标准库模块 =====
+import json
+import os
 import threading  # 导入 threading 模块，用于创建后台线程（让任务在后台运行，不阻塞主程序）
 import uuid as _uuid  # 导入 uuid 模块并重命名为 _uuid，用于生成唯一的任务 ID
 import time  # 导入 time 模块，用于记录任务开始和结束的时间戳
@@ -31,7 +33,41 @@ from base.llm_client import OpenAIClient  # 用于调用大语言模型 API
 
 # ===== 全局变量：评估任务状态追踪 =====
 # 评估任务状态追踪（这是一个全局字典，用来记录所有评估任务的执行状态）
-_eval_tasks: dict[str, dict] = {}  # 类型注解：_eval_tasks 是一个字典，键是字符串（任务ID），值是字典（任务详情）
+_eval_tasks: dict[str, dict] = {}
+_EVAL_RESULTS_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data", "eval_results.json",
+)
+
+
+def _save_results_to_disk():
+    """持久化最近一次评估结果到 JSON 文件。"""
+    try:
+        finished = [v for v in _eval_tasks.values() if v["status"] == "finished"]
+        if not finished:
+            return
+        latest = max(finished, key=lambda v: v.get("finished_at") or 0)
+        data = {
+            "report": latest.get("report"),
+            "results": latest.get("results"),
+            "finished_at": latest.get("finished_at"),
+        }
+        os.makedirs(os.path.dirname(_EVAL_RESULTS_FILE), exist_ok=True)
+        with open(_EVAL_RESULTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"评估结果持久化失败: {e}")
+
+
+def _load_results_from_disk() -> dict | None:
+    """从磁盘加载最近一次评估结果。"""
+    try:
+        if os.path.exists(_EVAL_RESULTS_FILE):
+            with open(_EVAL_RESULTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"评估结果加载失败: {e}")
+    return None
 # 任务详情结构：{"status": "running"|"finished"|"failed", "progress": {...}, "results": [...]}
 # status: 任务状态，可选值有 running（运行中）、finished（已完成）、failed（失败）
 # progress: 进度信息，包含 total（总数）、completed（已完成数）、current（当前正在处理的查询）
@@ -67,7 +103,8 @@ async def run_eval(request: Request):
         "results": None,  # 评估结果列表，初始为 None，评估完成后会替换为实际结果
         "report": None,  # 汇总报告，初始为 None，评估完成后会生成
         "error": None,  # 错误信息，初始为 None，如果评估出错会记录在这里
-        "started_at": time.time(),  # 记录任务开始时间（当前时间戳，单位秒）
+        "paused": threading.Event(),  # 暂停/继续控制
+        "started_at": time.time(),
         "finished_at": None,  # 任务结束时间，初始为 None，任务完成后会记录
     }
 
@@ -98,9 +135,14 @@ async def run_eval(request: Request):
             )
 
             # ===== 开始逐个评估查询 =====
-            results: List[EvalResult] = []  # 创建一个空列表，用于存放所有查询的评估结果，类型注解为 EvalResult 列表
-            for i, query in enumerate(queries):  # 遍历所有测试查询，i 是序号（从 0 开始），query 是查询文本
-                task["progress"]["current"] = query  # 更新进度：记录当前正在处理的查询文本
+            results: List[EvalResult] = []
+            for i, query in enumerate(queries):
+                # 暂停检查
+                while task["paused"].is_set():
+                    task["status"] = "paused"
+                    time.sleep(0.5)
+                task["status"] = "running"
+                task["progress"]["current"] = query
 
                 # ===== 调用检索工具 =====
                 raw = registry.dispatch(  # 通过工具注册表调用指定工具，dispatch 表示派遣、调度
@@ -179,9 +221,10 @@ async def run_eval(request: Request):
                 "avg_precision_pct": f"{avg_precision:.1%}",  # 平均精确率（百分比形式，保留一位小数，例如"85.3%"）
             }
 
-            # ===== 标记任务完成 =====
+            # ===== 标记任务完成并持久化 =====
             task["status"] = "finished"  # 将任务状态更新为 "finished"（已完成）
             task["finished_at"] = time.time()  # 记录任务完成时间（当前时间戳）
+            _save_results_to_disk()  # 持久化到磁盘
 
             # ===== 记录完成日志 =====
             logger.info(f"评估完成: 平均精确率 {avg_precision:.1%}")
@@ -219,6 +262,17 @@ async def get_eval_status(request: Request, task_id: str):
 
     # 检查任务是否存在
     if task_id not in _eval_tasks:  # 如果传入的 task_id 不在全局字典中
+        # 尝试从磁盘加载最近一次评估结果（服务器重启后仍有数据）
+        saved = _load_results_from_disk()
+        if saved and saved.get("results"):
+            return JSONResponse(content={
+                "task_id": task_id,
+                "status": "finished",
+                "progress": {"total": len(saved["results"]), "completed": len(saved["results"]), "current": ""},
+                "report": saved.get("report"),
+                "results": saved.get("results"),
+                "error": None,
+            })
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
         # 抛出 HTTP 404 错误（Not Found），提示任务不存在
 
@@ -241,6 +295,55 @@ async def get_eval_status(request: Request, task_id: str):
 
     # 返回 JSON 响应
     return JSONResponse(content=resp)  # 将 resp 字典转为 JSON 格式返回给前端
+
+
+# ===== API 端点：获取最近一次评估结果 =====
+@router.get("/eval/last")
+@auth_required
+@admin_required
+async def get_last_eval_result(request: Request):
+    """返回最近一次评估结果（从磁盘加载，服务器重启后仍有数据）。"""
+    saved = _load_results_from_disk()
+    if saved and saved.get("results"):
+        return JSONResponse(content={
+            "status": "finished",
+            "report": saved.get("report"),
+            "results": saved.get("results"),
+            "finished_at": saved.get("finished_at"),
+        })
+    return JSONResponse(content={"status": "no_results", "results": None})
+
+
+# ===== API 端点：暂停评估 =====
+@router.post("/eval/pause/{task_id}")
+@auth_required
+@admin_required
+async def pause_eval(request: Request, task_id: str):
+    """暂停正在运行的评估。"""
+    if task_id not in _eval_tasks:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    task = _eval_tasks[task_id]
+    if task["status"] not in ("running", "paused"):
+        raise HTTPException(status_code=400, detail="任务不在运行中")
+    task["paused"].set()
+    task["status"] = "paused"
+    return JSONResponse(content={"message": "评估已暂停", "task_id": task_id})
+
+
+# ===== API 端点：继续评估 =====
+@router.post("/eval/resume/{task_id}")
+@auth_required
+@admin_required
+async def resume_eval(request: Request, task_id: str):
+    """继续已暂停的评估。"""
+    if task_id not in _eval_tasks:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    task = _eval_tasks[task_id]
+    if task["status"] != "paused":
+        raise HTTPException(status_code=400, detail="任务不在暂停状态")
+    task["paused"].clear()
+    task["status"] = "running"
+    return JSONResponse(content={"message": "评估已继续", "task_id": task_id})
 
 
 # ===== API 端点：获取测试查询列表 =====

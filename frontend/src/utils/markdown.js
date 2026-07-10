@@ -48,6 +48,18 @@ function sanitizeOrphanAsterisks(text) {
   return lines.join('\n')
 }
 
+/** rehype 插件：删除删除线（~~）渲染 */
+function rehypeRemoveDel() {
+  return (tree) => {
+    visit(tree, 'element', (node, index, parent) => {
+      if (node.tagName === 'del' && parent && typeof index === 'number') {
+        // 将 <del> 内容展开为纯文本，删除 <del> 标签
+        parent.children.splice(index, 1, ...(node.children || []))
+      }
+    })
+  }
+}
+
 /** rehype 插件：将 .katex-display 包裹在横向滚动的 div 中 */
 function rehypeWrapKatex() {
   return (tree) => {
@@ -79,6 +91,7 @@ const processor = unified()
   .use(remarkBreaks)
   .use(remarkRehype, { allowDangerousHtml: false })
   .use(rehypeKatex, { throwOnError: false, strict: false })
+  .use(rehypeRemoveDel)   // 删除 ~...~ 渲染
   .use(rehypeWrapKatex)  // 在 KaTeX 之后包裹滚动容器
   .use(rehypeHighlight)
   .use(rehypeStringify)
@@ -86,7 +99,9 @@ const processor = unified()
 export function renderMarkdown(text) {
   if (!text) return ''
   try {
-    const normalized = sanitizeOrphanAsterisks(text)
+    // 确保标题前有换行，避免 remarkBreaks 吃掉 heading 标记
+    const withHeadingBreaks = text.replace(/(\n)(#{1,6}\s)/g, '\n\n$2')
+    const normalized = sanitizeOrphanAsterisks(withHeadingBreaks)
     const result = processor.processSync(normalized)
     return String(result)
   } catch {

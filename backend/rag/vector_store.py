@@ -396,6 +396,17 @@ class VectorStore:
         # partition 参数：可选字符串，按分区过滤检索结果
         partition: Optional[str] = None,
     ) -> List[Document]:
+        # 持有锁，防止搜索过程中其他线程修改向量库
+        with self._lock:
+            return self._search_impl(query, top_k, source_filter, partition)
+
+    def _search_impl(
+        self,
+        query: str,
+        top_k: int = None,
+        source_filter: Optional[str] = None,
+        partition: Optional[str] = None,
+    ) -> List[Document]:
         # 如果 self.dense_index 为空（没有建立索引）或 self.metadata 为空（没有数据）
         if not self.dense_index or not self.metadata:
             # 输出警告日志：向量存储为空，无法执行检索

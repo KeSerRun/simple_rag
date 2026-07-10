@@ -58,7 +58,7 @@ _CONFIG_SCHEMA = [
     # ── 对话历史 ──
     {"key": "max_history_length", "label": "最大保留轮次", "group": "对话历史配置", "type": "int", "min": 10, "max": 2000},
     {"key": "context_window_tokens", "label": "上下文窗口(Token)", "group": "对话历史配置", "type": "int", "min": 4096, "max": 524288},
-    {"key": "consolidation_ratio", "label": "压缩触发比例(%)", "group": "对话历史配置", "type": "int", "min": 10, "max": 90},
+    {"key": "consolidation_ratio", "label": "压缩触发比例", "group": "对话历史配置", "type": "float", "min": 0.1, "max": 0.9, "step": 0.05},
 
     # ── 日志 ──
     {"key": "app_log_level", "label": "应用日志级别", "group": "日志配置", "type": "select",
@@ -66,6 +66,8 @@ _CONFIG_SCHEMA = [
     {"key": "http_log_level", "label": "HTTP 日志级别", "group": "日志配置", "type": "select",
      "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
     {"key": "console_log_level", "label": "控制台日志级别", "group": "日志配置", "type": "select",
+     "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
+    {"key": "user_log_level", "label": "用户操作日志级别", "group": "日志配置", "type": "select",
      "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
 
     # ── 上传 ──

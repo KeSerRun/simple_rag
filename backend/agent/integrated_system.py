@@ -110,7 +110,7 @@ class IntegratedSystem:
         # 检查点恢复：并将已完成的工具结果注入对话 history
         cp = self.checkpoints.load(session_id)
         restored_msgs = []
-        if cp and cp.phase in ("awaiting_tools", "tools_completed"):
+        if cp and cp.phase in ("awaiting_tools", "tools_completed", "final_response"):
             from .checkpoint import restore_messages
             restored_msgs = restore_messages(cp)
             if restored_msgs:
@@ -313,7 +313,7 @@ class IntegratedSystem:
     # CLI 命令分发
     # ═══════════════════════════════════════════════
 
-    def run_agent(self, session_id, question, partition: str = None, style: Optional[str] = None, stream=False):
+    def run_agent(self, session_id, question, partition: str = None, style: Optional[str] = None, stream=False, workflow: Optional[str] = None):
         """使用 AgentLoop 状态机处理用户查询。
 
         替代 get_answer / answer_generator 的新入口。
@@ -326,7 +326,7 @@ class IntegratedSystem:
             question = question + goal_line
 
         if stream:
-            return self._run_agent_stream(session_id, question, partition, style)
+            return self._run_agent_stream(session_id, question, partition, style, workflow=workflow)
 
         # 非流式
         self._check_style_change(session_id, style)
@@ -340,6 +340,7 @@ class IntegratedSystem:
                 history=history,
                 partition=partition,
                 style=style,
+                workflow_name=workflow,
             )
             logger.debug(f"回答成功 len={len(answer)}")
         except Exception as e:
@@ -353,7 +354,7 @@ class IntegratedSystem:
         log_qa(partition, session_id, question, answer)
         return answer
 
-    def _run_agent_stream(self, session_id, question, partition=None, style=None):
+    def _run_agent_stream(self, session_id, question, partition=None, style=None, workflow=None):
         """流式版本的 run_agent（基于 agent_bus 的 nanobot 模式）。"""
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
@@ -399,6 +400,7 @@ class IntegratedSystem:
                     history=history,
                     partition=partition,
                     style=style,
+                    workflow_name=workflow,
                     cancel_check=is_cancelled,
                     on_checkpoint=save_cp,
                     drain_pending=drain_pending,
@@ -418,7 +420,18 @@ class IntegratedSystem:
         ans = []
         try:
             while True:
-                ev = session_queue.get()
+                try:
+                    ev = session_queue.get(timeout=1)
+                except __import__('queue').Empty:
+                    if is_cancelled():
+                        yield {"type": "status", "status": "cancelled"}
+                        logger.info(f"生成被中断: session={session_id}")
+                        return
+                    # 检查工作线程是否还活着
+                    if not t.is_alive():
+                        logger.warning(f"工作线程已退出，session={session_id}")
+                        break
+                    continue
                 if ev is _DONE:
                     break
                 if is_cancelled():

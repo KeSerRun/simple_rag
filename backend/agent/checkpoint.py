@@ -103,7 +103,10 @@ class CheckpointStore:
 
 
 def restore_messages(cp: Checkpoint) -> list[dict]:
-    """从检查点恢复消息列表。"""
+    """从检查点恢复消息列表。
+    
+    支持 phase: awaiting_tools / tools_completed / final_response。
+    final_response 阶段时，只恢复 assistant_message（没有待处理的工具）。"""
     restored = []
     if cp.assistant_message:
         restored.append(cp.assistant_message)

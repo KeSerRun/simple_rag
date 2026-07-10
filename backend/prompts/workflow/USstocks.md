@@ -78,3 +78,19 @@ description: 美股分析工作流 —— 严格分步执行，不得跳过或�
 - [ ] 如果涉及投资建议，是否添加了风险声明
 - [ ] 公式和 Markdown 格式是否正确
 - [ ] 是否注明了数据获取时间（如「数据截至 2026 年 7 月 2 日盘中」）
+
+---
+
+### 可用工具参考
+
+| 工具 | 用途 |
+|------|------|
+| `web_search` | 联网搜索最新行情、新闻、宏观数据 |
+| `read_url` | 阅读搜索到的网页全文 |
+| `search_knowledge_base` | 检索已上传的知识库文档 |
+| `list_documents` | 查看知识库中有哪些文档 |
+| `read_document_titles` | 查看文档的目录结构 |
+| `read_section` | 阅读文档的特定章节 |
+| `read_chunk_context` | 查看检索结果的上下文 |
+| `read_archive` | 阅读归档的历史对话 |
+| `spawn_subagent` | 派生子任务并行搜索多个标的 |

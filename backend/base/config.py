@@ -71,7 +71,11 @@ class Config:
 
         def env(key: str) -> str | None:
             """优先级: 系统环境变量 > .env 文件 > 无。"""
-            return os.environ.get(key) or dotenv.get(key) or None
+            val = os.environ.get(key)
+            if val is not None:
+                return _strip_quotes(val) if val else None
+            val = dotenv.get(key)
+            return val if val else None
 
         # ===== Storage =====
         self.data_dir = get_file(config, 'storage', 'data_dir')
@@ -90,6 +94,7 @@ class Config:
         self.app_log_level = config.get('logger', 'app_log_level', fallback='INFO')
         self.http_log_level = config.get('logger', 'http_log_level', fallback='INFO')
         self.console_log_level = config.get('logger', 'console_log_level', fallback='DEBUG')
+        self.user_log_level = config.get('logger', 'user_log_level', fallback='INFO')
         self.log_file_format = '%(asctime)s | %(levelname)-5s | %(module)s:%(lineno)d | %(message)s'
         self.log_console_format = '%(levelname)-5s %(module)s:%(lineno)d | %(message)s'
 

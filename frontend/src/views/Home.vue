@@ -28,6 +28,25 @@
         :status-text="agentStatus.visible ? agentStatus.text : ''"
       />
 
+      <!-- 工具选择栏 -->
+      <div class="toolbar-row">
+        <n-select
+          v-model:value="selectedWorkflow"
+          :options="workflowOptions"
+          size="tiny"
+          style="width: 120px"
+          placeholder="工作流"
+        />
+        <n-select
+          v-model:value="userStore.answerStyle"
+          :options="styleOptions"
+          :loading="styleLoading"
+          size="tiny"
+          style="width: 120px"
+          placeholder="风格"
+        />
+      </div>
+
       <ChatInput
         :is-loading="isLoading"
         :is-uploading="isUploading"
@@ -71,6 +90,9 @@ import ChatHeader from '@/components/ChatHeader.vue'
 import MessageList from '@/components/MessageList.vue'
 import ChatInput from '@/components/ChatInput.vue'
 import DocManagerModal from '@/components/DocManagerModal.vue'
+
+// Naive UI 组件
+import { NSelect } from 'naive-ui'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -348,6 +370,21 @@ let sseBuffer = ''
 // Agent 状态追踪
 const agentStatus = ref({ visible: false, text: '' })
 
+// 工作流
+const workflowList = ref([])
+const selectedWorkflow = ref('__auto__')
+const workflowOptions = computed(() => {
+  const opts = [{ label: 'Auto', value: '__auto__' }]
+  for (const wf of workflowList.value) {
+    opts.push({ label: wf.name, value: wf.name })
+  }
+  return opts
+})
+
+// 回答风格
+const styleOptions = ref([])
+const styleLoading = ref(true)
+
 const statusLabels = {
   thinking: '深度思考中…',
   calling_tool: (info) => {
@@ -406,7 +443,7 @@ const sendQuestion = async (text) => {
   try {
     await axios.post(
       '/api/query',
-      { session_id: currentSessionId.value, question: text, stream: true, style: userStore.answerStyle },
+      { session_id: currentSessionId.value, question: text, stream: true, style: userStore.answerStyle, workflow: selectedWorkflow.value === '__auto__' ? null : selectedWorkflow.value },
       {
         headers: { 'Content-Type': 'application/json' },
         responseType: 'text',
@@ -655,6 +692,18 @@ const handleLogout = () => {
 onMounted(() => {
   fetchUserSessions()
   fetchDocuments()
+  // 加载风格
+  axios.get('/api/styles').then(r => {
+    if (r.status === 200 && r.data.styles) {
+      styleOptions.value = r.data.styles
+    }
+  }).catch(() => {
+    styleOptions.value = [{ label: '默认', value: 'style-default' }]
+  }).finally(() => { styleLoading.value = false })
+  // 加载工作流列表
+  axios.get('/api/workflows').then(r => {
+    workflowList.value = r.data.workflows || []
+  }).catch(e => console.warn('获取工作流列表失败', e))
 })
 </script>
 
@@ -669,10 +718,22 @@ onMounted(() => {
 
 .chat-main {
   flex: 1;
+
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background-color: transparent;
+}
+
+/* 工作流/风格选择工具栏 */
+.toolbar-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 24px 0;
+  max-width: 880px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .upload-status-bar {

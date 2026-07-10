@@ -10,6 +10,23 @@ from base.logger import logger
 from rag.vector_store import Document
 
 from .registry import ToolContext
+def _resolve_document_path(filename: str, partition: str | None = None, search_system: bool = True) -> str | None:
+    """统一的文档路径解析（路径穿越防护）。"""
+    stem = Path(filename).stem
+    base = Path(conf.vector_store_dir) / "uploads"
+    candidates = [base / (partition or "") / "chunk_out" / stem]
+    if search_system and partition and partition != "__system__":
+        candidates.append(base / "__system__" / "chunk_out" / stem)
+    for path in candidates:
+        try:
+            r = path.resolve()
+            r.relative_to(base.resolve())
+            if r.is_file():
+                return str(r)
+        except (ValueError, OSError):
+            continue
+    return None
+
 from ._format import SYSTEM_PARTITION, format_retrieved_chunks
 
 

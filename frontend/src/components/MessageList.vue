@@ -47,10 +47,10 @@
             <summary class="reasoning-header">
               <span class="reasoning-toggle">🤔 思考过程</span>
             </summary>
-            <div class="reasoning-content" v-html="parseMarkdown(msg.reasoning)"></div>
+            <div class="reasoning-content" v-html="renderMarkdown(msg.reasoning)"></div>
           </details>
           <!-- 主回答 -->
-          <div class="ai-content" v-html="parseMarkdown(msg.content)"></div>
+          <div class="ai-content" v-html="renderMarkdown(msg.content)"></div>
         </div>
         <!-- 中断提示 -->
         <div v-if="msg.isCancelled" class="cancelled-hint">
@@ -89,6 +89,7 @@
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
+// Using renderMarkdown directly in template (no wrapper needed)
 import { NAvatar, NIcon, NH2, NText } from 'naive-ui'
 import { PersonOutline, SparklesOutline } from '@vicons/ionicons5'
 
@@ -105,13 +106,18 @@ const sessionIdDisplay = computed(() =>
   props.currentSessionId ? `${props.currentSessionId.substring(0, 8)}...` : ''
 )
 
-const parseMarkdown = (text) => renderMarkdown(text)
+// parseMarkdown wrapper removed — using renderMarkdown directly in template
 
-const scrollToBottom = async () => {
+const scrollToBottom = async (force = false) => {
   await nextTick()
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  if (!messagesContainer.value) return
+  // 用户已向上翻阅时不自动滚动（距底部超过 150px 视为主动翻阅）
+  if (!force) {
+    const threshold = 150
+    const dist = messagesContainer.value.scrollHeight - messagesContainer.value.scrollTop - messagesContainer.value.clientHeight
+    if (dist > threshold) return
   }
+  messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
 }
 
 watch(() => props.messages.length, scrollToBottom, { immediate: true })

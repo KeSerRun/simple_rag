@@ -548,29 +548,3 @@ class OpenAIClient:
 
         # 返回所有文本的向量列表
         return out
-
-
-# ========================================================================
-# LLM Listwise Reranker —— 通过大模型对检索结果进行重排序
-# ========================================================================
-# 工作原理:
-#   1. 向量检索（FAISS）先召回 N 个候选 chunk（通常比最终需要的多，如 Top-30）
-#   2. 将 query + 所有候选 chunk 发送给 LLM
-#   3. LLM 根据相关性对 chunk 进行排序，输出排序后的编号列表
-#   4. 按照 LLM 输出的顺序重新排列 chunk，取前 K 个
-#
-# 与 Cross-Encoder Rerank 的区别:
-#   - Cross-Encoder: 需要专门的重排模型（如 bge-reranker-v2-m3），单次推理极快
-#   - LLM Listwise: 利用已接入的 Chat 模型，无需额外依赖，适合当前架构
-#   - 劣势：多消耗一次 LLM 调用，列表过长时可能超出 context window
-# ========================================================================
-
-# 导入 json 模块，用于解析 LLM 返回的 JSON 格式排序结果
-import json
-# 导入 re 模块，用于正则表达式提取排序编号（当 LLM 输出不标准时做兜底解析）
-import re
-# 再次从 typing 导入（虽然是重复导入，但 Python 不会报错），方便独立阅读
-from typing import List, Optional
-
-# 导入项目内部的 logger 日志工具
-from base.logger import logger

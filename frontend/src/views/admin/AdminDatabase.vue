@@ -131,15 +131,18 @@
           size="small"
           :max-height="500"
           :row-key="(row) => row.id"
+          :pagination="false"
         />
         <n-space justify="center" style="margin-top: 16px">
           <n-pagination
             v-model:page="chunkPage"
-            :page-size="chunkPageSize"
+            :page-size="20"
             :item-count="store.dbChunks?.total || 0"
             :page-slot="7"
-            @update:page="handleChunkPage"
           />
+          <n-text depth="3" style="font-size:12px;line-height:32px">
+            页 {{ chunkPage }} / 共 {{ store.dbChunks?.items?.length || 0 }} 条
+          </n-text>
         </n-space>
 
       </n-tab-pane>
@@ -327,13 +330,13 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, h } from 'vue'
+import { computed, ref, onMounted, watch, h } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAdminStore } from '@/stores/admin'
 import {
   NCard, NGrid, NGridItem, NStatistic, NIcon, NText, NDescriptions,
   NDescriptionsItem, NDataTable, NTabPane, NTabs, NEmpty, NSpin,
-  NButton, NInput, NSelect, NSpace, NPagination, NModal, NCode, NH2, NTag,
+  NButton, NInput, NSelect, NSpace, NPagination, NH2, NTag,
   NUpload, NList, NListItem, NProgress,
 } from 'naive-ui'
 import axios from '@/http/interceptor'
@@ -432,7 +435,14 @@ const chunkQuery = ref('')
 const chunkPartition = ref(null)
 const chunkType = ref(null)
 const chunkPage = ref(1)
-const chunkPageSize = ref(20)
+
+watch(chunkPage, (page) => {
+  const filters = {}
+  if (chunkPartition.value) filters.partition = chunkPartition.value
+  if (chunkType.value) filters.chunk_type = chunkType.value
+  if (chunkQuery.value) filters.query_text = chunkQuery.value
+  store.fetchChunks(page, 20, filters)
+})
 
 const partitionOptions = computed(() => {
   const p = store.dbPartitions?.partitions || []
@@ -497,22 +507,14 @@ const chunkColumns = [
 
 function searchChunks() {
   chunkPage.value = 1
-  store.fetchPartitions()
-  store.fetchChunks(1, chunkPageSize.value, {
-    partition: chunkPartition.value || undefined,
-    chunk_type: chunkType.value || undefined,
-    query_text: chunkQuery.value || undefined,
-  })
+  // 即使已在第 1 页也要触发刷新
+  const filters = {}
+  if (chunkPartition.value) filters.partition = chunkPartition.value
+  if (chunkType.value) filters.chunk_type = chunkType.value
+  if (chunkQuery.value) filters.query_text = chunkQuery.value
+  store.fetchChunks(1, 20, filters)
 }
 
-function handleChunkPage(page) {
-  chunkPage.value = page
-  store.fetchChunks(page, chunkPageSize.value, {
-    partition: chunkPartition.value || undefined,
-    chunk_type: chunkType.value || undefined,
-    query_text: chunkQuery.value || undefined,
-  })
-}
 
 onMounted(() => {
   loadStats()

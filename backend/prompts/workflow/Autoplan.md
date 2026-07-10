@@ -87,3 +87,18 @@ description: 规划工作流 —— 需要分解任务、制定计划、按序�
 - [ ] 关键信息是否标注了来源
 - [ ] 方案是否回答了用户的原始需求
 - [ ] 是否有明确的下一步建议（如适用）
+
+---
+
+### 可用工具参考
+
+| 工具 | 用途 |
+|------|------|
+| `web_search` | 联网搜索实时信息 |
+| `search_knowledge_base` | 检索知识库文档 |
+| `list_documents` | 查看知识库文档清单 |
+| `read_document_titles` | 查看文档目录结构 |
+| `read_section` | 阅读文档特定章节 |
+| `spawn_subagent` | 并行执行独立子任务 |
+| `set_goal` / `complete_goal` | 管理持续执行目标 |
+| `ask_user_for_clarification` | 向用户确认需求细节 |

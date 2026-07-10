@@ -94,13 +94,10 @@ class WorkflowRouter:
         # 初始化一个空字典，用来存储所有加载的工作流信息。
         # 字典的 key 是工作流名称（字符串），value 是包含模板内容、描述、来源路径等信息的字典。
         self._workflows: dict[str, dict] = {}
-        # 用于 match() 方法做快速查找，key 统一小写以实现大小写不敏感匹配。
-        # 初始化一个空字典，用来存储关键词到工作流名称的映射关系。
-        # 例如 {"美股": "USstocks", "纳斯达克": "USstocks", "A股": "CNstocks"}
+        # 用于匹配查询到工作流的关键词映射（route.md 已弃用，nanobot 渐进式加载替代）
+        self._keywords: dict[str, str] = {}
 
         # 初始化时立即加载所有工作流
-        # 在构造方法最后一步，立即调用 _load_workflows() 方法，
-        # 这样创建 WorkflowRouter 对象时就会自动加载所有工作流，不需要手动调用。
         self._load_workflows()
 
     # ─── 加载 ────────────────────────────────────────
@@ -138,25 +135,9 @@ class WorkflowRouter:
         logger.info(
             f"WorkflowRouter 就绪: {len(self._workflows)} 个工作流"
         )
-    def match(self, query: str) -> Optional[str]:
-        """检测用户查询是否匹配某个 workflow（已弃用，保留兼容）。"""
-        return None
-        # 这样遍历时先检查长关键词，命中后立即返回，不再检查短关键词。
-        # 并且按关键词长度从长到短排序（key=lambda x: -len(x[0]) 表示按关键词长度取负数排序）。
-        for kw, wf_name in sorted(
-            key=lambda x: -len(x[0]),
-        ):
-            # 子串匹配：检查关键词是否出现在用户查询中
-            # 判断关键词（小写）是否作为子串出现在用户查询（小写）中。
-            if kw in query_lower:
-                # 如果匹配成功，记录一条 info 日志，说明关键词匹配到了哪个工作流。
-                logger.debug(
-                    f"Workflow 路由匹配: 关键词={kw!r} → 工作流={wf_name}"
-                )
-                # 返回匹配到的工作流名称，结束匹配过程。
-                return wf_name
 
-        # 如果遍历完所有关键词都没有匹配到，返回 None，表示没有找到匹配的工作流。
+    def match(self, query: str) -> Optional[str]:
+        """检测用户查询是否匹配某个 workflow（已弃用，使用 nanobot 渐进式加载）。"""
         return None
 
     # ─── 查询 ────────────────────────────────────────
@@ -217,4 +198,15 @@ class WorkflowRouter:
             else:
                 lines.append(n)
         return "\n".join(lines)
+
+    def get_workflow_list(self) -> list[dict]:
+        """返回工作流列表（前端用）。"""
+        result = []
+        for name, info in self._workflows.items():
+            result.append({
+                "name": name,
+                "description": info.get("description", ""),
+                "always_load": info.get("always_load", False),
+            })
+        return result
 

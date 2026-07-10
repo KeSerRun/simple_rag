@@ -15,8 +15,6 @@ from fastapi.responses import JSONResponse, StreamingResponse  # 导入 JSON 响
 
 # ===== 导入项目内部模块 =====
 from base.logger import logger  # 从 base 包导入日志记录器，用于记录日志信息
-
-# ===== 导入当前包的依赖模块 =====
 from .deps import auth_required, system  # 从当前包下的 deps.py 导入认证装饰器和系统实例
 
 # ===== 创建路由对象 =====
@@ -52,6 +50,14 @@ async def list_styles():  # 定义异步函数，用于处理获取风格列表�
     return JSONResponse(content={"styles": styles})
 
 
+# ===== 获取可用工作流列表 =====
+@router.get("/workflows")
+async def list_workflows():
+    """返回可用工作流列表（由 backend/prompts/workflow/ 自动发现）。"""
+    workflows = system.rag_qa.workflow_router.get_workflow_list()
+    return JSONResponse(content={"workflows": workflows})
+
+
 # ===== SSE（Server-Sent Events）流式响应包装器 =====
 def _sse_wrapper(generator):
     """把普通字符串生成器包装成 SSE `data: ...\n\n` 流。"""
@@ -71,6 +77,7 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
         question = data.get("question")      # 从 JSON 中获取用户提出的问题
         stream = data.get("stream", False)   # 从 JSON 中获取是否使用流式响应，默认为 False
         style = data.get("style") or None    # 从 JSON 中获取回答风格，如果前端传空字符串或 null，统一转为 None
+        workflow = data.get("workflow") or None  # 从 JSON 中获取工作流名称（Auto=None）
 
         # ===== 获取当前用户信息 =====
         # username 始终取自 JWT token，作为检索分区的依据
@@ -90,7 +97,7 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
             def _stream_with_lock():
                 with lock:
                     yield from _sse_wrapper(
-                        system.run_agent(session_id, question, partition=username, style=style, stream=True)
+                        system.run_agent(session_id, question, partition=username, style=style, workflow=workflow, stream=True)
                     )
             return StreamingResponse(
                 _stream_with_lock(),
@@ -99,7 +106,7 @@ async def query(request: Request):  # 定义异步函数，参数是 FastAPI 的
         # 非流式模式：放到线程池执行，避免阻塞事件循环
         def _run_sync():
             with lock:
-                return system.run_agent(session_id, question, partition=username, style=style, stream=False)
+                return system.run_agent(session_id, question, partition=username, style=style, workflow=workflow, stream=False)
         answer = await asyncio.to_thread(_run_sync)
         return JSONResponse(content={"answer": answer})
 

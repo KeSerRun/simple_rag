@@ -101,3 +101,19 @@ description: 深度调研工作流 —— 多角度搜索 → 深入阅读 → �
 - [ ] 矛盾和缺口是否如实说明
 - [ ] 是否回答了用户的核心问题
 - [ ] Markdown 格式是否正确（表格、标题层级）
+
+---
+
+### 可用工具参考
+
+| 工具 | 用途 |
+|------|------|
+| `web_search` | 联网搜索多角度信息 |
+| `read_url` | 阅读关键文章全文 |
+| `search_knowledge_base` | 检索知识库补充资料 |
+| `list_documents` | 查看知识库文档清单 |
+| `read_document_titles` | 查看文档目录，定位相关章节 |
+| `read_section` | 阅读文档的特定章节内容 |
+| `read_chunk_context` | 查看检索片段的前后上下文 |
+| `spawn_subagent` | 并行派生子任务调研不同子维度 |
+| `set_goal` / `complete_goal` | 管理持续调研目标 |

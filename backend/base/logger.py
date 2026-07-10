@@ -124,7 +124,7 @@ _user_log_path = os.path.join(conf.log_path, 'user.log')
 _user_logger = logging.getLogger('UserLogger')
 
 # 设置用户问答日志记录器的日志级别
-_user_logger.setLevel(conf.app_log_level)
+_user_logger.setLevel(conf.user_log_level)
 
 # 设置 propagate = False，禁止日志冒泡传递给父级 logger
 # 这样用户问答日志只会写入 user.log，不会出现在 app.log 里

@@ -4,7 +4,9 @@
 # =====================================================================
 
 # ===== 标准库导入 =====
-import json  # 导入 json 模块，用于解析请求体中的 JSON 数据和捕获 JSON 格式错误
+import json
+import shutil
+from pathlib import Path
 
 # ===== FastAPI 相关导入 =====
 from fastapi import APIRouter, HTTPException, Request  # APIRouter: 创建路由分组; HTTPException: 返回 HTTP 错误响应; Request: 获取请求对象
@@ -12,6 +14,7 @@ from fastapi.responses import JSONResponse  # JSONResponse: 返回 JSON 格式�
 
 # ===== 项目内部模块导入 =====
 from base.logger import logger  # 导入项目的日志记录器，用于在出错时写日志
+from base.config import conf
 
 # 导入依赖：auth_required 是登录认证装饰器（验证 token），system 是全局系统对象（提供 data_store 等能力）
 from .deps import auth_required, system
@@ -143,10 +146,33 @@ async def delete_session(request: Request, session_id: str):
             raise HTTPException(status_code=403, detail="Forbidden")
 
         # 权限校验通过，开始删除操作
-        # 先删除会话本身（从 sessions 表中删除该记录）
+        # 先删除会话本身
         system.data_store.delete_session(session_id)
-        # 再删除该会话关联的所有历史聊天记录（从 history 表中删除）
+        # 再删除该会话关联的所有历史聊天记录
         system.data_store.delete_session_history(session_id)
+
+        # 清理关联的工具结果持久化文件
+        tool_dir = Path(conf.data_dir) / ".tool_results" / session_id
+        if tool_dir.exists():
+            shutil.rmtree(tool_dir)
+            logger.debug(f"已清理工具结果文件: {tool_dir}")
+
+        # 清理关联的压缩归档
+        archive_base = Path(conf.data_dir) / "json_store" / "archives"
+        if archive_base.exists():
+            removed = 0
+            for f in archive_base.iterdir():
+                if f.suffix == ".json":
+                    try:
+                        import json as _json
+                        data = _json.loads(f.read_text(encoding="utf-8"))
+                        if data.get("session_id") == session_id:
+                            f.unlink()
+                            removed += 1
+                    except Exception:
+                        continue
+            if removed:
+                logger.debug(f"已清理 {removed} 个归档文件 session={session_id[:8]}")
 
         # 删除成功，返回 200 和成功提示消息
         return JSONResponse(content={"message": "Session and related data deleted successfully"})

@@ -210,7 +210,6 @@ def _search_searxng(query: str, max_results: int) -> list | None:
         logger.warning("[tool] searxng_url 未配置")
         return None  # 返回 None，表示该后端不可用
 
-    import urllib.parse as _up  # 导入 urllib.parse 模块并简写为 _up（虽然这里没用上，但可能是为后续扩展准备）
     try:  # 开始异常捕获，准备发起 HTTP 请求
         import requests as _req  # 导入 requests 库并简写为 _req，用于发送 HTTP 请求
         params = {"q": query, "format": "json", "language": "zh-CN"}  # 构造查询参数：搜索关键词 q、返回格式 format 为 json、语言 language 设为中文

@@ -3,23 +3,31 @@
 """
 from __future__ import annotations
 
+import threading
+from pathlib import Path
+
+from base.config import conf
 from .registry import ToolContext
 
 
 # ===== 简单目标存储（模块级 dict，由 IntegratedSystem 读取） =====
 _GOALS: dict[str, dict] = {}
+_GOALS_LOCK = threading.Lock()
 
 
 def _set_goal(session_id: str, goal: str):
-    _GOALS[session_id] = {"goal": goal, "status": "active"}
+    with _GOALS_LOCK:
+        _GOALS[session_id] = {"goal": goal, "status": "active"}
 
 
 def _complete_goal(session_id: str):
-    _GOALS[session_id] = {"goal": "", "status": "completed"}
+    with _GOALS_LOCK:
+        _GOALS[session_id] = {"goal": "", "status": "completed"}
 
 
 def _get_goal_line(session_id: str) -> str:
-    data = _GOALS.get(session_id)
+    with _GOALS_LOCK:
+        data = _GOALS.get(session_id)
     if data and data.get("status") == "active" and data.get("goal"):
         return f"\n当前目标：{data['goal']}"
     return ""
@@ -109,7 +117,7 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
             lines.append("")
             lines.append(f"目标: {goal.strip()}")
 
-        return "\\n".join(lines)
+        return "\n".join(lines)
 
     elif action == "check" and key:
         key_map = {
@@ -145,3 +153,28 @@ def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
     if cfg:
         desc = router.get_workflow_summaries()
     return f"工作流：{name}\n\n{content}"
+
+
+# ===== read_tool_result =====
+def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
+    """读取被持久化的工具结果完整内容。"""
+    filename = (args.get("filename") or "").strip()
+    if not filename:
+        return "(未提供 filename 参数)"
+
+    base = Path(conf.data_dir) / ".tool_results"
+    try:
+        target = (base / filename).resolve()
+        target.relative_to(base.resolve())
+    except (ValueError, OSError):
+        return "(文件名不合法)"
+    if not target.is_file():
+        return f"(文件不存在: {filename})"
+
+    try:
+        content = target.read_text(encoding="utf-8")
+        if len(content) > 30000:
+            content = content[:30000] + "\n\n...(内容过长，已截取前 30000 字符)..."
+        return content
+    except Exception as e:
+        return f"(读取失败: {e})"

@@ -21,6 +21,8 @@
             <n-input v-else-if="field.type === 'password'" v-model:value="form[field.key]" type="password" show-password-on="click" :placeholder="field.placeholder || ''" />
             <!-- 整数 -->
             <n-input-number v-else-if="field.type === 'int'" v-model:value="form[field.key]" :min="field.min" :max="field.max" style="width:140px" />
+            <!-- 浮点数 -->
+            <n-input-number v-else-if="field.type === 'float'" v-model:value="form[field.key]" :min="field.min" :max="field.max" :step="field.step || 0.1" style="width:140px" />
             <!-- 开关 -->
             <n-switch v-else-if="field.type === 'bool'" v-model:value="form[field.key]" />
             <!-- 下拉选择 -->

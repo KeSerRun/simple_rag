@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 
@@ -19,7 +19,7 @@ class AgentEvent:
     """Agent 内部事件基类。"""
     type: str                    # 事件类型标识
     session_id: str              # 所属会话
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict = field(default_factory=dict)
 
 

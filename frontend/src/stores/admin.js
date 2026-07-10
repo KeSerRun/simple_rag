@@ -352,15 +352,20 @@ export const useAdminStore = defineStore('admin', () => {
   const evalStatus = ref(null)
   const evalResults = ref(null)
   const evalReport = ref(null)
+  const _EVAL_TASK_KEY = 'admin_eval_task_id'
 
   async function runEval() {
     loading.value = true
     error.value = null
     evalResults.value = null
     evalReport.value = null
+    evalStatus.value = { status: 'running' }
     try {
       const res = await axios.post('/api/admin/eval/run')
-      evalStatus.value = res.data
+      evalStatus.value = { ...res.data, status: 'running' }
+      if (res.data?.task_id) {
+        localStorage.setItem(_EVAL_TASK_KEY, res.data.task_id)
+      }
       return res.data
     } catch (e) {
       error.value = e.response?.data?.detail || e.message
@@ -375,6 +380,9 @@ export const useAdminStore = defineStore('admin', () => {
     try {
       const res = await axios.get(`/api/admin/eval/status/${taskId}`)
       evalStatus.value = res.data
+      if (res.data.status === 'finished' || res.data.status === 'failed' || res.data.status === 'no_results') {
+        localStorage.removeItem(_EVAL_TASK_KEY)
+      }
       if (res.data.status === 'finished') {
         evalResults.value = res.data.results
         evalReport.value = res.data.report
@@ -414,6 +422,64 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  async function pauseEval(taskId) {
+    error.value = null
+    try {
+      await axios.post(`/api/admin/eval/pause/${taskId}`)
+      evalStatus.value = { ...(evalStatus.value || {}), status: 'paused' }
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    }
+  }
+
+  async function resumeEval(taskId) {
+    error.value = null
+    try {
+      await axios.post(`/api/admin/eval/resume/${taskId}`)
+      evalStatus.value = { ...(evalStatus.value || {}), status: 'running' }
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    }
+  }
+
+  async function fetchLastEvalResult() {
+    try {
+      const res = await axios.get('/api/admin/eval/last')
+      if (res.data.status === 'finished') {
+        evalResults.value = res.data.results
+        evalReport.value = res.data.report
+        evalStatus.value = res.data
+      }
+      return res.data
+    } catch (e) {
+      // 没有持久化结果，忽略
+      return null
+    }
+  }
+
+  async function loadRunningEval() {
+    const taskId = localStorage.getItem(_EVAL_TASK_KEY)
+    if (!taskId) return null
+    try {
+      const res = await axios.get(`/api/admin/eval/status/${taskId}`)
+      evalStatus.value = res.data
+      if (res.data.status === 'finished' || res.data.status === 'failed') {
+        localStorage.removeItem(_EVAL_TASK_KEY)
+        if (res.data.status === 'finished') {
+          evalResults.value = res.data.results
+          evalReport.value = res.data.report
+        }
+        return null
+      }
+      return taskId  // 仍在运行中
+    } catch {
+      localStorage.removeItem(_EVAL_TASK_KEY)
+      return null
+    }
+  }
+
   return {
     loading, error,
     // dashboard
@@ -430,6 +496,6 @@ export const useAdminStore = defineStore('admin', () => {
     systemDocs, fetchSystemDocs, uploadSystemData, deleteDocument, batchDeleteDocuments,
     uploadStatus, setUploadStatus, isUploading,
     // eval
-    evalStatus, evalResults, evalReport, runEval, fetchEvalStatus, fetchEvalQueries, updateEvalQueries,
+    evalStatus, evalResults, evalReport, runEval, fetchEvalStatus, fetchEvalQueries, updateEvalQueries, pauseEval, resumeEval, fetchLastEvalResult, loadRunningEval,
   }
 })

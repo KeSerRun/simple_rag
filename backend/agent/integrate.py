@@ -10,7 +10,7 @@ from agent import RAGSystem
 
 from .checkpoint import CheckpointStore
 from .subagent import SubagentManager
-from .agent_loop import SessionManager
+from .loop import SessionManager
 from .hooks import CompositeHook, LoggingHook
 
 import uuid

@@ -209,31 +209,22 @@ async def serve_root_image(img_name: str):
 
 
 # ===== 首页路由 =====
-# 根路径重定向到 /index
 @app.get("/")
-async def root():
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/index")
-
-# 定义 /index 路由返回前端首页
-@app.get("/index")
 async def index():
-    """
-    返回前端首页 HTML 页面
-    当用户访问 /index 时，返回存储在 html_content 变量中的 HTML 内容
-
-    如果 html_content 为 None（说明前端没有构建），就返回 404 错误
-
-    返回:
-        成功: HTML 格式的页面内容，状态码 200
-        失败: JSON 格式的错误信息，状态码 404
-    """
-    # 检查 html_content 是否为 None（即 index.html 文件不存在或未读取成功）
     if html_content is None:
-        # 如果不存在，抛出一个 HTTP 404 异常，告诉用户需要先构建前端项目
         raise HTTPException(status_code=404, detail="frontend not built; run `cd frontend && npm run build`")
-    # 如果存在，以 HTML 格式返回页面内容，状态码为 200（成功）
     return HTMLResponse(content=html_content, status_code=200)
+
+
+# ===== SPA fallback 中间件 =====
+# 所有非 API 路径请求返回 404 时，自动返回 index.html（支持前端 history 路由）
+@app.middleware("http")
+async def spa_fallback(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404 and not request.url.path.startswith("/api/"):
+        if html_content is not None:
+            return HTMLResponse(content=html_content, status_code=200)
+    return response
 
 
 # ===== 挂载前端静态资源 =====

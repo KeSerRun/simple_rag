@@ -30,6 +30,27 @@ def _resolve_document_path(filename: str, partition: str | None = None, search_s
 from ._format import SYSTEM_PARTITION, format_retrieved_chunks
 
 
+def _resolve_full_md(filename: str, partition: str | None = None) -> str | None:
+    """统一解析 full.md 文档路径，供多个工具共享。
+
+    同时搜索用户分区和系统分区，含路径穿越防护。
+    """
+    stem = Path(filename).stem
+    base = Path(conf.data_dir) / "uploads"
+    candidates = [base / (partition or "") / "chunk_out" / stem / "full.md"]
+    if partition and partition != "__system__":
+        candidates.append(base / "__system__" / "chunk_out" / stem / "full.md")
+    for full_md in candidates:
+        try:
+            r = full_md.resolve()
+            r.relative_to(base.resolve())
+            if r.is_file():
+                return str(r)
+        except (ValueError, OSError):
+            continue
+    return None
+
+
 # ===== search_knowledge_base =====
 def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
     """
@@ -83,34 +104,16 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
     if not filename:
         return "(未提供 filename 参数)"
 
-    stem = Path(filename).stem
-    base = Path(conf.data_dir) / "uploads"
-    candidates = [
-        base / (ctx.partition or "") / "chunk_out" / stem / "full.md",
-    ]
-    if ctx.partition and ctx.partition != "__system__":
-        candidates.append(base / "__system__" / "chunk_out" / stem / "full.md")
-
-    resolved = None
-    for full_md in candidates:
-        try:
-            r = full_md.resolve()
-            r.relative_to(base.resolve())
-            if r.is_file():
-                resolved = r
-                break
-        except (ValueError, OSError):
-            continue
-
+    resolved = _resolve_full_md(filename, ctx.partition)
     if resolved is None:
         logger.warning(f"tool read_full_document 未找到: {filename}")
-        return f"(未找到 {filename} 的全文, 可能该文档不是由 MinerU 解析的)"
+        return f"(未找到 {filename} 的全文，可能该文档不是由 MinerU 解析的)"
 
     try:
-        content = resolved.read_text(encoding="utf-8")
+        content = Path(resolved).read_text(encoding="utf-8")
         logger.debug(f"tool read_full_document 成功: {filename} ({len(content)} 字符)")
-        if len(content) > 30000:
-            content = content[:30000] + "\n\n...(全文过长，已截取前 30000 字符)..."
+        if len(content) > 50000:
+            content = content[:50000] + "\n\n...(全文过长，已截取前 50000 字符)..."
         return content
     except Exception as e:
         logger.warning(f"tool read_full_document 读取失败 ({filename}): {e}")
@@ -118,35 +121,100 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
 
 
 # ===== list_documents =====
+def _get_file_stats(filename: str, partition: str | None = None) -> dict:
+    """获取文档文件的元信息（大小、修改时间、类型）。"""
+    import datetime as _dt
+    import mimetypes
+
+    stats = {"size": "", "mtime": "", "type": ""}
+    # 优先从 full.md 获取文件信息
+    resolved = _resolve_full_md(filename, partition)
+    if resolved:
+        try:
+            s = Path(resolved).stat()
+            size = s.st_size
+            if size < 1024:
+                stats["size"] = f"{size}B"
+            elif size < 1024 * 1024:
+                stats["size"] = f"{size / 1024:.0f}KB"
+            else:
+                stats["size"] = f"{size / 1024 / 1024:.1f}MB"
+            mtime = _dt.datetime.fromtimestamp(s.st_mtime).strftime("%m-%d %H:%M")
+            stats["mtime"] = mtime
+        except OSError:
+            pass
+    # 从扩展名判断类型
+    ext = Path(filename).suffix.lower()
+    if ext == ".pdf":
+        stats["type"] = "PDF"
+    elif ext in (".docx", ".doc"):
+        stats["type"] = "Word"
+    elif ext in (".xlsx", ".xls"):
+        stats["type"] = "Excel"
+    elif ext in (".pptx", ".ppt"):
+        stats["type"] = "PPT"
+    elif ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"):
+        stats["type"] = "Image"
+    elif ext in (".md", ".markdown"):
+        stats["type"] = "Markdown"
+    elif ext in (".txt",):
+        stats["type"] = "Text"
+    elif ext:
+        stats["type"] = ext[1:].upper()
+    return stats
+
+
 def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: list_documents
     列出用户/系统分区的文档，支持关键词过滤。
+    返回文档名、类型、大小、修改时间。
     """
     if not ctx.vector_store:
         return "(知识库不可用)"
     pattern = (args.get("pattern") or "").strip().lower()
     list_system = args.get("list_system", True)
-    logger.debug(f"tool list_documents pattern={pattern!r} list_system={list_system} partition={ctx.partition}")
+    sort_by = args.get("sort_by", "name")  # name, time
+    logger.debug(f"tool list_documents pattern={pattern!r} list_system={list_system} "
+                 f"partition={ctx.partition} sort={sort_by}")
 
     user_docs = ctx.vector_store.get_documents_by_partition(partition=ctx.partition) or []
-    docs = []
+    doc_entries = []
     for d in user_docs:
-        docs.append(f"📄 {d}")
+        s = _get_file_stats(d, ctx.partition)
+        doc_entries.append({"name": d, **s, "is_system": False})
 
     if list_system:
         system_docs = ctx.vector_store.get_documents_by_partition(partition=SYSTEM_PARTITION) or []
+        seen = {d["name"] for d in doc_entries}
         for d in system_docs:
-            label = f"📖 {d}"
-            if label not in docs:
-                docs.append(label)
+            if d not in seen:
+                s = _get_file_stats(d, SYSTEM_PARTITION)
+                doc_entries.append({"name": d, **s, "is_system": True})
+                seen.add(d)
 
     if pattern:
-        docs = [d for d in docs if pattern in d.lower()]
-    if not docs:
+        doc_entries = [d for d in doc_entries if pattern in d["name"].lower()]
+
+    if not doc_entries:
         return "(当前没有匹配的文档)"
 
-    lines = [f"- {d}" for d in sorted(docs)]
+    # 排序
+    if sort_by == "time":
+        # 有 mtime 的排前面，按 mtime 降序；没有的放最后
+        doc_entries.sort(key=lambda d: (not bool(d["mtime"]), d["mtime"]), reverse=True)
+    else:
+        doc_entries.sort(key=lambda d: d["name"].lower())
+
+    lines = []
+    for d in doc_entries:
+        icon = "📖" if d["is_system"] else "📄"
+        info = " | ".join(p for p in [d["type"], d["size"], d["mtime"]] if p)
+        if info:
+            lines.append(f"- {icon} {d['name']}  ({info})")
+        else:
+            lines.append(f"- {icon} {d['name']}")
+
     return "当前知识库中的文档：\n" + "\n".join(lines)
 
 
@@ -327,30 +395,12 @@ def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
     if not source:
         return "(未提供 source 参数)"
 
-    stem = Path(source).stem
-    base = Path(conf.data_dir) / "uploads"
-    candidates = [
-        base / (ctx.partition or "") / "chunk_out" / stem / "full.md",
-    ]
-    if ctx.partition and ctx.partition != "__system__":
-        candidates.append(base / "__system__" / "chunk_out" / stem / "full.md")
-
-    resolved = None
-    for full_md in candidates:
-        try:
-            r = full_md.resolve()
-            r.relative_to(base.resolve())
-            if r.is_file():
-                resolved = r
-                break
-        except (ValueError, OSError):
-            continue
-
+    resolved = _resolve_full_md(source, ctx.partition)
     if resolved is None:
         return f"(未找到 {source} 的全文，可能该文档不是由 MinerU 解析的)"
 
     try:
-        content = resolved.read_text(encoding="utf-8")
+        content = Path(resolved).read_text(encoding="utf-8")
     except Exception as e:
         return f"(读取 {source} 失败: {e})"
 
@@ -360,13 +410,7 @@ def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("#"):
-            # 计算标题级别（# 的个数）
-            level = 0
-            for ch in stripped:
-                if ch == "#":
-                    level += 1
-                else:
-                    break
+            level = len(stripped) - len(stripped.lstrip("#"))
             text = stripped[level:].strip()
             if text:
                 headings.append((level, text))
@@ -399,31 +443,13 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     if not heading:
         return "(未提供 heading 参数)"
 
-    # 1. 定位 full.md 源文件（与 read_document_titles / read_full_document 逻辑一致）
-    stem = Path(source).stem
-    base = Path(conf.data_dir) / "uploads"
-    candidates = [
-        base / (ctx.partition or "") / "chunk_out" / stem / "full.md",
-    ]
-    if ctx.partition and ctx.partition != "__system__":
-        candidates.append(base / "__system__" / "chunk_out" / stem / "full.md")
-
-    resolved = None
-    for full_md in candidates:
-        try:
-            r = full_md.resolve()
-            r.relative_to(base.resolve())
-            if r.is_file():
-                resolved = r
-                break
-        except (ValueError, OSError):
-            continue
-
+    # 1. 定位 full.md 源文件
+    resolved = _resolve_full_md(source, ctx.partition)
     if resolved is None:
         return f"(未找到 {source} 的全文，可能该文档不是由 MinerU 解析的)"
 
     try:
-        content = resolved.read_text(encoding="utf-8")
+        content = Path(resolved).read_text(encoding="utf-8")
     except Exception as e:
         return f"(读取 {source} 失败: {e})"
 
@@ -491,11 +517,97 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     section_text = "\n".join(section_lines)
 
     # 限制输出长度
-    if len(section_text) > 15000:
-        section_text = section_text[:15000] + "\n\n...(已截断)"
+    if len(section_text) > 30000:
+        section_text = section_text[:30000] + "\n\n...(已截断)"
 
     logger.debug(
         f"tool read_section 成功: {source} / {match_text} "
         f"({len(section_lines)} 行, {len(section_text)} 字符)"
     )
     return section_text
+
+
+# ===== search_document_content =====
+def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
+    """
+    工具 handler: search_document_content
+    在文档的全文（full.md）中搜索关键词，返回匹配的文档名和上下文片段。
+    类似 grep，但针对知识库文档。
+    """
+    keyword = (args.get("keyword") or "").strip()
+    if not keyword:
+        return "(未提供 keyword 参数)"
+    source_filter = (args.get("source") or "").strip().lower()
+    max_results = min(int(args.get("max_results", 10)), 50)
+
+    logger.debug(f"tool search_document_content keyword={keyword!r} source={source_filter!r}")
+
+    # 获取文档列表
+    if not ctx.vector_store:
+        return "(知识库不可用)"
+
+    partitions = [ctx.partition] if ctx.partition else []
+    try:
+        system_docs = ctx.vector_store.get_documents_by_partition(partition=SYSTEM_PARTITION) or []
+    except Exception:
+        system_docs = []
+
+    if source_filter == "__system__":
+        doc_names = system_docs
+    elif source_filter:
+        # 搜索指定文档（可能在任一分区）
+        doc_names = [source_filter]
+    else:
+        user_docs = ctx.vector_store.get_documents_by_partition(partition=ctx.partition) or []
+        doc_names = list(dict.fromkeys(user_docs + system_docs))
+
+    keyword_lower = keyword.lower()
+    matches = []
+
+    for doc in doc_names:
+        # 如果指定了 source_filter（非系统分区），快速过滤
+        resolved = _resolve_full_md(doc, ctx.partition)
+        if not resolved:
+            # 尝试系统分区
+            resolved = _resolve_full_md(doc, SYSTEM_PARTITION) if ctx.partition else _resolve_full_md(doc, None)
+        if not resolved:
+            continue
+
+        try:
+            content = Path(resolved).read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        lines = content.splitlines()
+        doc_matches = []
+        for i, line in enumerate(lines, 1):
+            if keyword_lower in line.lower():
+                # 提取前后少量上下文
+                snippet = line.strip()[:200]
+                doc_matches.append((i, snippet))
+
+        if doc_matches:
+            matches.append((doc, doc_matches))
+
+        if sum(len(m[1]) for m in matches) >= max_results:
+            break
+
+    if not matches:
+        return f"(未找到包含「{keyword}」的文档)"
+
+    # 限制总结果数
+    total = 0
+    output_lines = [f"搜索「{keyword}」结果："]
+    for doc, doc_matches in matches:
+        output_lines.append(f"\n📄 {doc}（{len(doc_matches)} 处匹配）")
+        for line_no, snippet in doc_matches:
+            if total >= max_results:
+                break
+            output_lines.append(f"  L{line_no}: {snippet}")
+            total += 1
+        if total >= max_results:
+            if len(matches) > 1 or len(matches[0][1]) > max_results:
+                output_lines.append(f"\n...(仅显示前 {max_results} 个匹配)")
+            break
+
+    return "\n".join(output_lines)

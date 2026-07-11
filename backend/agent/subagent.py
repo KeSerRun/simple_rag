@@ -115,6 +115,8 @@ class SubagentManager:
             client = OpenAIClient(
                 api_key=conf.openai_api_key,
                 base_url=conf.openai_base_url,
+                timeout=conf.openai_timeout,
+                max_retries=conf.openai_max_retries,
             )
 
             messages = [{"role": "system", "content": prompt}]

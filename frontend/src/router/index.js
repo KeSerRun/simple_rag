@@ -1,4 +1,4 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import Login from '@/views/Login.vue'
 import Register from '@/views/Register.vue'
@@ -17,7 +17,8 @@ const AdminEval = () => import('@/views/admin/AdminEval.vue')
 const routes = [
     { path: '/login', component: Login },
     { path: '/register', component: Register },
-    { path: '/', component: Home, meta: { requiresAuth: true } },
+    { path: '/', redirect: '/chat' },
+    { path: '/chat', component: Home, meta: { requiresAuth: true } },
     // 管理后台
     {
         path: '/admin',
@@ -37,7 +38,7 @@ const routes = [
 
 // 创建路由实例
 const router = createRouter({
-    history: createWebHashHistory(),
+    history: createWebHistory(),
     routes,
 })
 
@@ -51,11 +52,11 @@ router.beforeEach((to) => {
         }
         // admin 路由需要 admin 角色
         if (to.meta.requiresAdmin && userStore.role !== 'admin') {
-            return '/'
+            return '/chat'
         }
     } else {
         if ((to.path === '/login' || to.path === '/register') && userStore.isLoggedIn) {
-            return '/'
+            return '/chat'
         }
     }
 })

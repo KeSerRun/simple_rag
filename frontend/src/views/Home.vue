@@ -753,6 +753,11 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.toolbar-row .n-select .n-base-selection-input,
+.toolbar-row .n-select .n-base-selection-overlay {
+  padding-top: 5px;
+}
+
 .upload-status-bar {
   display: flex;
   align-items: center;

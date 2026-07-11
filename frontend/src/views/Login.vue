@@ -120,7 +120,7 @@ const handleLogin = (e) => {
         userStore.username = user.username
         userStore.role = user.role
         message.success('登录成功')
-        router.push('/')
+        router.push('/chat')
       }
     } catch (error) {
       const detail = error.response?.data?.detail || error.response?.data?.message || '网络错误'

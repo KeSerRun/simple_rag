@@ -38,13 +38,13 @@ from base.llm_client import OpenAIClient      # OpenAI 兼容的 API 客户端�
 # —— Agent 内部组件 ——  （Agent 自己的子模块）
 from .context_builder import ContextBuilder  # 从 prompts 目录加载 identity / 风格模板
 # ContextBuilder 负责从 prompts 文件夹读取"AI 身份设定"和"回答风格模板"
-from .state_machine import AgentState                # 工具循环的状态机（迭代计数、消息列表、工具调用记录）
+from .state import AgentState                # 工具循环的状态机（迭代计数、消息列表、工具调用记录）
 # AgentState 负责管理 tool loop 的状态，包括已经轮了多少次、消息列表、调用了哪些工具等
 from .tools.registry import ToolContext            # 工具执行时的上下文（向量库、分区、数据存储）
 # ToolContext 是执行工具时传给工具的上下文对象，包含向量库、知识库分区、数据存储等信息
 from .tools import registry                  # 全局工具注册表，管理所有可用工具的 schema 和 dispatch
 # registry 是一个全局的工具注册表，记录了所有可用的工具（如搜索知识库、网络搜索等）
-from .workflow_router import WorkflowRouter  # 路由引擎：根据用户问题匹配预设工作流
+from .workflow import WorkflowRouter  # 路由引擎：根据用户问题匹配预设工作流
 # WorkflowRouter 负责根据用户的问题内容匹配预设的工作流（比如股票查询走"金融分析"流程）
 
 # ===== 全局路径和日志配置 =====
@@ -122,13 +122,23 @@ def _count_message_tokens(m: dict) -> int:
 # ===== 工具结果持久化 =====
 
 _TOOL_RESULTS_DIR = Path("json_store") / "tool_results"
-_PREVIEW_CHARS = 200
-_MAX_PERSIST_CHARS = 2000  # 超过此长度的工具结果写入文件
+
+
+def _get_persist_threshold() -> int:
+    return getattr(conf, 'persist_threshold', 2000)
+
+
+def _get_preview_chars() -> int:
+    return getattr(conf, 'preview_chars', 200)
+
+
+def _get_compress_threshold() -> int:
+    return getattr(conf, 'compress_threshold', 2000)
 
 
 def _persist_tool_result(session_id: str, tool_name: str, content: str) -> str:
     """将过长的工具结果写入文件，返回引用字符串。"""
-    if len(content) <= _MAX_PERSIST_CHARS:
+    if len(content) <= _get_persist_threshold():
         return content  # 不长，直接返回
 
     try:
@@ -146,7 +156,7 @@ def _persist_tool_result(session_id: str, tool_name: str, content: str) -> str:
             for old in files[50:]:
                 old.unlink(missing_ok=True)
 
-        preview = content[:_PREVIEW_CHARS].replace("\n", " ")
+        preview = content[:_get_preview_chars()].replace("\n", " ")
         reference = (
             f"[工具结果已保存至 {path}]\n"
             f"原始长度: {len(content)} 字符, 预览: {preview}..."
@@ -333,6 +343,31 @@ class RAGSystem:
         _reg.reset_external_lookup_counts()
         logger.debug(f"收到用户查询: {query} (style={style})")
 
+        # —— 第零步：检测是否要继续上次中断的工具循环 ——
+        interrupted = self._load_interrupted_state(session_id)
+        if interrupted and self._is_continue_request(query):
+            logger.info(f"检测到继续请求，恢复中断的工具循环: session={session_id}")
+            self._clear_interrupted_state(session_id)
+            saved_system_msg = interrupted.get("system_msg", "")
+            saved_messages = interrupted.get("messages", [])
+            restored_messages = [{"role": "system", "content": saved_system_msg}]
+            for m in saved_messages:
+                if m.get("role") != "system":
+                    restored_messages.append(m)
+            restored_messages.append({
+                "role": "user",
+                "content": "继续之前的任务，不要重新开始，基于已有工具结果继续工作。可继续调用所需工具。",
+            })
+            state = AgentState(
+                messages=restored_messages,
+                partition=partition,
+                session_id=session_id,
+                style=style,
+                max_iterations=conf.max_tool_iter,
+            )
+            return self._run_tool_loop(state, saved_system_msg, force_retrieve,
+                on_checkpoint=on_checkpoint)
+
         # —— 第一步：组装 system message ——
         system_msg = self._build_system_message(  # 调用内部方法构建系统提示消息
             style=style,                        # 传入回答风格
@@ -388,7 +423,7 @@ class RAGSystem:
                 emit_event=emit_event,
             )
 
-        return self._run_tool_loop(state, force_retrieve, on_checkpoint=on_checkpoint)
+        return self._run_tool_loop(state, system_msg, force_retrieve, on_checkpoint=on_checkpoint)
 
     # ─── 上下文治理 ───────────────────────────
 
@@ -422,7 +457,7 @@ class RAGSystem:
             # ── 3. 微压缩：verbose 工具结果替换为一行的摘要 ──
             if role == "tool":
                 content = m.get("content", "") or ""
-                if len(content) > 2000:
+                if len(content) > _get_compress_threshold():
                     # 取前 200 字符作为摘要
                     summary = content[:200].replace("\n", " ") + "...(已压缩)"
                     m = dict(m)  # 复制避免修改原始
@@ -456,7 +491,7 @@ class RAGSystem:
             })
 
         # ── 5. Tool Result Budget：单个工具结果上限（默认 8000 字符） ──
-        MAX_TOOL_CHARS = getattr(conf, 'max_tool_result_chars', 8000)
+        MAX_TOOL_CHARS = getattr(conf, 'max_tool_result_chars', 20000)
         for i, m in enumerate(governed):
             if m.get("role") == "tool":
                 content = m.get("content", "") or ""
@@ -521,7 +556,7 @@ class RAGSystem:
     # ─── Tool-call 循环 (非流式) ─────────────────
 
     # ===== 非流式工具调用主循环 =====
-    def _run_tool_loop(self, state: AgentState, force_retrieve: bool,
+    def _run_tool_loop(self, state: AgentState, system_msg: str, force_retrieve: bool,
                        on_checkpoint: Optional[Callable[[str, dict], None]] = None) -> str:
         """非流式工具调用主循环。
 
@@ -638,9 +673,62 @@ class RAGSystem:
             # 首轮过后不再强制 tool_choice
             tool_choice = "auto"
 
-        # ── 达上限: 用已收集的信息生成最终答案 ──────────
-        logger.warning(f"tool-loop 达到上限 {state.max_iterations}, 利用已有信息生成最终回答")
-        return self._finalize_answer(state.messages, stream=False)
+        # ── 达上限: 保存状态让用户选择继续 ──────────
+        logger.warning(f"tool-loop 达到上限 {state.max_iterations}")
+        state.tool_exhausted = True
+        state.system_msg = system_msg
+        self._save_interrupted_state(state)
+        return self._TOOL_EXHAUSTED_MSG
+
+    # ─── 工具循环达上限恢复机制 ────────────────
+
+    _TOOL_EXHAUSTED_MSG = (
+        "[tool_exhausted] 本任务需要多轮工具调用，但已达单次上限。\n"
+        "如需继续，请回复「继续」（将重置计数，基于当前进度继续）。\n"
+        "如果已有信息足够，直接说出你的最终答案即可。"
+    )
+
+    _INTERRUPT_TAG = "_interrupted_tool_loop"
+
+    def _save_interrupted_state(self, state):
+        """保存被中断的工具循环状态到 data_store。"""
+        try:
+            if self.data_store:
+                import json
+                tasks = self.data_store.get_session_tasks(state.session_id) or {}
+                tasks[self._INTERRUPT_TAG] = {
+                    "messages": state.messages,
+                    "system_msg": state.system_msg,
+                }
+                self.data_store.save_session_tasks(state.session_id, tasks)
+        except Exception as e:
+            logger.warning(f"保存中断状态失败: {e}")
+
+    def _load_interrupted_state(self, session_id: str) -> dict | None:
+        """读取被中断的工具循环状态。"""
+        try:
+            if self.data_store:
+                tasks = self.data_store.get_session_tasks(session_id) or {}
+                return tasks.get(self._INTERRUPT_TAG)
+        except Exception:
+            pass
+        return None
+
+    def _clear_interrupted_state(self, session_id: str):
+        """清除已恢复的中断状态。"""
+        try:
+            if self.data_store:
+                tasks = self.data_store.get_session_tasks(session_id) or {}
+                tasks.pop(self._INTERRUPT_TAG, None)
+                self.data_store.save_session_tasks(session_id, tasks)
+        except Exception as e:
+            logger.warning(f"清除中断状态失败: {e}")
+
+    @staticmethod
+    def _is_continue_request(query: str) -> bool:
+        """检测用户是否要求继续工具循环。"""
+        q = query.strip().lower()
+        return q in ("继续", "continue", "继续做", "接着做", "继续完成", "好，继续", "继续吧")
 
     # ─── 共享：最终答案生成（非流式 + 流式复用） ─────────
 

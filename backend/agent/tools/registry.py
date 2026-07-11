@@ -216,6 +216,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         _exec_search_kb, _exec_read_full_document,
         _exec_list_documents, _exec_read_archive, _exec_read_chunk_context,
         _exec_read_document_titles, _exec_read_section,
+        _exec_search_document_content,
     )
     from ._web_handlers import _exec_web_search, _exec_read_url
     from ._infra_handlers import (
@@ -366,7 +367,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_tool_result",
         description=(
-            "读取被持久化的工具结果完整内容。"
+            "读取被持久化的工具结果完整内容。支持 offset 分页读取。"
             "当工具返回 \"[工具结果已保存至 ...]\" 引用时，"
             "可调用此工具传入文件名读取原始完整内容。"
         ),
@@ -376,6 +377,11 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                 "filename": {
                     "type": "string",
                     "description": "持久化结果的文件名（如 search_kb_abc123.txt），不含路径",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "可选：读取起始位置（字符偏移），默认 0。用于读取后续内容。",
+                    "default": 0,
                 },
             },
             "required": ["filename"],
@@ -489,6 +495,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         name="list_documents",
         description=(
             "列出知识库中的文档清单。支持 pattern 过滤，list_system=false 仅列用户文档。"
+            "返回文档名、类型、大小、修改时间。"
         ),
         parameters={
             "type": "object",
@@ -501,6 +508,12 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                     "type": "boolean",
                     "description": "是否同时列出系统公开文档。默认为 true（列出全部）。设为 false 则只列用户自己的文档。",
                     "default": True,
+                },
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["name", "time"],
+                    "description": "排序方式：name（按名称，默认）或 time（按修改时间）。",
+                    "default": "name",
                 },
             },
             "required": [],
@@ -603,5 +616,35 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": ["source", "heading"],
         },
         handler=_exec_read_section,
+        source=__name__,
+    )
+
+    # --- search_document_content ---
+    reg.register(
+        name="search_document_content",
+        description=(
+            "在所有知识库文档的全文内容中搜索关键词，返回匹配的文档名和行号。"
+            "类似于 grep 但针对知识库文档。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "keyword": {
+                    "type": "string",
+                    "description": "搜索关键词（大小写不敏感）。",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "可选：限定仅搜索某篇文档（含扩展名）。",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "最大返回匹配数量（1-50，默认 10）。",
+                },
+            },
+            "required": ["keyword"],
+        },
+        handler=_exec_search_document_content,
         source=__name__,
     )

@@ -83,7 +83,7 @@ print(result)
 ### 3. 工作流路由 (`WorkflowRouter`)
 
 ```python
-from agent.workflow_router import WorkflowRouter
+from agent.workflow import WorkflowRouter
 
 router = WorkflowRouter()
 matched = router.route("帮我写一份沪深300的分析报告")

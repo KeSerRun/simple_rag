@@ -48,12 +48,16 @@ def load_test_queries(path: str = _QUERIES_FILE) -> List[str]:
     """从外部 JSON 文件加载测试查询列表。"""    # 函数的文档字符串，说明这个函数的作用
     if not os.path.exists(path):               # 判断指定的文件路径是否存在
         logger.warning(f"测试查询文件不存在: {path}，使用内置默认查询")
-        return _default_queries()              # 返回内置的默认查询列表作为备选方案
+        queries = _default_queries()
+        _save_test_queries(queries, path)
+        return queries              # 返回内置的默认查询列表作为备选方案
     with open(path, "r", encoding="utf-8") as f:  # 以只读模式打开 JSON 文件，指定编码为 UTF-8 以支持中文
         queries = json.load(f)                 # 使用 json.load 将文件内容解析为 Python 对象（期望是一个列表）
     if not isinstance(queries, list) or not all(isinstance(q, str) for q in queries):  # 检查解析结果是否是一个列表，且列表中每个元素都是字符串
         logger.warning(f"测试查询文件格式异常，使用内置默认查询")
-        return _default_queries()              # 返回内置的默认查询列表作为备选方案
+        queries = _default_queries()
+        _save_test_queries(queries, path)
+        return queries              # 返回内置的默认查询列表作为备选方案
     logger.info(f"已加载 {len(queries)} 个测试查询: {path}")
     return queries                             # 返回从文件中加载的查询列表
 
@@ -101,6 +105,17 @@ def _default_queries() -> List[str]:
         "止损策略 回撤控制",            # 查询：关于止损策略和最大回撤控制
         "多因子模型 选股",              # 查询：关于多因子模型的选股策略
     ]
+
+def _save_test_queries(queries, path):
+    """将查询写入 JSON 文件（方便用户自定义）。"""
+    try:
+        import os as _os
+        _os.makedirs(_os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(queries, f, ensure_ascii=False, indent=2)
+        logger.info(f"已生成默认测试查询文件: {path} ({len(queries)} 条)")
+    except Exception as e:
+        logger.warning(f"写入测试查询文件失败: {e}")
 
 
 # ===== 定义评估结果的数据类 =====

@@ -14,7 +14,7 @@ from typing import Any, Callable, Optional
 from base.config import conf
 from base.logger import logger
 
-from .state_machine import StateMachine, StateContext, TurnState
+from .state import StateMachine, StateContext, TurnState
 from .checkpoint import CheckpointStore, Checkpoint, restore_messages
 from .bus import agent_bus, AgentEvent, StateChangeEvent, ToolCallEvent, ErrorEvent
 
@@ -218,7 +218,7 @@ class SessionManager:
     def get_or_create(self, session_id: str, **kwargs) -> AgentLoop:
         """获取或创建会话的 AgentLoop。"""
         if session_id not in self._loops:
-            from .integrated_system import IntegratedSystem
+            from .integrate import IntegratedSystem
             # kwargs 应包含 rag_system, data_store, checkpoints
             loop = AgentLoop(
                 rag_system=kwargs["rag_system"],

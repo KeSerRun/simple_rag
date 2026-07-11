@@ -40,7 +40,7 @@
                 <n-button size="small" @click="loadPrev">上一页</n-button>
                 <n-button size="small" @click="loadNext">下一页</n-button>
                 <n-button size="small" @click="loadLatest">最新</n-button>
-                <n-button size="small" :loading="store.loading" @click="refreshLog">刷新</n-button>
+                <n-button size="small" @click="refreshLog">刷新</n-button>
                 <n-button size="small" type="primary" secondary @click="handleDownload">下载</n-button>
               </n-space>
             </template>

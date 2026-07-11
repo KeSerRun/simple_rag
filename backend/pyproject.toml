@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-simple-backend"
@@ -40,6 +40,8 @@ dependencies = [
     "beautifulsoup4>=4.12",
     # 工具
     "rich>=13.7",
+    "httpx>=0.28",
+    "readability-lxml>=0.8",
     "duckduckgo-search>=8.1.1",
     "ddgs>=9.14.4",
     # Token 估算

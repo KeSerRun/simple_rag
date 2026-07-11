@@ -130,6 +130,8 @@ const selectSession = (id) => {
               transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
               box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 
 /* ─── 桌面端：滑出屏幕（保持 280px 不变，避免内部布局重排） ─── */
@@ -266,6 +268,7 @@ const selectSession = (id) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  user-select: none;
 }
 
 .delete-btn {

@@ -157,7 +157,7 @@ def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
 
 # ===== read_tool_result =====
 def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
-    """读取被持久化的工具结果完整内容。"""
+    """读取被持久化的工具结果完整内容。支持 offset 分段读取。"""
     filename = (args.get("filename") or "").strip()
     if not filename:
         return "(未提供 filename 参数)"
@@ -173,8 +173,17 @@ def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
 
     try:
         content = target.read_text(encoding="utf-8")
-        if len(content) > 30000:
-            content = content[:30000] + "\n\n...(内容过长，已截取前 30000 字符)..."
-        return content
+        total = len(content)
+        offset = max(int(args.get("offset", 0)), 0)
+        max_chars = 20000
+        chunk = content[offset:offset + max_chars]
+        part_info = ""
+        if total > max_chars:
+            end = offset + len(chunk)
+            if end < total:
+                part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符。调用 offset={end} 继续读取)"
+            else:
+                part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符 — 已到末尾)"
+        return chunk + part_info
     except Exception as e:
         return f"(读取失败: {e})"

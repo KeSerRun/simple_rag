@@ -100,6 +100,8 @@ function goToAdmin() {
   background-color: var(--n-card-color, #ffffff);
   z-index: 10;
   flex-shrink: 0;
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 
 .header-left {
@@ -122,9 +124,11 @@ function goToAdmin() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 0 1 auto; /* 允许收缩，不要强行占据空间 */
+  flex: 0 1 auto;
   min-width: 0;
-  padding-left: 2px;
+  padding-left: 10px;
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 
 /* 右侧操作区保持固定宽度 */

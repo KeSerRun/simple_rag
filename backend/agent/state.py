@@ -135,6 +135,8 @@ class AgentState:
         max_iterations: 最多允许的 tool-call 轮数
         partition: 向量检索分区 (用户名)
         style: 回答风格 skill 名 (如 style-formal), None 表示默认
+        tool_exhausted: 是否因达上限而非正常结束（用户可选择继续）
+        system_msg: 当前回合的 system message（用于继续时重建）
     """
     # ===== 实例字段定义 =====
     # messages: 整个对话的消息历史，按 OpenAI API 格式组织，包含 system / user / assistant / tool 四种角色
@@ -154,12 +156,11 @@ class AgentState:
     # style: 回答风格标识，例如 "style-formal"，可为 None 表示使用默认风格
     # 该值会被注入 system prompt，影响 LLM 回答的语气和格式
     style: Optional[str] = None
-    # 签名格式为 "tool_name::序列化参数"，用于检测完全相同的重复调用
-    # 以下划线开头表示"私有"属性，不应在外部直接访问
-    # 作用：防止 LLM 因上下文遗忘而用完全相同的参数反复调用同一个工具，陷入原地打转
-    # 类型为 dict，键为工具名 (str)，值为调用次数 (int)
-    # 初始值为空字典，通过 field(default_factory=dict) 确保每个实例独立拥有
-    # 作用：防止 LLM 换用不同参数但本质仍是同一个工具的频繁调用，构成第一道防线
+    # tool_exhausted: 标记工具循环是否因达上限而非正常结束
+    # True 表示还有未完成的工作，用户可以继续
+    tool_exhausted: bool = False
+    # system_msg: 当前回合的 system message，继续循环时用于重建状态
+    system_msg: str = ""
 
     # ===== should_continue 方法 =====
     def should_continue(self) -> bool:

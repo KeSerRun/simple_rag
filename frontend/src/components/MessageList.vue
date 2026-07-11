@@ -5,12 +5,12 @@
       <div class="welcome-icon">
         <n-icon :size="40" :component="SparklesOutline" />
       </div>
-      <n-h2 class="welcome-title">你好,我能帮你做什么?</n-h2>
+      <n-h2 class="welcome-title">你好，我能帮你做什么？</n-h2>
       <n-text depth="3" class="welcome-sub">
-        基于你上传的知识库,我可以回答相关问题。先上传文档,或直接开始提问。
+        基于你上传的知识库，我可以回答相关问题。先上传文档，或直接开始提问。
       </n-text>
       <n-text depth="3" class="welcome-session" v-if="sessionIdDisplay">
-        当前会话:&nbsp;<code>{{ sessionIdDisplay }}</code>
+        当前会话：&nbsp;<code>{{ sessionIdDisplay }}</code>
       </n-text>
     </div>
 
@@ -388,6 +388,7 @@ defineExpose({ scrollToBottom })
   border-collapse: collapse;
   margin: 12px 0;
   font-size: 14px;
+  table-layout: fixed;
 }
 
 .ai-content :deep(th),
@@ -395,6 +396,9 @@ defineExpose({ scrollToBottom })
   border: 1px solid var(--n-divider-color, #d4cfc8);
   padding: 8px 12px;
   text-align: left;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 400px;
 }
 
 .ai-content :deep(th) {

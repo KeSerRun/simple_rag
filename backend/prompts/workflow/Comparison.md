@@ -44,6 +44,8 @@ description: 对比分析工作流 —— 多实体并行搜索 → 维度提取
 
 调用 `search_knowledge_base` 检查知识库中是否有与对比对象相关的文档。**必须至少发起一次检索尝试。**
 
+也可使用 `search_document_content` 在文档全文中搜索对比对象的名称或相关术语。
+
 建议 query 方向：
 - 各对比对象的正式名称
 - 行业对比分析术语
@@ -104,6 +106,9 @@ description: 对比分析工作流 —— 多实体并行搜索 → 维度提取
 | `web_search` | 联网搜索各实体的信息 |
 | `read_url` | 阅读搜索结果获取详细数据 |
 | `search_knowledge_base` | 检索知识库中的相关资料 |
-| `list_documents` | 查看知识库中是否有对比对象的相关文档 |
+| `search_document_content` | 在文档全文中搜索对比对象 |
+| `list_documents` | 查看知识库文档清单 |
 | `read_chunk_context` | 查看检索结果上下文 |
+| `read_full_document` | 阅读文档全文 |
 | `spawn_subagent` | 并行搜索多个对比实体 |
+| `my` | 查看当前工具调用统计 |

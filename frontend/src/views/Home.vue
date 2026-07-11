@@ -196,7 +196,7 @@ const openDocument = async (docName) => {
 const confirmDeleteDocs = (docsToDelete) => {
   dialog.warning({
     title: '确认删除',
-    content: `确定要删除选中的 ${docsToDelete.length} 个文档吗?该操作不可恢复。`,
+    content: `确定要删除选中的 ${docsToDelete.length} 个文档吗？该操作不可恢复。`,
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: () => deleteSelectedDocs(docsToDelete),
@@ -234,7 +234,7 @@ const deleteSelectedDocs = async (docsToDelete) => {
 const validateFile = (file) => {
   const ext = (file.name.split('.').pop() || '').toLowerCase()
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return { valid: false, msg: `不支持的文件类型: ${file.name}` }
+    return { valid: false, msg: `不支持的文件类型：${file.name}` }
   }
   if (file.size > MAX_FILE_SIZE) {
     return { valid: false, msg: `${file.name} 大小超过 100MB` }
@@ -621,7 +621,7 @@ const handleFileUpload = async (file) => {
     formData.append('files', file)
     const sessionId = currentSessionId.value
     if (!sessionId) {
-      message.error('会话 ID 缺失,请重新登录')
+      message.error('会话 ID 缺失，请重新登录')
       return
     }
 
@@ -688,7 +688,7 @@ const handleFileUpload = async (file) => {
 const handleLogout = () => {
   dialog.warning({
     title: '退出登录',
-    content: '确定要退出当前账号吗?',
+    content: '确定要退出当前账号吗？',
     positiveText: '退出',
     negativeText: '取消',
     onPositiveClick: () => {

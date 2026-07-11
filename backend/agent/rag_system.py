@@ -132,9 +132,6 @@ def _get_preview_chars() -> int:
     return getattr(conf, 'preview_chars', 200)
 
 
-def _get_compress_threshold() -> int:
-    return getattr(conf, 'compress_threshold', 2000)
-
 
 def _persist_tool_result(session_id: str, tool_name: str, content: str) -> str:
     """将过长的工具结果写入文件，返回引用字符串。"""
@@ -430,12 +427,11 @@ class RAGSystem:
     def _govern_context(self, messages: List[dict]) -> List[dict]:
         """上下文治理流水线：在每次调用 LLM 前清理消息列表。
 
-        nanobot 风格的 5 步治理：
+        4 步治理：
           1. 丢弃孤立 tool_result（没有对应 assistant tool_calls 的）
           2. 补充缺失 tool_result（有 tool_calls 但没有结果的）
-          3. 微压缩：将冗长的工具结果替换为一行摘要
-          4. 预算控制：截断超过上限的工具结果
-          5. 历史裁剪：按字符数裁剪
+          3. 预算控制：截断超过上限的工具结果
+          4. 历史裁剪：按字符数裁剪，从最早的消息开始丢弃
         """
         # ── 1. 收集所有活跃的 tool_call ID ──
         active_ids = set()
@@ -453,19 +449,9 @@ class RAGSystem:
             if role == "tool" and m.get("tool_call_id"):
                 if m["tool_call_id"] not in active_ids:
                     continue
-
-            # ── 3. 微压缩：verbose 工具结果替换为一行的摘要 ──
-            if role == "tool":
-                content = m.get("content", "") or ""
-                if len(content) > _get_compress_threshold():
-                    # 取前 200 字符作为摘要
-                    summary = content[:200].replace("\n", " ") + "...(已压缩)"
-                    m = dict(m)  # 复制避免修改原始
-                    m["content"] = f"[工具返回 {len(content)} 字符，已压缩]\n{summary}"
-
             governed.append(m)
 
-        # ── 4. Backfill：补充缺失的 tool_result ──
+        # ── 3. Backfill：补充缺失的 tool_result ──
         # 如果 assistant 有 tool_calls 但没有对应的 tool 消息（中断场景），
         # 注入合成错误结果，防止 LLM 以为工具还没执行
         backfill_needed = {}
@@ -490,7 +476,7 @@ class RAGSystem:
                 "content": f"(工具 {tc_name} 在上一轮执行后被中断，结果不可用。请根据已有信息继续。)",
             })
 
-        # ── 5. Tool Result Budget：单个工具结果上限（默认 8000 字符） ──
+        # ── 3. Tool Result Budget：单个工具结果上限（默认 8000 字符） ──
         MAX_TOOL_CHARS = getattr(conf, 'max_tool_result_chars', 20000)
         for i, m in enumerate(governed):
             if m.get("role") == "tool":
@@ -506,53 +492,50 @@ class RAGSystem:
 
     # ===== 上下文窗口裁剪：基于 token 估算 =====
     def _truncate_messages(self, messages: List[dict]) -> List[dict]:
-        """按 token 预算裁剪消息。保留首尾，裁剪中间过长工具结果。
-
-        阈值：conf.context_window_tokens 的 80%（留出 20% 给输出）。
+        """按 token 预算裁剪消息。保留首尾，从最早的消息开始丢弃整轮对话。
+        
+        阈值：conf.context_window_tokens 的 context_input_ratio。
+        丢弃策略：从最早的非 system 消息开始，按整轮（assistant + 后续的 tool）丢弃，
+        保留最近的对话轮次完整。
         """
-        budget = int(conf.context_window_tokens * 0.8)
+        budget = int(conf.context_window_tokens * conf.context_input_ratio)
         total = sum(_count_message_tokens(m) for m in messages)
         if total <= budget:
             return messages
-
+        
         logger.warning(
             f"上下文超预算: ~{total} tokens > {budget} "
-            f"(context_window_tokens={conf.context_window_tokens}), 截断中..."
+            f"(context_window_tokens={conf.context_window_tokens}), 裁剪最早的消息..."
         )
-
-        new_messages = []
-        system_msg = messages[0] if messages and messages.get(0, {}).get("role") == "system" else None
-
-        for idx, m in enumerate(messages):
-            # system 始终完整保留
-            if idx == 0 and system_msg:
-                new_messages.append(m)
-                continue
-            # 最后一条始终保留
-            if idx == len(messages) - 1:
-                new_messages.append(m)
-                continue
-
-            # 中间 tool 消息过长时截断（阈值：3000 token）
-            if m.get("role") == "tool":
-                content = m.get("content", "") or ""
-                tok = _count_tokens(content)
-                if tok > 3000:
-                    # 保留首尾各 1500 字符，中间替换为摘要
-                    truncated = content[:1500] + (
-                        f"\n...(工具结果过长，原 ~{tok} tokens，已截断)...\n"
-                    ) + content[-1500:]
-                    m_copy = m.copy()
-                    m_copy["content"] = truncated
-                    new_messages.append(m_copy)
-                    continue
-
-            new_messages.append(m)
-
-        after = sum(_count_message_tokens(m) for m in new_messages)
-        logger.debug(f"截断后: ~{after} tokens ({int((1-after/total)*100)}% 压缩)")
-        return new_messages
-
+        
+        # system 单独保留，不参与裁剪
+        system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
+        rest = messages[1:] if system_msg else messages[:]
+        last_msg = rest[-1]  # 最后一条始终保留
+        
+        keep = rest[:-1]
+        
+        while keep:
+            total_tokens = sum(_count_message_tokens(m) for m in keep)
+            if system_msg:
+                total_tokens += _count_message_tokens(system_msg)
+            total_tokens += _count_message_tokens(last_msg)
+            if total_tokens <= budget:
+                break
+            dropped = keep.pop(0)
+            if dropped.get("role") == "assistant":
+                while keep and keep[0].get("role") == "tool":
+                    keep.pop(0)
+        
+        result = []
+        if system_msg:
+            result.append(system_msg)
+        result.extend(keep)
+        result.append(last_msg)
+        
+        after = sum(_count_message_tokens(m) for m in result)
+        logger.debug(f"裁剪后: ~{after} tokens ({int((1-after/total)*100)}% 压缩)")
+        return result
     # ─── Tool-call 循环 (非流式) ─────────────────
 
     # ===== 非流式工具调用主循环 =====

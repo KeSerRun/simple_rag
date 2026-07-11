@@ -69,7 +69,7 @@
                 </template>
               </n-button>
             </template>
-            <span>确定删除该会话吗?</span>
+            <span>确定删除该会话吗？</span>
           </n-popconfirm>
         </div>
 

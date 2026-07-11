@@ -20,6 +20,8 @@ function sanitizeOrphanAsterisks(text) {
     if (FENCE_RE.test(line)) { inFenced = !inFenced; continue }
     if (inFenced) continue
     if (/^[ \t]{4,}/.test(line)) continue
+    // 跳过表格行（含 | 的 GFM 表格），避免误处理
+    if (/^\|/.test(line.trim())) continue
     // 全局移除 ~~ 禁用删除线（LLM 中文输出中可能意外出现）
     lines[i] = line.replace(/~~/g, '')
     const clean = lines[i]
@@ -100,11 +102,27 @@ export function renderMarkdown(text) {
   if (!text) return ''
   try {
     // 确保标题前有换行，避免 remarkBreaks 吃掉 heading 标记
-    const withHeadingBreaks = text.replace(/(\n)(#{1,6}\s)/g, '\n\n$2')
-    const normalized = sanitizeOrphanAsterisks(withHeadingBreaks)
+    const withHeadingBreaks = text
+      .replace(/(\n)(#{1,6}\s)/g, '\n\n$2')
+      .replace(/(^|[^\n])(#{1,6}\s)/gm, '$1\n\n$2')
+    // 对图片 URL 中的空格进行 URL 编码，防止浏览器无法加载
+    const encodedUrls = withHeadingBreaks.replace(
+      /(!\[.*?\]\()(.*?)(\))/g,
+      (match, prefix, url, suffix) => {
+        const encoded = url.replace(/ /g, '%20')
+        return prefix + encoded + suffix
+      }
+    )
+    const normalized = sanitizeOrphanAsterisks(encodedUrls)
     const result = processor.processSync(normalized)
     return String(result)
-  } catch {
-    return ''
+  } catch (e) {
+    console.error('[renderMarkdown] 渲染失败:', e)
+    try {
+      // 降级：直接返回原始文本（至少用户能看到内容）
+      return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+    } catch {
+      return text || ''
+    }
   }
 }

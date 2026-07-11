@@ -49,8 +49,9 @@ description: 规划工作流 —— 需要分解任务、制定计划、按序�
 1. 每轮 tool-calling 执行 **1-2 个**子任务
 2. 如果子任务需要实时数据，使用 `web_search`
 3. 如果子任务需要检索知识库，使用 `search_knowledge_base`
-4. 一个子任务完成后，再执行下一个
-5. 每完成一个子任务，简要记录结果
+4. 需要跨文档搜索关键词时，使用 `search_document_content`
+5. 一个子任务完成后，再执行下一个
+6. 每完成一个子任务，简要记录结果
 
 > ⚠️ 不要一次性触发所有工具调用。规划的要点是按序执行，每完成一步再进入下一步。
 
@@ -95,10 +96,14 @@ description: 规划工作流 —— 需要分解任务、制定计划、按序�
 | 工具 | 用途 |
 |------|------|
 | `web_search` | 联网搜索实时信息 |
-| `search_knowledge_base` | 检索知识库文档 |
+| `search_knowledge_base` | 向量检索知识库文档 |
+| `search_document_content` | 在文档全文搜索关键词 |
 | `list_documents` | 查看知识库文档清单 |
 | `read_document_titles` | 查看文档目录结构 |
 | `read_section` | 阅读文档特定章节 |
+| `read_full_document` | 阅读文档全文 |
 | `spawn_subagent` | 并行执行独立子任务 |
 | `set_goal` / `complete_goal` | 管理持续执行目标 |
+| `my` | 查看当前配置和工具调用统计 |
 | `ask_user_for_clarification` | 向用户确认需求细节 |
+| `read_tool_result` | 读取被持久化的工具结果原文（支持分页） |

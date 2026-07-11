@@ -6,7 +6,7 @@
         <n-upload
           :show-file-list="false"
           :custom-request="handleUpload"
-          accept=".pdf,.txt,.md"
+          accept=".pdf"
           :disabled="isUploading"
           multiple
         >
@@ -29,7 +29,7 @@
         <n-upload
           :show-file-list="false"
           :custom-request="handleUpload"
-          accept=".pdf,.txt,.md"
+          accept=".pdf"
           :disabled="isUploading"
           multiple
           directory
@@ -56,7 +56,7 @@
           v-model:value="inputValue"
           type="textarea"
           size="large"
-          placeholder="给我发送消息..."
+          placeholder="给我发送消息…"
           :autosize="{ minRows: 1, maxRows: 6 }"
           :disabled="isLoading || isUploading"
           @keydown="handleKeydown"
@@ -94,7 +94,7 @@
 
     <div class="hint">
       <n-text depth="3" style="font-size: 11px">
-        按 Enter 发送, Shift + Enter 换行
+        按 Enter 发送，Shift + Enter 换行
       </n-text>
     </div>
   </div>

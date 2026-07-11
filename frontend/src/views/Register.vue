@@ -31,7 +31,7 @@
             v-model:value="form.password"
             type="password"
             show-password-on="click"
-            placeholder="至少 6 位,含大小写字母与数字"
+            placeholder="至少 6 位，含大小写字母与数字"
           >
             <template #prefix>
               <n-icon :component="LockClosedOutline" />
@@ -59,14 +59,14 @@
           :loading="isLoading"
           attr-type="submit"
         >
-          {{ isLoading ? '注册中...' : '创建账号' }}
+          {{ isLoading ? '注册中…' : '创建账号' }}
         </n-button>
       </n-form>
 
       <n-divider style="margin: 24px 0 16px" />
 
       <div class="auth-footer">
-        <n-text depth="3">已有账号?</n-text>
+        <n-text depth="3">已有账号？</n-text>
         <router-link to="/login" class="auth-link">返回登录</router-link>
       </div>
     </n-card>
@@ -129,7 +129,7 @@ const handleRegister = (e) => {
         password: form.password,
       })
       if (response.status === 200 || response.status === 201) {
-        message.success('注册成功,即将跳转登录')
+        message.success('注册成功，即将跳转登录')
         setTimeout(() => router.push('/login'), 800)
       }
     } catch (error) {

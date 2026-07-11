@@ -394,6 +394,9 @@ async def upload_file(
             # 获取文件的原始文件名（去掉路径信息，只保留文件名部分）
             # 防止用户上传带路径的文件名造成安全问题
 
+            if not basename.lower().endswith('.pdf'):
+                raise HTTPException(status_code=400, detail=f"仅支持 PDF 文件，收到: {basename}")
+
             save_path = f"{conf.data_dir}/uploads/{username.lower()}/{basename}"
             # 构造文件保存路径：配置目录/uploads/用户名/文件名
 
@@ -488,6 +491,9 @@ async def upload_embeddings(
         # 丢弃目录层级，只保留文件名
         basename = os.path.basename(file.filename)
         # 获取安全的文件名（去掉路径）
+
+        if not basename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail=f"仅支持 PDF 文件，收到: {basename}")
 
         files_data.append((basename, content, file.content_type))
         # 将文件信息以元组形式添加到 files_data 列表

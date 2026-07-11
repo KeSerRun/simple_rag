@@ -66,16 +66,19 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         return "(未提供任何检索 query)"
 
     search_system = args.get("search_system", True)
+    # LLM 控制返回结果数（默认使用配置值）
+    top_k = int(args.get("top_k", conf.candidate_top_k))
+    top_k = max(1, min(top_k, conf.retrieval_top_k))
     system_partitions = [SYSTEM_PARTITION] if search_system else None
-    logger.debug(f"tool search_knowledge_base queries={queries} partition={ctx.partition} search_system={search_system}")
+    logger.debug(f"tool search_knowledge_base queries={queries} partition={ctx.partition} search_system={search_system} top_k={top_k}")
 
     chunks = _retrieve_and_dedup(ctx.vector_store, queries, ctx.partition, system_partitions)
     if not chunks:
         logger.debug("tool search_knowledge_base 未检索到相关内容, 返回 0 块")
         return "(知识库中未检索到相关内容)"
 
-    # 直接截断到 candidate_top_k 个
-    chunks = chunks[: conf.candidate_top_k]
+    # 截断到 top_k 个
+    chunks = chunks[:top_k]
 
     # 日志记录
     for ci, c in enumerate(chunks):
@@ -98,7 +101,7 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
 def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: read_full_document
-    读取 MinerU 解析后的完整文档全文（路径穿越防护 + 30000 字符截断）。
+    读取 MinerU 解析后的完整文档全文。支持 offset 分页（分页大小由配置决定）。
     """
     filename = (args.get("filename") or "").strip()
     if not filename:
@@ -111,10 +114,19 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
 
     try:
         content = Path(resolved).read_text(encoding="utf-8")
-        logger.debug(f"tool read_full_document 成功: {filename} ({len(content)} 字符)")
-        if len(content) > 50000:
-            content = content[:50000] + "\n\n...(全文过长，已截取前 50000 字符)..."
-        return content
+        total = len(content)
+        max_chars = conf.tool_page_chars
+        offset = max(int(args.get("offset", 0)), 0)
+        chunk = content[offset:offset + max_chars]
+        part_info = ""
+        if total > max_chars:
+            end = offset + len(chunk)
+            if end < total:
+                part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符。调用 offset={end} 继续阅读)"
+            else:
+                part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符 — 已到末尾)"
+        logger.debug(f"tool read_full_document 成功: {filename} ({len(chunk)} 字符)")
+        return chunk + part_info
     except Exception as e:
         logger.warning(f"tool read_full_document 读取失败 ({filename}): {e}")
         return f"(读取 {filename} 失败: {e})"

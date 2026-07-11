@@ -58,7 +58,9 @@ description: 深度调研工作流 —— 多角度搜索 → 深入阅读 → �
 - 相关的行业/领域关键词
 - 上一步阅读中发现的新的关键概念
 
-如果命中文档，在后续回答中注明来源文件名。如果未命中，注明"知识库中未找到相关补充资料"。完成后进入下一步。
+也可使用 `search_document_content` 在文档全文中搜索核心术语，定位相关文档。
+
+如果命中文档且需要完整内容，使用 `read_full_document` 或 `read_section` 进一步阅读。完成后进入下一步。
 
 ---
 
@@ -111,9 +113,13 @@ description: 深度调研工作流 —— 多角度搜索 → 深入阅读 → �
 | `web_search` | 联网搜索多角度信息 |
 | `read_url` | 阅读关键文章全文 |
 | `search_knowledge_base` | 检索知识库补充资料 |
+| `search_document_content` | 在文档全文中搜索关键词，定位相关内容 |
 | `list_documents` | 查看知识库文档清单 |
 | `read_document_titles` | 查看文档目录，定位相关章节 |
 | `read_section` | 阅读文档的特定章节内容 |
+| `read_full_document` | 阅读文档全文 |
 | `read_chunk_context` | 查看检索片段的前后上下文 |
 | `spawn_subagent` | 并行派生子任务调研不同子维度 |
 | `set_goal` / `complete_goal` | 管理持续调研目标 |
+| `my` | 查看当前配置和工具调用统计 |
+| `read_tool_result` | 读取被持久化的工具结果原文（支持分页） |

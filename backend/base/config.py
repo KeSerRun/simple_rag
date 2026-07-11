@@ -133,6 +133,7 @@ class Config:
         # ===== Conversation History =====
         self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=500)
         self.context_window_tokens = config.getint('conversation_history', 'context_window_tokens', fallback=32768)
+        self.context_input_ratio = config.getfloat('conversation_history', 'context_input_ratio', fallback=0.8)
         self.consolidation_ratio = config.getfloat('conversation_history', 'consolidation_ratio', fallback=0.5)
 
         # ===== Search =====
@@ -176,6 +177,12 @@ class Config:
 
         # ===== Upload =====
         self.max_user_storage_mb = config.getint('upload', 'max_user_storage_mb', fallback=10)
+
+        # ===== Governance =====
+        self.persist_threshold = config.getint('governance', 'persist_threshold', fallback=2000)
+        self.preview_chars = config.getint('governance', 'preview_chars', fallback=200)
+        # 工具分页读取每页字符数（read_full_document / read_tool_result 共用）
+        self.tool_page_chars = config.getint('governance', 'tool_page_chars', fallback=5000)
 
         # ===== 启动校验 =====
         self._validate()

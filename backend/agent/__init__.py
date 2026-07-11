@@ -7,7 +7,6 @@ from .tools import registry, TOOL_SCHEMAS, execute_tool
 from .workflow import WorkflowRouter
 from .bus import MessageBus, agent_bus
 from .checkpoint import CheckpointStore, Checkpoint, restore_messages
-from .subagent import SubagentManager
 from .loop import AgentLoop, SessionManager
 from .hooks import AgentHook, CompositeHook, LoggingHook
 
@@ -20,7 +19,6 @@ __all__ = [
     "MessageBus", "agent_bus",
     "StateMachine", "StateContext", "TurnState",
     "CheckpointStore", "Checkpoint", "restore_messages",
-    "SubagentManager",
     "AgentLoop", "SessionManager",
     "AgentHook", "CompositeHook", "LoggingHook",
 ]

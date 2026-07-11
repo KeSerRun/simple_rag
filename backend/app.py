@@ -264,7 +264,7 @@ if __name__ == "__main__":
     from base.logger import logger
     # 打印主页地址的日志，方便开发者点击访问
     # 这里写死了 127.0.0.1 和 11000 端口，实际生产环境可能需要从配置读取
-    logger.info(f"主页地址: http://127.0.0.1:11000/index")
+    logger.info(f"主页地址: http://127.0.0.1:11000")
     # 导入 uvicorn（ASGI 服务器，用于运行 FastAPI 应用）
     import uvicorn
     # 使用 uvicorn 启动 FastAPI 应用

@@ -9,7 +9,6 @@ from storage import JSONFileStore as DataStore
 from agent import RAGSystem
 
 from .checkpoint import CheckpointStore
-from .subagent import SubagentManager
 from .loop import SessionManager
 from .hooks import CompositeHook, LoggingHook
 
@@ -37,10 +36,6 @@ class IntegratedSystem:
         self._cancel_events: dict[str, threading.Event] = {}
         # 检查点存储（内存中，支持会话恢复）
         self.checkpoints = CheckpointStore(data_store=self.data_store)
-        # 子 Agent 管理器
-        self.subagent_manager = SubagentManager(max_concurrent=4)
-        # 将 subagent_manager 注入 RAGSystem，使其能传递给 ToolContext
-        self.rag_qa.subagent_manager = self.subagent_manager
         # 会话管理器（AgentLoop 实例池）
         self.session_manager = SessionManager()
         # 钩子系统
@@ -364,15 +359,6 @@ class IntegratedSystem:
         def is_cancelled():
             return cancel_event.is_set()
 
-        def drain_pending() -> list[dict]:
-            results = self.subagent_manager.drain_results(session_id)
-            msgs = []
-            for r in results:
-                if r.success and r.content:
-                    content = f"[子任务 {r.task_id} 完成]\n{r.content[:500]}"
-                    msgs.append({"role": "user", "content": content})
-                    logger.info(f"中间注入子 Agent: {r.task_id}")
-            return msgs
 
         def save_cp(phase: str, payload: dict):
             from .checkpoint import Checkpoint
@@ -402,7 +388,6 @@ class IntegratedSystem:
                     workflow_name=workflow,
                     cancel_check=is_cancelled,
                     on_checkpoint=save_cp,
-                    drain_pending=drain_pending,
                     emit_event=session_queue.put,
                 )
                 for _ in gen:

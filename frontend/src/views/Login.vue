@@ -51,14 +51,14 @@
           :loading="isLoading"
           attr-type="submit"
         >
-          {{ isLoading ? '登录中...' : '登 录' }}
+          {{ isLoading ? '登录中…' : '登 录' }}
         </n-button>
       </n-form>
 
       <n-divider style="margin: 24px 0 16px" />
 
       <div class="auth-footer">
-        <n-text depth="3">还没有账号?</n-text>
+        <n-text depth="3">还没有账号？</n-text>
         <router-link to="/register" class="auth-link">立即注册</router-link>
       </div>
     </n-card>

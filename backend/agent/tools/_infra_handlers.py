@@ -44,32 +44,6 @@ def _exec_ask_clarification(args: dict, ctx: ToolContext) -> str:
     return question
 
 
-# ===== spawn_subagent =====
-def _exec_spawn_subagent(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: spawn_subagent
-    将子任务派发给后台 sub-agent 执行。
-    sub-agent 完成后结果会自动注入当前对话。
-    适用于需要独立搜索/计算/比较的任务。
-    """
-    task = (args.get("task") or "").strip()
-    if not task:
-        return "(未提供 task 参数)"
-
-    mgr = getattr(ctx, "subagent_manager", None)
-    if not mgr:
-        return "(子 Agent 管理器不可用)"
-
-    allowed_tools = args.get("allowed_tools") or []
-    task_id = mgr.spawn(
-        task=task,
-        session_id=ctx.session_id or "",
-        label=task[:20],
-        tools=allowed_tools,
-    )
-    return f"(子任务已派发: {task_id}，完成后结果将自动注入)"
-
-
 # ===== set_goal =====
 def _exec_set_goal(args: dict, ctx: ToolContext) -> str:
     """设置会话的持续目标。目标信息会持续注入 system prompt。"""
@@ -132,8 +106,14 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
             return f"{name}: {val}"
         return f"(未知配置: {key})"
 
-    return "(未知 action)"
-
+    elif action == "subagents":
+        mgr = getattr(ctx, "subagent_manager", None)
+        if not mgr:
+            return "(子 Agent 管理器不可用)"
+        import time as _time
+        lines = ["=== 子 Agent 列表 ==="]
+        with mgr._lock:
+            statuses = dict(mgr._status)
 
 # ===== read_workflow（渐进式加载工作流） =====
 def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
@@ -141,17 +121,12 @@ def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
     name = (args.get("name") or "").strip()
     if not name:
         return "(未提供 name 参数)"
-    # 通过 ctx 获取 workflow_router
     router = getattr(ctx, "workflow_router", None)
     if not router:
         return "(工作流路由器不可用)"
     content = router.get_workflow_content(name)
     if not content:
         return f"(未找到工作流: {name})"
-    desc = ""
-    cfg = router.get_workflow_config(name)
-    if cfg:
-        desc = router.get_workflow_summaries()
     return f"工作流：{name}\n\n{content}"
 
 
@@ -163,19 +138,39 @@ def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
         return "(未提供 filename 参数)"
 
     base = Path(conf.data_dir) / "json_store" / "tool_results"
+    target = None
+
+    # 先在根目录找
     try:
-        target = (base / filename).resolve()
-        target.relative_to(base.resolve())
+        t = (base / filename).resolve()
+        t.relative_to(base.resolve())
+        if t.is_file():
+            target = t
     except (ValueError, OSError):
-        return "(文件名不合法)"
-    if not target.is_file():
+        pass
+
+    # 没找到时搜索 session 子目录
+    if target is None:
+        for session_dir in base.iterdir():
+            if not session_dir.is_dir():
+                continue
+            try:
+                t = (session_dir / filename).resolve()
+                t.relative_to(session_dir.resolve())
+                if t.is_file():
+                    target = t
+                    break
+            except (ValueError, OSError):
+                continue
+
+    if target is None:
         return f"(文件不存在: {filename})"
 
     try:
         content = target.read_text(encoding="utf-8")
         total = len(content)
         offset = max(int(args.get("offset", 0)), 0)
-        max_chars = 20000
+        max_chars = conf.tool_page_chars
         chunk = content[offset:offset + max_chars]
         part_info = ""
         if total > max_chars:

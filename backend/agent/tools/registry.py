@@ -23,8 +23,9 @@ class ToolContext:
     partition: Optional[str] = None
     data_store: Optional[object] = None
     session_id: str = ""  # 当前会话 ID，供 subagent 等使用
-    subagent_manager: Optional[object] = None  # SubagentManager 实例（由 IntegratedSystem 注入）
+    subagent_manager: Optional[object] = None
     workflow_router: Optional[object] = None  # WorkflowRouter 实例
+    llm_client: Optional[object] = None  # 复用主 Agent 的 LLM 客户端
 
 
 # ===== ToolDef：单个工具的定义 =====
@@ -221,7 +222,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     from ._web_handlers import _exec_web_search, _exec_read_url
     from ._infra_handlers import (
         _exec_ask_clarification,
-        _exec_spawn_subagent,
         _exec_set_goal,
         _exec_complete_goal,
         _exec_my,
@@ -247,34 +247,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": ["question"],
         },
         handler=_exec_ask_clarification,
-        source=__name__,
-    )
-
-    # --- spawn_subagent ---
-    reg.register(
-        name="spawn_subagent",
-        description=(
-            "将子任务派发给后台 sub-agent 并行执行。"
-            "sub-agent 完成后结果会自动注入当前对话。"
-            "适用于需要独立搜索、计算、比较、多角度分析的任务。"
-            "task 是子任务的详细指令，allowed_tools 可选限制子 agent 可用的工具。"
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "task": {
-                    "type": "string",
-                    "description": "子任务的完整指令，包括目标、要求和输出格式。",
-                },
-                "allowed_tools": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "可选：限制子 agent 可使用的工具列表，不传则可用全部工具。",
-                },
-            },
-            "required": ["task"],
-        },
-        handler=_exec_spawn_subagent,
         source=__name__,
     )
 
@@ -328,7 +300,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "要执行的操作。目前仅支持 check。",
+                    "description": "要执行的操作：check（查看状态）、subagents（查看子 Agent 列表）。",
                 },
                 "key": {
                     "type": "string",
@@ -384,6 +356,11 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                     "default": 0,
                 },
             },
+                            "offset": {
+                    "type": "integer",
+                    "description": "字符偏移位置，用于分页读取（默认 0）。末尾会提示后续 offset。",
+                    "default": 0,
+                },
             "required": ["filename"],
         },
         handler=_exec_read_tool_result,
@@ -396,6 +373,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         description=(
             "知识库检索，覆盖文本、表格、图片图表。"
             "支持多 query 并行检索；set search_system=false 仅搜用户文档。"
+            "可使用 top_k 控制返回结果数（默认 5，最多 20）。"
         ),
         parameters={
             "type": "object",
@@ -415,6 +393,11 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                     "description": "是否同时搜索系统公开文档。默认为 true（搜索全部）。设为 false 则只搜索用户自己的文档。",
                     "default": True,
                 },
+                "top_k": {
+                    "type": "integer",
+                    "description": "返回的结果数量（默认 5，上限由配置决定）。需要粗略概览时设为 3，需要全面排查时适当增加。",
+                    "default": 5,
+                },
             },
             "required": ["queries"],
         },
@@ -426,7 +409,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_full_document",
         description=(
-            "读取某篇文档的完整全文（Markdown 格式）。"
+            "读取某篇文档的完整全文（Markdown 格式）。支持 offset 分页（每页 5000 字符）。"
         ),
         parameters={
             "type": "object",
@@ -437,7 +420,12 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                         "要读取的文档文件名（含扩展名）。"
                         "必须是文档清单中出现的完整文件名，如 KD指标.pdf"
                     ),
-                }
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "字符偏移位置，用于分页读取（默认 0）。末尾会提示后续 offset。",
+                    "default": 0,
+                },
             },
             "required": ["filename"],
         },

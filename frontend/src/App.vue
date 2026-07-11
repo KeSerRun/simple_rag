@@ -92,4 +92,56 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ===== 文字选中控制 ===== */
+/* 默认全局禁止选中（含所有 Naive UI 组件内部），减小 I 型光标出现范围 */
+html, body, #app,
+.n-select-menu,
+.n-base-menu, .n-base-menu-item,
+.n-dropdown, .n-dropdown-option,
+.n-popover, .n-popover-content {
+  user-select: none;
+  cursor: default;
+}
+
+/* 下拉框强制覆盖所有内部元素 */
+.n-select, .n-select *,
+.n-select-menu, .n-select-menu * {
+  user-select: none !important;
+  cursor: default !important;
+}
+/* 仅搜索输入框例外 */
+.n-select .n-base-selection-input,
+.n-select-menu .n-base-menu-item input {
+  user-select: text !important;
+  cursor: text !important;
+}
+
+/* 输入框和文本区域恢复选中 */
+input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]),
+textarea {
+  user-select: text !important;
+  cursor: text !important;
+}
+
+/* 消息气泡等用户应能选中文字的区域 */
+.bubble, .ai-content, .user-content,
+.reasoning-content,
+.log-pre, .log-content,
+.n-empty__description,
+.n-statistic .n-statistic__value,
+.n-data-table td,
+.n-descriptions-item__content,
+.n-modal-body p,
+p, h1, h2, h3, h4, h5, h6,
+pre, code, li,
+.auth-card .n-text {
+  user-select: text !important;
+  cursor: auto !important;
+}
+
+/* 选中高亮色 */
+::selection {
+  background-color: rgba(212, 115, 78, 0.25);
+}
 </style>

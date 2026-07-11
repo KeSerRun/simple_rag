@@ -209,9 +209,13 @@ async def serve_root_image(img_name: str):
 
 
 # ===== 首页路由 =====
-# 定义一个 GET 请求接口，路径为 /index
-# 访问这个路径会返回前端构建的首页 HTML 内容
-# 如果前端还没有构建，则返回 404 错误提示用户先构建前端
+# 根路径重定向到 /index
+@app.get("/")
+async def root():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/index")
+
+# 定义 /index 路由返回前端首页
 @app.get("/index")
 async def index():
     """

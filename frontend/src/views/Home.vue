@@ -33,16 +33,16 @@
         <n-select
           v-model:value="selectedWorkflow"
           :options="workflowOptions"
-          size="tiny"
-          style="width: 120px"
+          size="small"
+          style="width: 130px"
           placeholder="工作流"
         />
         <n-select
           v-model:value="userStore.answerStyle"
           :options="styleOptions"
           :loading="styleLoading"
-          size="tiny"
-          style="width: 120px"
+          size="small"
+          style="width: 130px"
           placeholder="风格"
         />
       </div>
@@ -373,15 +373,30 @@ const agentStatus = ref({ visible: false, text: '' })
 // 工作流
 const workflowList = ref([])
 const selectedWorkflow = ref('__auto__')
+const workflowLabelMap = {
+  'Autoplan': '自动规划',
+  'Briefing': '简报生成',
+  'Comparison': '对比分析',
+  'DeepResearch': '深度研究',
+  'USstocks': '美股分析',
+}
 const workflowOptions = computed(() => {
-  const opts = [{ label: 'Auto', value: '__auto__' }]
+  const opts = [{ label: '自动', value: '__auto__' }]
   for (const wf of workflowList.value) {
-    opts.push({ label: wf.name, value: wf.name })
+    opts.push({ label: workflowLabelMap[wf.name] || wf.name, value: wf.name })
   }
   return opts
 })
 
 // 回答风格
+const styleLabelMap = {
+  'default': '默认',
+  'buffett': '巴菲特',
+  'elon-musk': '马斯克',
+  'steve-jobs': '乔布斯',
+  'trump': '特朗普',
+  'zhangxuefeng': '张雪峰',
+}
 const styleOptions = ref([])
 const styleLoading = ref(true)
 
@@ -689,10 +704,13 @@ onMounted(() => {
   // 加载风格
   axios.get('/api/styles').then(r => {
     if (r.status === 200 && r.data.styles) {
-      styleOptions.value = r.data.styles
+      styleOptions.value = r.data.styles.map(s => ({
+        ...s,
+        label: styleLabelMap[s.value] || s.label,
+      }))
     }
   }).catch(() => {
-    styleOptions.value = [{ label: '默认', value: 'style-default' }]
+    styleOptions.value = [{ label: '默认', value: 'default' }]
   }).finally(() => { styleLoading.value = false })
   // 加载工作流列表
   axios.get('/api/workflows').then(r => {
@@ -727,7 +745,7 @@ onUnmounted(() => {
 .toolbar-row {
   display: flex;
   gap: 8px;
-  padding: 4px 24px 0;
+  padding: 6px 24px 0;
   max-width: 880px;
   margin: 0 auto;
   width: 100%;

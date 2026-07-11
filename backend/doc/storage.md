@@ -1,6 +1,6 @@
 # 数据存储模块 — `backend/storage/`
 
-提供持久化数据存储，负责保存用户信息、会话记录、聊天历史等结构化数据。支持 JSON 文件和 SQLite 两种后端。
+提供持久化数据存储，负责保存用户信息、会话记录、聊天历史等结构化数据。使用 JSON 文件存储。
 
 ---
 
@@ -8,23 +8,15 @@
 
 | 文件 | 作用 |
 |---|---|
-| `json_store.py` | JSON 文件存储。`DataStore` 类，数据保存在 `data/*.json` 文件中。**当前默认存储后端** |
-| `sqlite_store.py` | SQLite 数据库存储。备用存储后端，功能与 JSON 版本一致 |
-| `__init__.py` | 根据配置导出 `DataStore` 别名：使用 JSON 或 SQLite |
+| `json_store.py` | JSON 文件存储。`JSONFileStore` 类，数据保存在 `data/json_store/*.json` 文件中 |
 
 ---
 
 ## 调用方式
 
-### 1. 初始化
-
 ```python
-# 自动根据 config.ini 的 storage.backend 选择后端
-from storage import DataStore
-store = DataStore()  # 默认使用 JSON 存储
-
-# 手动指定文件路径
-store = DataStore(file_path="data/my_data.json")
+from storage import JSONFileStore as DataStore
+store = DataStore()
 ```
 
 ### 2. 用户管理
@@ -109,21 +101,6 @@ print(stats)
 
 ---
 
-## 存储后端切换
-
-编辑 `config.ini` 的 `[storage]` 节：
-
-```ini
-[storage]
-# 可选值: json (默认) 或 sqlite
-backend = sqlite
-data_dir = data
-```
-
-切换后端后数据**不会自动迁移**，需手动复制或重新导入。
-
----
-
 ## 数据结构
 
 ### JSON 文件结构 (`data/data.json`)
@@ -161,7 +138,4 @@ data_dir = data
 
 ```
 json_store.py ──→ base.config (conf.data_dir)
-sqlite_store.py ──→ base.config / base.logger
-__init__.py ──→ json_store / sqlite_store
-（两个存储后端互不依赖，可独立使用）
 ```

@@ -872,7 +872,18 @@ class JSONFileStore(BaseStore):
             # 返回 None。
 
         return self._read_json(archive_file)
-        # 使用 _read_json 读取归档文件内容并返回（返回一个字典）。
+
+    def delete_session_archives(self, session_id):
+        """删除指定会话的所有归档文件。"""
+        prefix = f"arch_{session_id[:16]}_"
+        if not os.path.isdir(self._archive_dir):
+            return
+        for fname in os.listdir(self._archive_dir):
+            if fname.startswith(prefix) and fname.endswith('.json'):
+                try:
+                    os.remove(os.path.join(self._archive_dir, fname))
+                except OSError:
+                    pass
 
     def format_archive_turns(self, archive_id):
         # 读取归档数据并将其中的对话轮次格式化为人类（或 LLM）可读的文本。

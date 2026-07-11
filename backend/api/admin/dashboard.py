@@ -64,7 +64,7 @@ async def get_dashboard(request: Request):
         # ===== 1. 用户与会话统计 =====
         users_data = system.data_store.get_all_users(page=1, page_size=999999)
         # 调用系统数据存储的 get_all_users 方法获取全部用户数据
-        # system.data_store 是全局的数据存储对象（可能是 SQLite 或 JSON 存储）
+        # system.data_store 是全局的 JSON 数据存储对象
         # page=1 表示第一页，page_size=999999 表示一页拉取 999999 条，相当于获取所有用户
         # 返回的 users_data 是一个字典，包含 items（用户列表）和 total（总数）
 

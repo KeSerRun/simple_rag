@@ -1,5 +1,5 @@
 # ===== 模块文档字符串 =====
-"""数据存储抽象基类：定义所有 store 的统一接口，确保 json_store 和 sqlite_store 实现一致。"""
+"""数据存储抽象基类：定义统一接口，确保 json_store 实现一致。"""
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
@@ -88,3 +88,7 @@ class BaseStore(ABC):
     @abstractmethod
     def format_archive_turns(self, archive_id: str) -> str:
         """将归档对话格式化为文本。"""
+
+    @abstractmethod
+    def delete_session_archives(self, session_id: str) -> None:
+        """删除指定会话的所有归档文件。"""

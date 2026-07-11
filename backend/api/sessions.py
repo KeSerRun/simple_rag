@@ -152,6 +152,8 @@ async def delete_session(request: Request, session_id: str):
         system.data_store.delete_session_history(session_id)
         # 删除会话任务数据
         system.data_store.delete_session_tasks(session_id)
+        # 删除压缩归档
+        system.data_store.delete_session_archives(session_id)
 
         # 清理关联的工具结果持久化文件
         tool_dir = Path(conf.data_dir) / "json_store" / "tool_results" / session_id

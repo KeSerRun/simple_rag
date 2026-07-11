@@ -227,11 +227,24 @@ class Config:
             if not isinstance(val, int) or val < minimum:
                 errors.append(f"{name}={val!r} 无效（应 ≥ {minimum} 的整数）")
 
-        # 路径可写（懒创建，只检查父目录）
-        for name, path in [("data_dir", self.data_dir), ("vector_store_dir", self.vector_store_dir)]:
-            parent = os.path.dirname(path)
-            if not os.access(parent or ".", os.W_OK):
-                errors.append(f"{name}={path} 的父目录不可写")
+        # 路径可写（自动创建所有 data 子目录）
+        dirs = [
+            ("data_dir", self.data_dir),
+            ("vector_store_dir", self.vector_store_dir),
+            ("uploads_dir", os.path.join(self.data_dir, "uploads")),
+            ("json_store_dir", os.path.join(self.data_dir, "json_store")),
+            ("history_dir", os.path.join(self.data_dir, "json_store", "history")),
+            ("archives_dir", os.path.join(self.data_dir, "json_store", "archives")),
+            ("session_tasks_dir", os.path.join(self.data_dir, "json_store", "session_tasks")),
+            ("tool_results_dir", os.path.join(self.data_dir, "json_store", "tool_results")),
+        ]
+        for name, path in dirs:
+            try:
+                os.makedirs(path, exist_ok=True)
+            except OSError as e:
+                errors.append(f"{name}={path} 创建失败: {e}")
+            if not os.access(path, os.W_OK):
+                errors.append(f"{name}={path} 不可写")
 
         # 超级用户配置
         if len(self.superuser_usernames) != len(self.superuser_passwords):

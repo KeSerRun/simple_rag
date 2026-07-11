@@ -5,10 +5,7 @@
 # ---- 导入 ----
 from base.config import conf
 from base.logger import logger, log_qa
-if conf.storage_backend == 'sqlite':
-    from storage import SQLiteStore as DataStore
-else:
-    from storage import JSONFileStore as DataStore
+from storage import JSONFileStore as DataStore
 from agent import RAGSystem
 
 from .checkpoint import CheckpointStore

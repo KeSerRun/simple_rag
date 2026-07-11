@@ -177,7 +177,7 @@ class SQLiteStore(BaseStore):
     # username: 用户名, password: 密码, role: 角色（默认是普通用户 "user"）
     # 返回值类型是 bool（布尔值），True 表示插入成功，False 表示用户已存在
     def insert_user(self, username: str, password: str, role: str = "user") -> bool:
-        """插入用户。已存在时返回 False。"""
+        """插入用户。已存在（含大小写变体）时返回 False。"""
         # 使用线程锁保护写操作，同一时间只有一个线程能执行这里的代码
         # with self._lock 是获取锁，执行完代码后自动释放锁
         with self._lock:
@@ -234,7 +234,7 @@ class SQLiteStore(BaseStore):
             # 执行 SELECT 查询，从 users 表中查找用户名和密码都匹配的记录
             # .fetchone() 方法只取查询结果的第一行，如果没有匹配的则返回 None
             row = conn.execute(
-                "SELECT username, role FROM users WHERE username = ? AND password = ?",
+                "SELECT username, role FROM users WHERE LOWER(username) = LOWER(?) AND password = ?",
                 (username, password),
             ).fetchone()
             # 判断是否找到了匹配的记录

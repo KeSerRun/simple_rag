@@ -373,7 +373,7 @@ class JSONFileStore(BaseStore):
             # 参数 users：当前用户列表（从 JSON 文件读取出来）。
             # 返回值：True 表示成功插入，False 表示用户已存在。
 
-            if any(u['username'] == username for u in users):
+            if any(u['username'].lower() == username.lower() for u in users):
                 # any() 函数判断列表中是否有元素满足条件。
                 # 这里遍历 users 列表，检查是否已有用户的 username 与要插入的用户名相同。
                 # 如果存在，说明用户名已注册，不再重复插入。
@@ -451,7 +451,7 @@ class JSONFileStore(BaseStore):
 
         for u in users:
             # 遍历用户列表中的每个用户字典。
-            if u['username'] == username and u['password'] == password:
+            if u['username'].lower() == username.lower() and u['password'] == password:
                 # 同时满足两个条件：用户名相等 且 密码相等。
                 logger.info(f"成功验证用户凭据: {username}")
                 # 记录日志：验证成功。

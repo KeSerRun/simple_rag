@@ -71,12 +71,8 @@ router = APIRouter(prefix="/api", tags=["documents"])
 
 # ===== 辅助函数：获取用户上传目录 =====
 def _user_upload_dir(username: str) -> str:
-    # 定义一个私有函数，根据用户名返回该用户的文件上传存放目录路径
-    # 参数 username: 字符串，用户名
-    # 返回值: 字符串，该用户的文件上传目录的完整路径
-    return f"{conf.data_dir}/uploads/{username}"
-    # 拼接路径：配置中的向量存储目录 + "uploads" + 用户名
-    # 例如："./data/uploads/zhangsan/"
+    # Windows 文件系统不区分大小写，统一转小写避免用户目录冲突
+    return f"{conf.data_dir}/uploads/{username.lower()}"
 
 
 # ===== 辅助函数：清理用户文件 =====
@@ -194,7 +190,7 @@ async def add_documents(request: Request):
             # 抛出 HTTP 400 错误（客户端请求错误），提示未提供文档路径
 
         # 路径穿越防护
-        upload_root = Path(conf.data_dir) / "uploads" / username
+        upload_root = Path(conf.data_dir) / "uploads" / username.lower()
         # 构造用户上传目录的 Path 对象
         # 这是安全基准目录，所有文件操作必须限制在这个目录下
 
@@ -398,7 +394,7 @@ async def upload_file(
             # 获取文件的原始文件名（去掉路径信息，只保留文件名部分）
             # 防止用户上传带路径的文件名造成安全问题
 
-            save_path = f"{conf.data_dir}/uploads/{username}/{basename}"
+            save_path = f"{conf.data_dir}/uploads/{username.lower()}/{basename}"
             # 构造文件保存路径：配置目录/uploads/用户名/文件名
 
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -544,7 +540,7 @@ async def upload_embeddings(
         for filename, content, _ct in files_data:
             # 遍历所有文件数据
             # _ct 是 content_type，以下划线开头表示"内部使用，不直接访问"的约定
-            save_path = f"{conf.data_dir}/uploads/{username}/{filename}"
+            save_path = f"{conf.data_dir}/uploads/{username.lower()}/{filename}"
             # 构造文件保存路径
 
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -1030,7 +1026,7 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
     # 阶段 1: 先将所有文件保存到磁盘（I/O 快，串行即可）
     saved_files = []  # [(filename, save_path, content_len, content_type)]
     for idx, (filename, content, _ct) in enumerate(files_data):
-        save_path = f"{conf.data_dir}/uploads/{username}/{filename}"
+        save_path = f"{conf.data_dir}/uploads/{username.lower()}/{filename}"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         yield _sse({"status": "uploading", "text": "文档上传", "file": filename, "progress": f"{idx+1}/{len(files_data)}"})
 

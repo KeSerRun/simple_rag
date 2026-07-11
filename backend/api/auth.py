@@ -57,6 +57,10 @@ async def register(request: Request):
         # 从 data 字典中获取 "password" 字段的值
         password = data.get("password")
 
+        # 用户名统一转小写，避免因大小写造成的路径目录冲突
+        if username:
+            username = username.lower()
+
         # 判断用户名或密码是否为空
         # not 运算符把值转为布尔值：None、空字符串都会被当作 False
         # 如果用户名为空或者密码为空，就执行 if 内部的代码
@@ -116,6 +120,10 @@ async def login(request: Request):
         username = data.get("username")
         # 从解析后的字典中获取密码（明文密码）
         password = data.get("password")
+
+        # 用户名统一转小写，与注册时一致
+        if username:
+            username = username.lower()
 
         # 检查用户名或密码是否为空（为 None 或空字符串都会触发）
         if not username or not password:

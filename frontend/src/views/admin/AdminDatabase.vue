@@ -566,10 +566,6 @@ function removeFile(id) {
   uploadFiles.value = uploadFiles.value.filter(f => f._id !== id)
 }
 
-function handleRemove({ file }) {
-  uploadFiles.value = uploadFiles.value.filter(f => f._id !== file.id)
-}
-
 async function handleUpload() {
   if (uploadFiles.value.length === 0) return
   const files = uploadFiles.value.slice()

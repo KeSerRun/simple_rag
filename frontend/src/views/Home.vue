@@ -76,9 +76,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { renderMarkdown } from '@/utils/markdown'
 import { useMessage, useDialog, useLoadingBar } from 'naive-ui'
 
 import { useUserStore } from '@/stores/user'
@@ -102,6 +101,11 @@ const loadingBar = useLoadingBar()
 
 // --- 状态 ---
 const messages = ref([])
+let msgKeyCounter = 0
+
+function nextMsgKey() {
+  return ++msgKeyCounter
+}
 const isLoading = ref(false)
 const isUploading = ref(false)
 const isLoadingHistory = ref(false)
@@ -337,12 +341,8 @@ const loadHistoryMessages = async (sessionId) => {
         if (msg.type === 'event') continue
         if (msg.user == null && msg.assistant == null) continue
         newMessages.push(
-          { role: 'user', content: msg.user || '' },
-          {
-            role: 'ai',
-            content: msg.assistant || '',
-            renderedContent: renderMarkdown(msg.assistant || ''),
-          }
+          { role: 'user', content: msg.user || '', _key: nextMsgKey() },
+          { role: 'ai', content: msg.assistant || '', _key: nextMsgKey() }
         )
       }
       messages.value = newMessages
@@ -427,12 +427,12 @@ const statusLabels = {
 const sendQuestion = async (text) => {
   if (!text || isLoading.value) return
 
-  messages.value.push({ role: 'user', content: text })
+  messages.value.push({ role: 'user', content: text, _key: nextMsgKey() })
   isLoading.value = true
   throttleScroll()
 
   // 立即推入占位 AI 消息，后续通过索引替换来更新（触发 Vue 数组响应式）
-  messages.value.push({ role: 'ai', content: '', renderedContent: '', reasoning: '', reasoningRendered: '', _v: 0 })
+  messages.value.push({ role: 'ai', content: '', reasoning: '', _v: 0, _key: nextMsgKey() })
   const aiIndex = messages.value.length - 1
   let aiContent = ''
   let aiReasoning = ''
@@ -498,7 +498,7 @@ const sendQuestion = async (text) => {
                     const cancelMsg = {
                       role: 'ai',
                       content: '',
-                      renderedContent: '',
+                      _key: nextMsgKey(),
                       isCancelled: true,
                     }
                     messages.value[aiIndex] ?
@@ -520,9 +520,7 @@ const sendQuestion = async (text) => {
                   messages.value[aiIndex] = {
                     role: 'ai',
                     content: aiContent,
-                    renderedContent: renderMarkdown(aiContent),
                     reasoning: aiReasoning,
-                    reasoningRendered: renderMarkdown(aiReasoning),
                     _v: aiVersion,
                   }
                   throttleScroll()
@@ -544,9 +542,7 @@ const sendQuestion = async (text) => {
             messages.value[aiIndex] = {
               role: 'ai',
               content: aiContent,
-              renderedContent: renderMarkdown(aiContent),
               reasoning: aiReasoning,
-              reasoningRendered: aiReasoning ? renderMarkdown(aiReasoning) : '',
               _v: aiVersion,
             }
             throttleScroll()
@@ -560,9 +556,7 @@ const sendQuestion = async (text) => {
     messages.value[aiIndex] = {
       role: 'ai',
       content: aiContent,
-      renderedContent: renderMarkdown(aiContent),
       reasoning: aiReasoning,
-      reasoningRendered: aiReasoning ? renderMarkdown(aiReasoning) : '',
       _v: aiVersion,
     }
     message.error('请求失败，请重试')
@@ -626,7 +620,7 @@ const handleFileUpload = async (file) => {
       responseType: 'text',
       onDownloadProgress: (progressEvent) => {
         const fullText = progressEvent.event.target.responseText || ''
-        const newText = fullText.slice(sseBuf ? fullText.indexOf(sseBuf.slice(-20)) + 20 : 0)
+        const newText = fullText.slice(sseBuf.length)
         if (!newText) return
         sseBuf = fullText
 
@@ -704,6 +698,11 @@ onMounted(() => {
   axios.get('/api/workflows').then(r => {
     workflowList.value = r.data.workflows || []
   }).catch(e => console.warn('获取工作流列表失败', e))
+})
+
+onUnmounted(() => {
+  if (scrollTimer) cancelAnimationFrame(scrollTimer)
+  scrollTimer = null
 })
 </script>
 

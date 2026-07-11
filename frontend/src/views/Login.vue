@@ -37,7 +37,6 @@
             show-password-on="click"
             placeholder="请输入密码"
             :input-props="{ autocomplete: 'current-password' }"
-            @keydown.enter="handleLogin"
           >
             <template #prefix>
               <n-icon :component="LockClosedOutline" />
@@ -51,7 +50,6 @@
           block
           :loading="isLoading"
           attr-type="submit"
-          @click="handleLogin"
         >
           {{ isLoading ? '登录中...' : '登 录' }}
         </n-button>
@@ -90,6 +88,8 @@ import { useUserStore } from '@/stores/user'
 import axios from '@/http/interceptor'
 import logoSvg from '@/assets/logo.svg'
 import app from '@/config/app'
+import '@/assets/auth.css'
+import { usernameRules, passwordRules } from '@/utils/validation'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -100,24 +100,8 @@ const isLoading = ref(false)
 const form = reactive({ username: '', password: '' })
 
 const rules = {
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 6, message: '用户名长度至少为 6 位', trigger: 'blur' },
-    {
-      pattern: /^[a-zA-Z0-9]+$/,
-      message: '用户名只能包含英文字母和数字',
-      trigger: 'blur',
-    },
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少为 6 位', trigger: 'blur' },
-    {
-      pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{6,}$/,
-      message: '密码必须同时包含大写、小写字母和数字',
-      trigger: 'blur',
-    },
-  ],
+  username: usernameRules,
+  password: passwordRules,
 }
 
 const handleLogin = (e) => {
@@ -148,68 +132,3 @@ const handleLogin = (e) => {
 }
 </script>
 
-<style scoped>
-.auth-page {
-  width: 100%;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(ellipse at top, rgba(212, 115, 78, 0.08), transparent 60%),
-    transparent;
-  padding: 24px;
-  box-sizing: border-box;
-}
-
-.auth-card {
-  width: 100%;
-  max-width: 420px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.03);
-}
-
-.auth-header {
-  text-align: center;
-  margin-bottom: 28px;
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-  color: var(--brand-color, #d4734e);
-}
-
-.brand-logo {
-  height: 28px;
-  width: auto;
-}
-
-.brand-name {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-}
-
-.auth-title {
-  margin: 0 0 6px 0;
-}
-
-.auth-footer {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-}
-
-.auth-link {
-  color: #d4734e;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.auth-link:hover {
-  text-decoration: underline;
-}
-</style>

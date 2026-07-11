@@ -14,7 +14,6 @@ import 'katex/dist/katex.min.css'
 
 import App from './App.vue'
 import router from './router'
-import http from './http/interceptor'
 
 const app = createApp(App)
 
@@ -23,6 +22,5 @@ pinia.use(piniaPluginPersistedstate)
 
 app.use(pinia)
 app.use(router)
-app.config.globalProperties.$http = http
 
 app.mount('#app')

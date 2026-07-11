@@ -101,6 +101,7 @@ import {
 import {
   PersonAddOutline, TrashOutline, ShieldCheckmarkOutline, KeyOutline,
 } from '@vicons/ionicons5'
+import { usernameRules, passwordRules } from '@/utils/validation'
 
 const store = useAdminStore()
 const userStore = useUserStore()
@@ -116,14 +117,7 @@ const pwdTargetUser = ref('')
 const pwdFormRef = ref(null)
 const pwdForm = reactive({ password: '', confirm: '' })
 const pwdRules = {
-  password: [
-    { required: true, message: '请输入新密码' },
-    { min: 6, message: '密码长度至少 6 位' },
-    {
-      pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{6,}$/,
-      message: '密码必须同时包含大写、小写字母和数字',
-    },
-  ],
+  password: passwordRules,
   confirm: [
     { required: true, message: '请再次输入新密码' },
     {
@@ -136,22 +130,8 @@ const pwdRules = {
 const addFormRef = ref(null)
 const addForm = reactive({ username: '', password: '', role: 'user' })
 const addRules = {
-  username: [
-    { required: true, message: '请输入用户名' },
-    { min: 6, message: '用户名长度至少为 6 位' },
-    {
-      pattern: /^[a-zA-Z0-9]+$/,
-      message: '用户名只能包含英文字母和数字',
-    },
-  ],
-  password: [
-    { required: true, message: '请输入密码' },
-    { min: 6, message: '密码长度至少为 6 位' },
-    {
-      pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{6,}$/,
-      message: '密码必须同时包含大写、小写字母和数字',
-    },
-  ],
+  username: usernameRules,
+  password: passwordRules,
 }
 
 const pagination = reactive({

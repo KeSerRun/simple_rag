@@ -68,7 +68,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useAdminStore } from '@/stores/admin'
 import {
@@ -83,6 +83,7 @@ import {
 } from '@vicons/ionicons5'
 
 const store = useAdminStore()
+const message = useMessage()
 
 const quickLogs = [
   { name: 'app.log', label: '应用日志', icon: ServerOutline },
@@ -149,13 +150,13 @@ function handleDownload() {
   if (!selectedFile.value) return
   store.downloadLogFile(selectedFile.value)
     .catch(e => {
-      const msg = useMessage()
-      msg.error(e.response?.data?.detail || '下载失败')
+      message.error(e.response?.data?.detail || '下载失败')
     })
 }
 
-// 默认选中应用日志
-selectFile('app.log')
+onMounted(() => {
+  selectFile('app.log')
+})
 </script>
 
 <style scoped>

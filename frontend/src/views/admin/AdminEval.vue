@@ -162,15 +162,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
 import {
   NButton, NCard, NText, NTag, NTable, NProgress,
   NSpace, NResult, NH2, NStatistic, NEllipsis,
-  NInput, NDivider,
+  NInput, NDivider, useMessage,
 } from 'naive-ui'
 
 const store = useAdminStore()
+const message = useMessage()
 
 const queryCount = ref(0)
 const queriesList = ref([])
@@ -180,6 +181,8 @@ const saveMsg = ref('')
 const saveMsgType = ref('info')
 
 const isEvalRunning = ref(false)
+
+let pollTimer = null
 
 const progressPercent = computed(() => {
   if (!store.evalStatus?.progress) return 0
@@ -261,7 +264,7 @@ async function handleRunEval() {
   try {
     const data = await store.runEval()
     if (data?.task_id) {
-      // 启动评估成功，用户可手动点"刷新进度"查看状态
+      startPolling(data.task_id)
     }
   } catch (e) {
     isEvalRunning.value = false
@@ -301,6 +304,13 @@ async function handleResume() {
   }
 }
 
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 function startPolling(taskId) {
   stopPolling()
   pollTimer = setInterval(async () => {
@@ -328,6 +338,10 @@ onMounted(async () => {
   } else {
     isEvalRunning.value = false
   }
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 
 </script>

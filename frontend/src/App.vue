@@ -63,9 +63,6 @@ body,
   padding: 0;
   width: 100%;
   height: 100%;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Microsoft YaHei', Roboto, sans-serif;
 }
 
 html {

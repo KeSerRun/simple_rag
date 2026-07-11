@@ -118,6 +118,7 @@ const selectSession = (id) => {
 <style scoped>
 .session-sidebar {
   width: 280px;
+  margin-left: 0;
   flex-shrink: 0;
   background-color: var(--n-card-color, #ffffff);
   border-right: 1px solid var(--n-divider-color, #d4cfc8);
@@ -125,16 +126,16 @@ const selectSession = (id) => {
   flex-direction: column;
   height: 100%;
   z-index: 100;
-  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+  transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1),
               transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
               box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
 
-/* ─── 桌面端：折叠为 0 宽度 ─── */
+/* ─── 桌面端：滑出屏幕（保持 280px 不变，避免内部布局重排） ─── */
 @media (min-width: 769px) {
   .session-sidebar:not(.drawer-open) {
-    width: 0;
+    margin-left: -280px;
     border-right: none;
   }
 }

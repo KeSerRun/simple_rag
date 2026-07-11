@@ -8,16 +8,11 @@ export const useAdminStore = defineStore('admin', () => {
   const loading = ref(false)
   const error = ref(null)
 
-  // ─── 仪表盘 ──────────────────────────────────────────
-  const dashboardData = ref(null)
-
-  async function fetchDashboard() {
+  async function apiCall(fn) {
     loading.value = true
     error.value = null
     try {
-      const res = await axios.get('/api/admin/dashboard')
-      dashboardData.value = res.data
-      return res.data
+      return await fn()
     } catch (e) {
       error.value = e.response?.data?.detail || e.message
       throw e
@@ -26,22 +21,22 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
-  // ─── 配置 ────────────────────────────────────────────
+  // --- 仪表盘 ---
+  const dashboardData = ref(null)
+
+  async function fetchDashboard() {
+    const res = await apiCall(() => axios.get('/api/admin/dashboard'))
+    dashboardData.value = res.data
+    return res.data
+  }
+
+  // --- 配置 ---
   const configData = ref(null)
 
   async function fetchConfig() {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/config')
-      configData.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/config'))
+    configData.value = res.data
+    return res.data
   }
 
   const configSchema = ref([])
@@ -57,131 +52,60 @@ export const useAdminStore = defineStore('admin', () => {
   }
 
   async function updateConfig(updates) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.put('/api/admin/config', updates)
-      await fetchConfig() // 刷新
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.put('/api/admin/config', updates))
+    await fetchConfig()
+    return res.data
   }
 
-  // ─── 用户管理 ────────────────────────────────────────
+  // --- 用户管理 ---
   const usersData = ref({ total: 0, items: [] })
 
   async function fetchUsers(page = 1, pageSize = 20) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/users', { params: { page, page_size: pageSize } })
-      usersData.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/users', { params: { page, page_size: pageSize } }))
+    usersData.value = res.data
+    return res.data
   }
 
   async function createUser(username, password, role = 'user') {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.post('/api/admin/users', { username, password, role })
-      await fetchUsers()
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.post('/api/admin/users', { username, password, role }))
+    await fetchUsers()
+    return res.data
   }
 
   async function deleteUser(username) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.delete(`/api/admin/users/${encodeURIComponent(username)}`)
-      await fetchUsers()
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.delete(`/api/admin/users/${encodeURIComponent(username)}`))
+    await fetchUsers()
+    return res.data
   }
 
   async function changeUserRole(username, role) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.put(`/api/admin/users/${encodeURIComponent(username)}/role`, { role })
-      await fetchUsers()
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.put(`/api/admin/users/${encodeURIComponent(username)}/role`, { role }))
+    await fetchUsers()
+    return res.data
   }
 
   async function resetUserPassword(username, password) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.put(`/api/admin/users/${encodeURIComponent(username)}/password`, { password })
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    return apiCall(() =>
+      axios.put(`/api/admin/users/${encodeURIComponent(username)}/password`, { password })
+    )
   }
 
-  // ─── 日志 ────────────────────────────────────────────
+  // --- 日志 ---
   const logsData = ref({ files: [] })
   const logContent = ref(null)
 
   async function fetchLogFiles() {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/logs')
-      logsData.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/logs'))
+    logsData.value = res.data
+    return res.data
   }
 
   async function fetchLogContent(logFile, lines = 200, offset = 0, reverse = false) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get(`/api/admin/logs/${encodeURIComponent(logFile)}`, {
-        params: { lines, offset, reverse: reverse ? '1' : '0' },
-      })
-      logContent.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get(`/api/admin/logs/${encodeURIComponent(logFile)}`, {
+      params: { lines, offset, reverse: reverse ? '1' : '0' },
+    }))
+    logContent.value = res.data
+    return res.data
   }
 
   async function downloadLogFile(logFile) {
@@ -190,7 +114,6 @@ export const useAdminStore = defineStore('admin', () => {
       const res = await axios.get(`/api/admin/logs/${encodeURIComponent(logFile)}/download`, {
         responseType: 'blob',
       })
-      // 触发浏览器下载
       const url = URL.createObjectURL(res.data)
       const a = document.createElement('a')
       a.href = url
@@ -206,74 +129,38 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
-  // ─── 数据库 ──────────────────────────────────────────
+  // --- 数据库 ---
   const dbStats = ref(null)
   const dbChunks = ref({ total: 0, items: [] })
   const dbPartitions = ref({ partitions: [] })
   const dbIntegrity = ref(null)
 
   async function fetchDatabaseStats() {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/database')
-      dbStats.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/database'))
+    dbStats.value = res.data
+    return res.data
   }
 
   async function fetchChunks(page = 1, pageSize = 20, filters = {}) {
-    loading.value = true
-    error.value = null
-    try {
-      const params = { page, page_size: pageSize, ...filters }
-      const res = await axios.get('/api/admin/database/chunks', { params })
-      dbChunks.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const params = { page, page_size: pageSize, ...filters }
+    const res = await apiCall(() => axios.get('/api/admin/database/chunks', { params }))
+    dbChunks.value = res.data
+    return res.data
   }
 
   async function fetchPartitions() {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/database/partitions')
-      dbPartitions.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/database/partitions'))
+    dbPartitions.value = res.data
+    return res.data
   }
 
   async function fetchIntegrityCheck() {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/database/check_integrity')
-      dbIntegrity.value = res.data
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/database/check_integrity'))
+    dbIntegrity.value = res.data
+    return res.data
   }
 
-  // ─── 系统数据 ──────────────────────────────────────────
+  // --- 系统数据 ---
   const systemDocs = ref([])
   const uploadStatus = ref({ message: '', type: 'info' })
   const isUploading = ref(false)
@@ -283,72 +170,33 @@ export const useAdminStore = defineStore('admin', () => {
   }
 
   async function fetchSystemDocs() {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/database/system_docs')
-      systemDocs.value = res.data?.documents || []
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/database/system_docs'))
+    systemDocs.value = res.data?.documents || []
+    return res.data
   }
 
   async function uploadSystemData(files) {
-    loading.value = true
-    error.value = null
-    try {
-      const formData = new FormData()
-      for (const file of files) {
-        formData.append('files', file)
-      }
-      const res = await axios.post('/api/admin/database/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      await fetchSystemDocs()
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
+    const formData = new FormData()
+    for (const file of files) {
+      formData.append('files', file)
     }
+    await apiCall(() => axios.post('/api/admin/database/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }))
+    await fetchSystemDocs()
   }
 
   async function deleteDocument(source, partition) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.delete('/api/admin/database/delete', {
-        params: { source, partition },
-      })
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    await apiCall(() => axios.delete('/api/admin/database/delete', {
+      params: { source, partition },
+    }))
   }
 
   async function batchDeleteDocuments(sources, partition) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.post('/api/admin/database/batch_delete', { sources, partition })
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    await apiCall(() => axios.post('/api/admin/database/batch_delete', { sources, partition }))
   }
 
-  // ─── 评估 ──────────────────────────────────────────
+  // --- 评估 ---
   const evalStatus = ref(null)
   const evalResults = ref(null)
   const evalReport = ref(null)
@@ -395,31 +243,13 @@ export const useAdminStore = defineStore('admin', () => {
   }
 
   async function fetchEvalQueries() {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.get('/api/admin/eval/queries')
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.get('/api/admin/eval/queries'))
+    return res.data
   }
 
   async function updateEvalQueries(queries) {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await axios.put('/api/admin/eval/queries', { queries })
-      return res.data
-    } catch (e) {
-      error.value = e.response?.data?.detail || e.message
-      throw e
-    } finally {
-      loading.value = false
-    }
+    const res = await apiCall(() => axios.put('/api/admin/eval/queries', { queries }))
+    return res.data
   }
 
   async function pauseEval(taskId) {
@@ -454,7 +284,6 @@ export const useAdminStore = defineStore('admin', () => {
       }
       return res.data
     } catch (e) {
-      // 没有持久化结果，忽略
       return null
     }
   }
@@ -473,7 +302,7 @@ export const useAdminStore = defineStore('admin', () => {
         }
         return null
       }
-      return taskId  // 仍在运行中
+      return taskId
     } catch {
       localStorage.removeItem(_EVAL_TASK_KEY)
       return null
@@ -482,20 +311,13 @@ export const useAdminStore = defineStore('admin', () => {
 
   return {
     loading, error,
-    // dashboard
     dashboardData, fetchDashboard,
-    // config
     configData, configSchema, fetchConfig, fetchConfigSchema, updateConfig,
-    // users
     usersData, fetchUsers, createUser, deleteUser, changeUserRole, resetUserPassword,
-    // logs
     logsData, logContent, fetchLogFiles, fetchLogContent, downloadLogFile,
-    // database
     dbStats, dbChunks, dbPartitions, dbIntegrity, fetchDatabaseStats, fetchChunks, fetchPartitions, fetchIntegrityCheck,
-    // system data
     systemDocs, fetchSystemDocs, uploadSystemData, deleteDocument, batchDeleteDocuments,
     uploadStatus, setUploadStatus, isUploading,
-    // eval
     evalStatus, evalResults, evalReport, runEval, fetchEvalStatus, fetchEvalQueries, updateEvalQueries, pauseEval, resumeEval, fetchLastEvalResult, loadRunningEval,
   }
 })

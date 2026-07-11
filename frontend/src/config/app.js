@@ -4,12 +4,14 @@
  * 修改后需重新 `npm run build` 生效
  */
 const app = {
-  // HTML 标题（来自 .env）
-  title: import.meta.env.VITE_APP_TITLE || 'RAG Simple',
+  // 应用名称
+  name: import.meta.env.VITE_APP_NAME,
+  // HTML 标题
+  title: import.meta.env.VITE_APP_TITLE,
   // logo alt 文本
-  alt: 'RAG Simple',
-  // 登录/注册页品牌名（复用 VITE_APP_TITLE）
-  brand: import.meta.env.VITE_APP_TITLE || 'RAG Simple',
+  alt: import.meta.env.VITE_APP_NAME,
+  // 登录/注册页品牌名
+  brand: import.meta.env.VITE_APP_TITLE,
   // 会话侧边栏标题
   sidebar: '会话管理',
   // 管理后台侧边栏标题

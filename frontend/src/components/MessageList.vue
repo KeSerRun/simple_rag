@@ -17,7 +17,7 @@
     <!-- 消息流 -->
     <div
       v-for="(msg, index) in messages"
-      :key="index"
+      :key="msg._key || index"
       :class="['message', msg.role]"
     >
       <div class="avatar-wrap">

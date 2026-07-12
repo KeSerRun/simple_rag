@@ -1,28 +1,15 @@
-# ===== 导入标准库模块 =====
 
-# 从 __future__ 导入 annotations，作用是让所有类型注解变成"惰性求值"（字符串形式），
-# 这样类在自己定义还没完成时就能引用自己，避免循环引用报错
 from __future__ import annotations
 
-# 导入 Python 的正则表达式模块 re，后续用来按标点符号、换行等切分文本
 import re
 
-# 从 typing 模块中导入三个工具：
-#   TYPE_CHECKING  — 仅在类型检查阶段为 True，运行时为 False，用来做条件导入
-#   List           — 声明"列表"类型，比如 List[str] 表示元素是字符串的列表
-#   Optional       — 表示某个值可以是指定类型或 None
 from typing import TYPE_CHECKING, List, Optional
 
-# ===== 类型检查专用的条件导入 =====
 
-# TYPE_CHECKING 只在 mypy / pyright 等工具做类型检查时才是 True，
-# 运行时不会真正导入，用来避免循环依赖
 if TYPE_CHECKING:
-    # 从 .vector_store 模块导入 Document 类，仅用于类型注解
     from .vector_store import Document
 
 
-# ===== 主类定义：中文递归文本切分器 =====
 
 class ChineseRecursiveTextSplitter:
     """中文友好的递归字符切分器。
@@ -32,7 +19,6 @@ class ChineseRecursiveTextSplitter:
     适合中文场景，分隔符包含中文标点。
     """
 
-    # ===== 类属性：默认分隔符列表 =====
 
     # 这是类的默认分隔符列表，切分时会按这个顺序尝试：
     # 先用段落分隔（双换行），再按单换行，再按中文句号/问号，以此类推
@@ -47,7 +33,6 @@ class ChineseRecursiveTextSplitter:
         "",                          # 空字符串 —— 兜底，每个字符单独成段
     ]
 
-    # ===== 构造函数 __init__ =====
 
     def __init__(
         self,
@@ -57,13 +42,11 @@ class ChineseRecursiveTextSplitter:
         keep_separator: bool = True,  # 切分时是否保留分隔符本身在结果中
         is_separator_regex: bool = True,  # separators 里的字符串是否按正则表达式来解析
     ):
-        # ===== 参数校验 =====
 
         # 如果重叠部分 >= 块大小，那切分没有意义，直接报错
         if chunk_overlap >= chunk_size:
             raise ValueError("chunk_overlap 必须小于 chunk_size")
 
-        # ===== 实例属性赋值 =====
 
         self.chunk_size = chunk_size              # 保存每块字符数的上限
         self.chunk_overlap = chunk_overlap        # 保存重叠字符数
@@ -72,7 +55,6 @@ class ChineseRecursiveTextSplitter:
         self.keep_separator = keep_separator      # 是否保留分隔符
         self.is_separator_regex = is_separator_regex  # 分隔符是否当作正则处理
 
-    # ===== 公开方法：split_text — 把字符串切分成列表 =====
 
     def split_text(self, text: str) -> List[str]:
         """
@@ -90,10 +72,8 @@ class ChineseRecursiveTextSplitter:
         # 调用内部的 _split 方法进行递归切分，传入文本和当前使用的分隔符列表
         chunks = self._split(text, self.separators)
         # 对每个 chunk：去掉首尾空格，把连续 2 个以上的换行符替换成 1 个，
-        # 最后过滤掉空字符串
         return [re.sub(r"\n{2,}", "\n", c.strip()) for c in chunks if c.strip()]
 
-    # ===== 公开方法：split_documents — 切分 Document 对象列表 =====
 
     def split_documents(self, documents: List[Document]) -> List[Document]:
         """
@@ -110,7 +90,6 @@ class ChineseRecursiveTextSplitter:
         from .vector_store import Document
         # 准备一个空列表，用来存放切分后生成的 Document
         result: List[Document] = []
-        # 遍历传入的每一个 Document
         for doc in documents:
             # 对当前 doc 的 page_content（正文）做切分，逐个拿到切出的 chunk
             for chunk in self.split_text(doc.page_content):
@@ -119,7 +98,6 @@ class ChineseRecursiveTextSplitter:
         # 返回所有新生成的 Document 列表
         return result
 
-    # ===== 内部方法：_split — 递归切分的核心逻辑 =====
 
     def _split(self, text: str, separators: List[str]) -> List[str]:
         """
@@ -141,14 +119,12 @@ class ChineseRecursiveTextSplitter:
         # new_separators 用于记录"当前分隔符之后的更细粒度分隔符"
         new_separators = []
 
-        # ===== 选择合适的当前层分隔符 =====
 
         # 遍历 separators 列表，找到第一个能在 text 中匹配到的分隔符
         for i, _s in enumerate(separators):
             _separator = _s  # 取出当前这个分隔符
             # 如果分隔符按正则解析，则调用 _is_regex_safe 检查正则是否合法
             if self.is_separator_regex:
-                # 如果这个分隔符是合法的正则表达式
                 if self._is_regex_safe(_separator):
                     # 用正则搜索 text 是否包含这个分隔符
                     if re.search(_separator, text):
@@ -168,7 +144,6 @@ class ChineseRecursiveTextSplitter:
                     new_separators = separators[i + 1:]
                     break
 
-        # ===== 用选中的分隔符切分文本 =====
 
         # 如果找到了一个有效的分隔符（非空字符串）
         if separator:
@@ -178,25 +153,21 @@ class ChineseRecursiveTextSplitter:
             # 没有找到有效分隔符，就把文本拆成单个字符的列表
             splits = list(text)
 
-        # ===== 处理每个切分片段的长度 =====
 
         _good_splits = []   # 存放当前长度小于 chunk_size 的"好的"片段
         _separator = ""     # 记录当前使用的分隔符（用于后面合并）
-        # 遍历每一个切出来的片段
         for s in splits:
             # 判断当前使用的 separator 是否是合法正则
             if self._is_regex_safe(separator):
                 # 如果 keep_separator 为 True，保留分隔符；否则用空字符串拼接
                 _separator = separator if self.keep_separator else ""
             else:
-                # 分隔符不是正则，拼接时不用它
                 _separator = ""
 
             # 如果当前片段的长度小于 chunk_size，说明它合格，先存起来
             if len(s) < self.chunk_size:
                 _good_splits.append(s)
             else:
-                # 当前片段太长了，需要进一步处理
 
                 # 先把之前攒的合格小片段合并成 chunk
                 if _good_splits:
@@ -204,7 +175,6 @@ class ChineseRecursiveTextSplitter:
                     final_chunks.extend(merged)  # 把合并结果塞入最终列表
                     _good_splits = []            # 清空缓存
 
-                # 如果没有更细粒度的分隔符了
                 if not new_separators:
                     # 直接强制按 chunk_size 切分（不管语义了）
                     final_chunks.extend(
@@ -214,17 +184,13 @@ class ChineseRecursiveTextSplitter:
                     # 还有更细的分隔符，递归调用 _split 继续切分
                     final_chunks.extend(self._split(s, new_separators))
 
-        # ===== 处理循环结束后剩余的合格片段 =====
 
         if _good_splits:
-            # 把最后攒的一批小片段合并成 chunk
             merged = self._merge_splits(_good_splits, _separator)
             final_chunks.extend(merged)
 
-        # 返回最终的所有 chunk
         return final_chunks
 
-    # ===== 静态方法：_split_text_with_regex — 按分隔符切分文本 =====
 
     @staticmethod
     def _split_text_with_regex(
@@ -245,13 +211,10 @@ class ChineseRecursiveTextSplitter:
         返回:
             切分后的字符串列表
         """
-        # 如果有分隔符
         if separator:
-            # 如果需要保留分隔符
             if keep_separator:
                 # 用正则捕获组 (separator) 切分，这样分隔符会出现在结果列表中
                 splits = re.split(f"({separator})", text)
-                # 重新组装：把分隔符拼到前一个片段后面
                 result = []
                 for i in range(0, len(splits) - 1, 2):
                     result.append(splits[i] + splits[i + 1])
@@ -263,15 +226,12 @@ class ChineseRecursiveTextSplitter:
                 # 不保留分隔符，直接用 separator 做普通 split
                 splits = re.split(separator, text)
         else:
-            # 没有分隔符时，把文本拆成单个字符的列表
             splits = list(text)
 
         # 如果传入了 max_chunk，需要额外按最大长度切分（这里仅返回非空片段）
         # 注意：这个方法的 max_chunk 参数目前未被实现强制切分，
-        # 只返回所有非空片段
         return [s for s in splits if s]
 
-    # ===== 静态方法：_merge_splits — 把小片段合并成大块 =====
 
     @staticmethod
     def _merge_splits(splits: List[str], separator: str) -> List[str]:
@@ -289,7 +249,6 @@ class ChineseRecursiveTextSplitter:
         merged = []   # 存放最终合并好的块
         current = []  # 当前正在累积的片段列表
         total = 0     # 当前累积的字符总数
-        # 遍历每一个小片段
         for s in splits:
             _len = len(s)               # 当前片段的长度
             # 如果加上当前片段会超过 750 字符（这里写死 750，非 self.chunk_size）
@@ -301,13 +260,10 @@ class ChineseRecursiveTextSplitter:
                 total = 0          # 重置计数器
             current.append(s)      # 把当前片段加入累积列表
             total += _len          # 更新总长度
-        # 循环结束后，把最后累积的片段也合并进去
         if current:
             merged.append(separator.join(current))
-        # 返回合并后的块列表
         return merged
 
-    # ===== 静态方法：_is_regex_safe — 判断字符串是否是合法正则 =====
 
     @staticmethod
     def _is_regex_safe(s: str) -> bool:

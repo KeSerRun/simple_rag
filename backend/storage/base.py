@@ -56,6 +56,10 @@ class BaseStore(ABC):
         """插入一条对话记录。"""
 
     @abstractmethod
+    def insert_session_turn(self, session_id: str, messages: list) -> bool:
+        """插入一轮完整的对话消息（含工具调用和结果）。"""
+
+    @abstractmethod
     def insert_session_event(self, session_id: str, event_type: str, files: list) -> bool:
         """插入会话事件（如上传、删除文件）。"""
 

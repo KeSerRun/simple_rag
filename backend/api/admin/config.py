@@ -58,7 +58,7 @@ _CONFIG_SCHEMA = [
 
     # ── 对话历史 ──
     {"key": "max_history_length", "label": "最大保留轮次", "group": "对话历史配置", "type": "int", "min": 10, "max": 2000},
-    {"key": "context_window_tokens", "label": "上下文窗口(Token)", "group": "对话历史配置", "type": "int", "min": 4096, "max": 524288},
+    {"key": "context_window_chars", "label": "上下文窗口(字符)", "group": "对话历史配置", "type": "int", "min": 4096, "max": 524288},
     {"key": "consolidation_ratio", "label": "压缩触发比例", "group": "对话历史配置", "type": "float", "min": 0.1, "max": 0.9, "step": 0.05},
 
     # ── 日志 ──

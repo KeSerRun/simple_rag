@@ -1,6 +1,7 @@
-# ===== IntegratedSystem 类：集成系统核心类 =====
-# 该类将数据存储和 RAG 问答能力封装在一起，对外提供统一的问答接口
-# 包括：会话历史管理、任务追踪、风格切换检测、流式/非流式问答、CLI 命令分发
+"""IntegratedSystem: 集成数据存储 + RAG 问答能力，对外提供统一的问答和 CLI 接口。
+
+包括：会话历史管理、风格切换检测、流式/非流式问答、CLI 命令分发。
+"""
 
 # ---- 导入 ----
 from base.config import conf
@@ -9,8 +10,7 @@ from storage import JSONFileStore as DataStore
 from agent import RAGSystem
 
 from .checkpoint import CheckpointStore
-from .loop import SessionManager
-from .hooks import CompositeHook, LoggingHook
+from .loop import SessionLockManager
 
 import uuid
 import os
@@ -19,12 +19,8 @@ import re
 import threading
 from typing import Optional
 
-
 class IntegratedSystem:
-    """集成系统：封装数据存储 + RAG 问答能力，对外提供统一的问答和 CLI 接口。"""
-
-    # ─── 类常量（任务追踪相关） ─────────────────
-    TASK_OVERLAP_RATIO = 0.2       # 话题关联关键词重叠比例阈值
+    """集成数据存储 + RAG 问答能力，对外提供统一问答和 CLI 入口。"""
 
     def __init__(self):
         """初始化集成系统：数据存储、RAG 问答引擎、向量库、会话状态。"""
@@ -36,11 +32,8 @@ class IntegratedSystem:
         self._cancel_events: dict[str, threading.Event] = {}
         # 检查点存储（内存中，支持会话恢复）
         self.checkpoints = CheckpointStore(data_store=self.data_store)
-        # 会话管理器（AgentLoop 实例池）
-        self.session_manager = SessionManager()
-        # 钩子系统
-        self.hooks = CompositeHook()
-        self.hooks.add(LoggingHook())
+        # 会话锁管理器
+        self.session_manager = SessionLockManager()
 
     def cancel_generation(self, session_id: str):
         """中断指定会话的正在进行的生成。"""
@@ -55,36 +48,7 @@ class IntegratedSystem:
         return event is not None and event.is_set()
 
     # ═══════════════════════════════════════════════
-    # 目标管理（基于 nanobot sustained_goal 模式）
-    # ═══════════════════════════════════════════════
-
-    GOAL_KEY = "_active_goal"
-
-    def set_goal(self, session_id: str, goal: str) -> None:
-        """设置会话的持续目标。"""
-        self.session_manager.set_metadata(session_id, self.GOAL_KEY, {
-            "goal": goal,
-            "status": "active",
-        })
-        logger.info(f"目标已设置: session={session_id[:8]} goal={goal[:40]}")
-
-    def complete_goal(self, session_id: str) -> None:
-        """完成当前目标。"""
-        self.session_manager.set_metadata(session_id, self.GOAL_KEY, {
-            "goal": "",
-            "status": "completed",
-        })
-        logger.info(f"目标已完成: session={session_id[:8]}")
-
-    def get_goal_line(self, session_id: str) -> str:
-        """获取供注入 system prompt 的目标文本。"""
-        data = self.session_manager.get_metadata(session_id, self.GOAL_KEY)
-        if data and data.get("status") == "active" and data.get("goal"):
-            return f"\n当前目标：{data['goal']}"
-        return ""
-
-    # ═══════════════════════════════════════════════
-    # 历史记录管理
+    # 风格切换检测
     # ═══════════════════════════════════════════════
 
     def get_history(self, session_id):
@@ -133,61 +97,70 @@ class IntegratedSystem:
         if restored_msgs:
             messages.extend(restored_msgs)
 
-        # 3) nanobot 模式：Token 预算压缩
+        # 4) nanobot 模式：字符预算压缩
         qa_entries = [h for h in raw if h.get('type') != 'event']
-        budget = conf.context_window_tokens - conf.max_output_tokens - 1024
+        # 安全边距：从预算中预留 ~1KB 防止因估算误差超限
+        _BUDGET_MARGIN = 1024
+        budget = conf.context_window_chars - conf.max_output_chars - _BUDGET_MARGIN
         target = int(budget * conf.consolidation_ratio)
-        estimated = self._estimate_tokens(messages)
+        estimated_chars = self._estimate_chars(messages)
 
-        if estimated > budget and len(qa_entries) > 2:
-            # 计算需要释放的 token 量
-            need_to_free = estimated - target
-            # 找到 user-turn 边界
-            boundary = self._pick_consolidation_boundary(qa_entries, estimated, target)
+        if estimated_chars > budget and len(qa_entries) > 2:
+            boundary = self._pick_consolidation_boundary(qa_entries, estimated_chars, target)
             if boundary:
                 compressed_qa = qa_entries[:boundary]
                 remaining_qa = qa_entries[boundary:]
 
-                # LLM 摘要压缩
                 summary_text = self._build_consolidated_summary(compressed_qa)
 
                 archive_id = self.data_store.insert_archive(
                     session_id=session_id,
                     summary=summary_text,
                     turns=[
-                        {"user": h.get("user", ""), "assistant": h.get("assistant", ""),
-                         "timestamp": h.get("timestamp", "")}
+                        {
+                            "user": q,
+                            "assistant": a,
+                            "timestamp": h.get("timestamp", ""),
+                        }
                         for h in compressed_qa
+                        for q, a in [self._extract_qa_from_entry(h)]
                     ],
                 )
 
-                # 重新构建 messages：摘要 + 剩余
+                # 重新构建 messages：摘要 + 剩余历史 + 检查点恢复的消息
                 messages.clear()
                 if summary_text:
                     messages.append({'role': 'user', 'content': summary_text})
-                # 重新追加剩余条目
-                remaining_raw = [h for h in raw if h.get('type') == 'event' or h in remaining_qa]
-                # 用 index 来判断
                 qa_ids = {id(h) for h in compressed_qa}
                 remaining_raw = [h for h in raw if id(h) not in qa_ids]
                 for h in remaining_raw:
                     self._append_history_item(messages, h)
+                if restored_msgs:
+                    messages.extend(restored_msgs)
 
-                after_tokens = self._estimate_tokens(messages)
+                after_chars = self._estimate_chars(messages)
                 logger.info(
-                    f"Token 预算压缩: "
-                    f"压缩前 {len(compressed_qa)} 轮/{estimated} token, "
-                    f"压缩后 {after_tokens} token, "
-                    f"节省 {estimated - after_tokens} token, "
+                    f"字符预算压缩: "
+                    f"压缩前 {len(compressed_qa)} 轮/{estimated_chars} chars, "
+                    f"压缩后 {after_chars} chars, "
+                    f"节省 {estimated_chars - after_chars} chars, "
                     f"归档={archive_id}"
                 )
+
+        logger.debug(f"get_history: raw={len(raw)} 条, 总字符 ~{estimated_chars}, "
+                     f"返回 {len(messages)} 条消息")
 
         return messages
 
     @staticmethod
     def _append_history_item(messages: list, h: dict):
         """将一条 history 条目追加到 messages。"""
-        if h.get('type') == 'event':
+        if h.get('type') == 'turn':
+            # 新格式：完整消息序列（含工具调用和结果）
+            turn_msgs = h.get('messages', [])
+            for m in turn_msgs:
+                messages.append(m)
+        elif h.get('type') == 'event':
             tag = IntegratedSystem._event_to_tag(
                 h.get('event_type', ''), h.get('files', [])
             )
@@ -215,21 +188,32 @@ class IntegratedSystem:
             return f"<operation：switch answer style to {new_style}>"
         return ""
 
-    # ── Token 预算与记忆合并（基于 tiktoken） ─────
+    # ── 字符预算与记忆合并 ─────
 
     @staticmethod
-    def _estimate_tokens(messages: list) -> int:
-        """估算消息列表的 token 数（使用 tiktoken）。"""
-        try:
-            from agent.rag_system import _count_message_tokens
-            return sum(_count_message_tokens(m) for m in messages)
-        except Exception:
-            total = 0
-            for m in messages:
-                text = str(m.get("content", "") or "")
-                if text:
-                    total += len(text) // 2
-            return total
+    def _extract_qa_from_entry(h: dict) -> tuple:
+        """从 history 条目中提取用户问题与助手回答（兼容 qa/turn 两种格式）。"""
+        if h.get('type') == 'turn':
+            msgs = h.get('messages', [])
+            user_q = ""
+            assistant_a = ""
+            for m in msgs:
+                if m.get('role') == 'user' and isinstance(m.get('content'), str):
+                    user_q = m['content']
+                elif m.get('role') == 'assistant' and isinstance(m.get('content'), str):
+                    assistant_a = m['content']
+            return user_q, assistant_a
+        return h.get('user', ''), h.get('assistant', '')
+
+    @staticmethod
+    def _estimate_chars(messages: list) -> int:
+        """返回消息列表的总字符数。"""
+        total = 0
+        for m in messages:
+            text = str(m.get("content", "") or "")
+            if text:
+                total += len(text)
+        return total
 
     @staticmethod
     def _pick_consolidation_boundary(qa_entries: list, estimated: int, target: int) -> int | None:
@@ -238,11 +222,11 @@ class IntegratedSystem:
         if need_to_free <= 0:
             return None
         try:
-            from agent.rag_system import _count_tokens
             accumulated = 0
             for i, entry in enumerate(qa_entries[:-2]):
-                text = (entry.get('user', '') or '') + (entry.get('assistant', '') or '')
-                accumulated += _count_tokens(text)
+                q, a = IntegratedSystem._extract_qa_from_entry(entry)
+                text = (q or '') + (a or '')
+                accumulated += len(text)
                 if accumulated >= need_to_free:
                     return i + 1
         except Exception:
@@ -254,8 +238,7 @@ class IntegratedSystem:
         try:
             turns = []
             for h in compressed_qa:
-                q = (h.get('user', '') or '').strip()
-                a = (h.get('assistant', '') or '').strip()
+                q, a = self._extract_qa_from_entry(h)
                 if q or a:
                     turns.append(f"用户: {q[:300]}" if q else "(无问题)")
                     if a:
@@ -286,7 +269,10 @@ class IntegratedSystem:
         except Exception as e:
             logger.warning(f"LLM 摘要生成失败，回退到简单拼接: {e}")
 
-        qs = "；".join(h.get('user', '')[:60] for h in compressed_qa if h.get('user'))
+        qs = "；".join(
+            self._extract_qa_from_entry(h)[0][:60]
+            for h in compressed_qa if self._extract_qa_from_entry(h)[0]
+        )
         return f"（历史摘要：用户之前的问题——{qs}。如需查阅完整历史，请调用 read_archive 工具。）"
 
     # ═══════════════════════════════════════════════
@@ -306,24 +292,25 @@ class IntegratedSystem:
     # ═══════════════════════════════════════════════
 
     def run_agent(self, session_id, question, partition: str = None, style: Optional[str] = None, stream=False, workflow: Optional[str] = None):
-        """使用 AgentLoop 状态机处理用户查询。
+        """处理用户查询，返回答案（非流式）或事件生成器（流式）。
 
-        替代 get_answer / answer_generator 的新入口。
         调用方（API）已持有会话锁。
-        """
-        # 注入持续目标
-        from .tools._infra_handlers import _get_goal_line
-        goal_line = _get_goal_line(session_id)
-        if goal_line:
-            question = question + goal_line
 
+        Args:
+            session_id: 会话 ID
+            question: 用户问题
+            partition: 知识库分区（用户名）
+            style: 回答风格
+            stream: 是否流式
+            workflow: 工作流名称（None=自动）
+        """
+        # 替换直接调用 generate_answer 的旧方式
         if stream:
             return self._run_agent_stream(session_id, question, partition, style, workflow=workflow)
 
         # 非流式
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
-        wf_name = self.rag_qa.workflow_router.match(question)
 
         try:
             answer = self.rag_qa.generate_answer(
@@ -334,6 +321,7 @@ class IntegratedSystem:
                 session_id=session_id,
                 style=style,
                 workflow_name=workflow,
+                data_store=self.data_store,
             )
             logger.debug(f"回答成功 len={len(answer)}")
         except Exception as e:
@@ -343,12 +331,11 @@ class IntegratedSystem:
             log_qa(partition, session_id, question, answer)
             return answer
 
-        self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
         return answer
 
     def _run_agent_stream(self, session_id, question, partition=None, style=None, workflow=None):
-        """流式版本的 run_agent（基于 agent_bus 的 nanobot 模式）。"""
+        """流式版本的 run_agent，使用线程安全队列传递事件。"""
         self._check_style_change(session_id, style)
         history = self.get_history(session_id)
         logger.debug(f"会话 session={session_id}")
@@ -358,7 +345,6 @@ class IntegratedSystem:
 
         def is_cancelled():
             return cancel_event.is_set()
-
 
         def save_cp(phase: str, payload: dict):
             from .checkpoint import Checkpoint
@@ -371,9 +357,8 @@ class IntegratedSystem:
             )
             self.checkpoints.save(session_id, cp)
 
-        # 使用全局 agent_bus（nanobot 模式）
-        from .bus import agent_bus
-        session_queue = agent_bus.get_outbound(session_id)
+        import queue as _queue
+        session_queue = _queue.Queue()
         _DONE = object()
 
         def _worker():
@@ -389,6 +374,7 @@ class IntegratedSystem:
                     cancel_check=is_cancelled,
                     on_checkpoint=save_cp,
                     emit_event=session_queue.put,
+                    data_store=self.data_store,
                 )
                 for _ in gen:
                     pass
@@ -406,7 +392,7 @@ class IntegratedSystem:
             while True:
                 try:
                     ev = session_queue.get(timeout=1)
-                except __import__('queue').Empty:
+                except _queue.Empty:
                     if is_cancelled():
                         yield {"type": "status", "status": "cancelled"}
                         logger.info(f"生成被中断: session={session_id}")
@@ -426,19 +412,16 @@ class IntegratedSystem:
                     ans.append(ev.get("text", ""))
                 yield ev
         finally:
-            from .bus import agent_bus
             self._cancel_events.pop(session_id, None)
             t.join(timeout=2)
-            agent_bus.remove_outbound(session_id)
 
         answer = ''.join(ans)
 
-        # 更新任务
-        self.data_store.insert_session_history(session_id, question, answer)
         log_qa(partition, session_id, question, answer)
         logger.debug(f"回答成功 len={len(answer)}")
+
     def run_cli(self, args):
-        """CLI entry point - æ ¹æ® args.command ååå°å¯¹åºæä½ã"""
+        """CLI entry point - 根据 args.command 分发到对应操作。"""
         if hasattr(args, "session") and args.session:
             session_id = args.session
         else:
@@ -494,3 +477,7 @@ class IntegratedSystem:
             print(f"documents:   {len(docs)}")
             history = self.data_store.get_session_history(session_id)
             print(f"history:     {len(history or [])} rounds")
+
+# ===== 会话历史管理：加载/压缩/归档 =====
+
+# ===== 流式响应转发：worker 线程 + Queue 桥接 =====

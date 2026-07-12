@@ -1,4 +1,3 @@
-# ===== 文件头部文档字符串 =====
 # 这是一个多行字符串（docstring），用来描述这个文件是干什么用的
 """检索结果格式化工具函数。
 
@@ -7,25 +6,21 @@
 如果是图片/图表块且关联了图片路径，则追加 Markdown 图片引用。
 """
 
-# ===== 导入标准库模块 =====
 # 从 Python 标准库的 pathlib 模块导入 Path 类，用于处理文件路径
 from pathlib import Path
 # 从 typing 模块导入 List 类型注解，用来声明函数参数和返回值是列表类型
 from typing import List
 
-# ===== 导入项目内部模块 =====
 # 从 base.logger 包中导入 logger 对象，用于在代码中打印日志
 from base.logger import logger
 # 从 rag.vector_store 模块中导入 Document 类，这是向量检索返回的数据结构
 from rag.vector_store import Document
 
-# ===== 全局常量定义 =====
 # 系统级数据分区名：系统公开文档放在此分区下，对所有用户可见
 # 这是一个字符串常量，用来标记文档属于"系统分区"
 SYSTEM_PARTITION = "__system__"
 
 
-# ===== 核心函数：格式化单个检索块 =====
 def _format_chunk(idx: int, chunk: Document) -> str:
     """
     格式化单个检索块为带元数据的文本。
@@ -104,7 +99,6 @@ def _format_chunk(idx: int, chunk: Document) -> str:
     return f"{header}\n{body}"
 
 
-# ===== 公开函数：格式化所有检索结果为完整上下文 =====
 def format_retrieved_chunks(chunks: List[Document]) -> str:
     """
     将一组检索块拼接为完整上下文文本。

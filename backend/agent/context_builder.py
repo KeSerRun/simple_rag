@@ -37,7 +37,6 @@ from typing import Iterable, Optional, Union  # 类型提示
 from base.logger import logger
 
 # RAG agent 化之后, 答题流程改由 identity + tools 驱动, 没有核心 skill 需要保护
-# CORE_SKILLS 是一个空集合, 表示默认没有任何受保护的 skill
 # 调用者可在初始化时通过 core_skills 参数传入自定义的受保护 skill 集合
 CORE_SKILLS: frozenset = frozenset()
 
@@ -58,7 +57,6 @@ class Skill:
     meta: dict = field(default_factory=dict)  # frontmatter 中所有原始字段的完整副本
 
 
-# 用于匹配 YAML 风格 frontmatter 的正则表达式
 # 以 "---" 开头, 捕获中间元数据块 (group 1), 以及后面的正文 (group 2)
 # re.DOTALL 使 . 能够匹配换行符, 从而跨行匹配
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
@@ -88,12 +86,10 @@ def _coerce_bool(s: str):
     注意: 此函数不会抛出异常, 保证了 frontmatter 解析的健壮性。
     """
     low = s.strip().lower()
-    # 先做布尔关键字的匹配
     if low in ("true", "yes", "on"):
         return True
     if low in ("false", "no", "off"):
         return False
-    # 尝试转为数字
     try:
         if "." in low:
             return float(low)
@@ -145,7 +141,6 @@ def _parse_yaml_block(text: str) -> dict:
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        # 跳过空行和注释行
         if not stripped or stripped.startswith("#"):
             i += 1
             continue
@@ -153,19 +148,15 @@ def _parse_yaml_block(text: str) -> dict:
         if ":" not in line:
             i += 1
             continue
-        # 以第一个 ":" 为分隔, 分割 key 和 value
         key, _, value = line.partition(":")
         key = key.strip()
         value = value.strip()
 
         if value == "|":
             # 多行字面块 (literal block): key: |\n  line1\n  line2
-            # 这种格式用于多行字符串场景,
-            # 后续行以相同的缩进级别延续, 最终合并为一个字符串
             lines_joined = []
             i += 1  # 移动到字面块的第一个内容行
             if i < len(lines):
-                # 通过第一个内容行的缩进量来确定字面块的缩进基准
                 indent = len(lines[i]) - len(lines[i].lstrip())
                 while i < len(lines):
                     nxt = lines[i]
@@ -182,7 +173,6 @@ def _parse_yaml_block(text: str) -> dict:
                     else:
                         # 缩进回退, 表示字面块结束
                         break
-            # 将所有行合并为一个字符串, 用空格连接
             result[key] = " ".join(lines_joined)
 
         elif value:
@@ -327,7 +317,6 @@ class ContextBuilder:
         # 先查找根目录下的扁平布局 .md 文件
         for f in sorted(root.glob("*.md")):
             # 排除嵌套布局的入口文件(SKILL.md/skill.md)和 readme 文件
-            # 这些文件会在子目录遍历时被处理
             if f.name.lower() in ("skill.md", "readme.md"):
                 continue
             yield f, f.stem
@@ -415,7 +404,6 @@ class ContextBuilder:
             return
         existing = self.skills.get(skill.name)
         if existing is not None:
-            # 核心 skill 保护: 只有基线目录才能定义/覆盖核心 skill
             if skill.name in self.core_skills and not is_baseline:
                 logger.warning(
                     f"拒绝覆盖核心 skill '{skill.name}': 仅基线目录可定义, "
@@ -460,23 +448,19 @@ class ContextBuilder:
         if missing:
             raise ValueError(f"skill '{skill}' 缺少变量: {missing}")
 
-        # 执行模板替换
         try:
             user_content = s.template.format(**variables)
         except KeyError as e:
             raise ValueError(f"skill '{skill}' 模板中存在未提供的占位符 {e}") from None
 
         # 决定是否包含 identity (system message)
-        # 调用者可通过 include_identity 参数覆盖 skill 自身的设置
         use_identity = s.include_identity if include_identity is None else include_identity
 
-        # 组装消息列表
         messages: list = []
         if use_identity and self.identity:
             messages.append({"role": "system", "content": self.identity})
         if history:
             messages.extend(history)
-        # user 消息放在最后
         messages.append({"role": "user", "content": user_content})
         return messages
 

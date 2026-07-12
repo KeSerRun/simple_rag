@@ -132,7 +132,12 @@ class Config:
 
         # ===== Conversation History =====
         self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=500)
-        self.context_window_tokens = config.getint('conversation_history', 'context_window_tokens', fallback=32768)
+        # context_window_chars: 上下文窗口字符预算（原 context_window_tokens，移除 tiktoken 后改为字符维度）
+        raw = config.get('conversation_history', 'context_window_chars', fallback=None)
+        if raw is None:
+            raw = config.get('conversation_history', 'context_window_tokens', fallback='32768')
+        self.context_window_chars = int(raw.strip())
+        self.context_window_tokens = self.context_window_chars  # 别名，兼向后兼容
         self.context_input_ratio = config.getfloat('conversation_history', 'context_input_ratio', fallback=0.8)
         self.consolidation_ratio = config.getfloat('conversation_history', 'consolidation_ratio', fallback=0.5)
 
@@ -153,7 +158,12 @@ class Config:
 
         # ===== Agent =====
         self.max_tool_iter = config.getint('agent', 'max_tool_iter', fallback=15)
-        self.max_output_tokens = config.getint('agent', 'max_output_tokens', fallback=8192)
+        # max_output_chars: 输出字符数上限（兼容旧名 max_output_tokens，移除 tiktoken 后统一 chars 维度）
+        raw_out = config.get('agent', 'max_output_chars', fallback=None)
+        if raw_out is None:
+            raw_out = config.get('agent', 'max_output_tokens', fallback='8192')
+        self.max_output_chars = int(raw_out.strip())
+        self.max_output_tokens = self.max_output_chars  # 别名，兼向后兼容
         self.max_tool_result_chars = config.getint('agent', 'max_tool_result_chars', fallback=8000)
         self.eval_max_workers = config.getint('agent', 'eval_max_workers', fallback=3)
         self.parse_workers = config.getint('agent', 'parse_workers', fallback=3)
@@ -224,8 +234,8 @@ class Config:
         # 数值范围
         for name, val, minimum in [
             ("retrieval_top_k", self.retrieval_top_k, 1),
-            ("context_window_tokens", self.context_window_tokens, 1024),
-            ("max_output_tokens", self.max_output_tokens, 128),
+            ("context_window_chars", self.context_window_chars, 1024),
+            ("max_output_chars", self.max_output_chars, 128),
             ("max_tool_result_chars", self.max_tool_result_chars, 256),
             ("max_tool_iter", self.max_tool_iter, 1),
             ("max_user_storage_mb", self.max_user_storage_mb, 1),

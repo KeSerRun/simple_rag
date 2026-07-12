@@ -13,7 +13,6 @@ from typing import Callable, List, Optional
 from base.logger import logger
 from rag.vector_store import VectorStore
 
-
 # ===== ToolContext：工具调用的运行时上下文 =====
 
 @dataclass
@@ -26,7 +25,6 @@ class ToolContext:
     subagent_manager: Optional[object] = None
     workflow_router: Optional[object] = None  # WorkflowRouter 实例
     llm_client: Optional[object] = None  # 复用主 Agent 的 LLM 客户端
-
 
 # ===== ToolDef：单个工具的定义 =====
 
@@ -49,7 +47,6 @@ class ToolDef:
                 "parameters": self.parameters,
             },
         }
-
 
 # ===== ToolRegistry：工具注册中心 =====
 
@@ -207,7 +204,6 @@ class ToolRegistry:
 
         return None
 
-
 # ===== 内建工具注册入口 =====
 
 def register_all_builtins(reg: ToolRegistry) -> None:
@@ -274,14 +270,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     # --- complete_goal ---
     reg.register(
         name="complete_goal",
-        description=(
-            "标记当前目标已完成。当用户确认目标已完成时调用。"
-        ),
-        parameters={
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
+        description=("标记当前目标已完成。当用户确认目标已完成时调用。"),
+        parameters={"type": "object", "properties": {}, "required": []},
         handler=_exec_complete_goal,
         source=__name__,
     )
@@ -636,3 +626,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         handler=_exec_search_document_content,
         source=__name__,
     )
+
+# ===== 工具定义：ToolDef 封装名称/描述/参数/handler =====
+
+# ===== 注册中心：ToolRegistry 管理全部工具的注册/查询/调度 =====
+
+# ===== 工具上下文：ToolContext 携带 session 级别状态 =====

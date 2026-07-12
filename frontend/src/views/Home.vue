@@ -337,8 +337,20 @@ const loadHistoryMessages = async (sessionId) => {
       const newMessages = []
       for (const msg of data.history || []) {
         // 事件条目 (upload/delete) 不在聊天界面渲染, 仅供后端注入 LLM 上下文
-        // 同时防御没有 user/assistant 字段的条目, 避免渲染出空白气泡
         if (msg.type === 'event') continue
+        if (msg.type === 'turn') {
+          // 完整对话回合：从 messages 数组中提取 user/assistant 消息
+          for (const m of msg.messages || []) {
+            if (m.role === 'user') {
+              newMessages.push({ role: 'user', content: m.content || '', _key: nextMsgKey() })
+            } else if (m.role === 'assistant' && !m.tool_calls) {
+              newMessages.push({ role: 'ai', content: m.content || '', _key: nextMsgKey() })
+            }
+            // tool 消息不渲染，仅供 LLM 上下文使用
+          }
+          continue
+        }
+        // 旧格式 qa 对
         if (msg.user == null && msg.assistant == null) continue
         newMessages.push(
           { role: 'user', content: msg.user || '', _key: nextMsgKey() },

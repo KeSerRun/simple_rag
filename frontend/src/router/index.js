@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import Login from '@/views/Login.vue'
 import Register from '@/views/Register.vue'
@@ -38,7 +38,7 @@ const routes = [
 
 // 创建路由实例
 const router = createRouter({
-    history: createWebHistory(),
+    history: createWebHashHistory(),
     routes,
 })
 

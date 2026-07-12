@@ -51,7 +51,6 @@ def _resolve_full_md(filename: str, partition: str | None = None) -> str | None:
     return None
 
 
-# ===== search_knowledge_base =====
 def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: search_knowledge_base
@@ -97,7 +96,6 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
     return formatted
 
 
-# ===== read_full_document =====
 def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: read_full_document
@@ -132,7 +130,6 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
         return f"(读取 {filename} 失败: {e})"
 
 
-# ===== list_documents =====
 def _get_file_stats(filename: str, partition: str | None = None) -> dict:
     """获取文档文件的元信息（大小、修改时间、类型）。"""
     import datetime as _dt
@@ -230,7 +227,6 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     return "当前知识库中的文档：\n" + "\n".join(lines)
 
 
-# ===== read_archive =====
 def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: read_archive
@@ -253,7 +249,6 @@ def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
         return f"(读取归档失败: {e})"
 
 
-# ===== 核心检索去重函数 =====
 def _retrieve_and_dedup(
     vector_store, queries, partition, system_partitions: Optional[list] = None,
 ) -> List[Document]:
@@ -312,7 +307,6 @@ def _retrieve_and_dedup(
     return merged
 
 
-# ===== read_chunk_context =====
 def _exec_read_chunk_context(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: read_chunk_context
@@ -396,7 +390,6 @@ def _exec_read_chunk_context(args: dict, ctx: ToolContext) -> str:
     return output
 
 
-# ===== read_document_titles =====
 def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: read_document_titles
@@ -441,7 +434,6 @@ def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
     return output
 
 
-# ===== read_section =====
 def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: read_section
@@ -539,7 +531,6 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     return section_text
 
 
-# ===== search_document_content =====
 def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
     """
     工具 handler: search_document_content
@@ -554,7 +545,6 @@ def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
 
     logger.debug(f"tool search_document_content keyword={keyword!r} source={source_filter!r}")
 
-    # 获取文档列表
     if not ctx.vector_store:
         return "(知识库不可用)"
 

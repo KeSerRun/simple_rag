@@ -9,61 +9,13 @@ from pathlib import Path
 from base.config import conf
 from .registry import ToolContext
 
-
-# ===== 简单目标存储（模块级 dict，由 IntegratedSystem 读取） =====
-_GOALS: dict[str, dict] = {}
-_GOALS_LOCK = threading.Lock()
-
-
-def _set_goal(session_id: str, goal: str):
-    with _GOALS_LOCK:
-        _GOALS[session_id] = {"goal": goal, "status": "active"}
-
-
-def _complete_goal(session_id: str):
-    with _GOALS_LOCK:
-        _GOALS[session_id] = {"goal": "", "status": "completed"}
-
-
-def _get_goal_line(session_id: str) -> str:
-    with _GOALS_LOCK:
-        data = _GOALS.get(session_id)
-    if data and data.get("status") == "active" and data.get("goal"):
-        return f"\n当前目标：{data['goal']}"
-    return ""
-
-
 # ===== ask_user_for_clarification（虚拟工具） =====
 def _exec_ask_clarification(args: dict, ctx: ToolContext) -> str:
-    """
-    虚拟工具 handler: ask_user_for_clarification
-    外部 agent 循环检测到此工具被调用时，不会执行 handler，
-    直接将 question 返回给用户并中止自动生成。
-    """
     question = args.get("question", "需要您提供更多信息。")
     return question
 
-
-# ===== set_goal =====
-def _exec_set_goal(args: dict, ctx: ToolContext) -> str:
-    """设置会话的持续目标。目标信息会持续注入 system prompt。"""
-    goal = (args.get("goal") or "").strip()
-    if not goal:
-        return "(未提供 goal 参数)"
-    _set_goal(ctx.session_id or "", goal)
-    return f"(目标已设置：{goal})"
-
-
-# ===== complete_goal =====
-def _exec_complete_goal(args: dict, ctx: ToolContext) -> str:
-    """完成当前目标。"""
-    _complete_goal(ctx.session_id or "")
-    return "(当前目标已完成)"
-
-
 # ===== my（内省工具，类比 nanobot MyTool） =====
 def _exec_my(args: dict, ctx: ToolContext) -> str:
-    """查看当前会话的运行时状态和配置。"""
     action = args.get("action", "check")
     key = args.get("key", "")
 
@@ -74,8 +26,8 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
         lines = ["=== 当前状态 ==="]
         lines.append(f"模型: {conf.chat_model}")
         lines.append(f"最大迭代: {conf.max_tool_iter}")
-        lines.append(f"上下文窗口: {conf.context_window_tokens}")
-        lines.append(f"输出 Token 上限: {conf.max_output_tokens}")
+        lines.append(f"上下文窗口: {conf.context_window_chars} 字符")
+        lines.append(f"输出字符上限: {conf.max_output_chars}")
         lines.append(f"检索 Top-K: {conf.retrieval_top_k}")
         lines.append(f"搜索后端: {conf.search_backend}")
         lines.append("")
@@ -86,19 +38,14 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
             for name, cnt in sorted(counts.items(), key=lambda x: -x[1]):
                 lines.append(f"  {name}: {cnt}")
 
-        goal = _get_goal_line(ctx.session_id or "")
-        if goal:
-            lines.append("")
-            lines.append(f"目标: {goal.strip()}")
-
         return "\n".join(lines)
 
     elif action == "check" and key:
         key_map = {
             "model": ("chat_model", conf.chat_model),
             "max_iterations": ("max_tool_iter", conf.max_tool_iter),
-            "context_window": ("context_window_tokens", conf.context_window_tokens),
-            "max_tokens": ("max_output_tokens", conf.max_output_tokens),
+            "context_window": ("context_window_chars", conf.context_window_chars),
+            "max_tokens": ("max_output_chars", conf.max_output_chars),
             "retrieval_top_k": ("retrieval_top_k", conf.retrieval_top_k),
         }
         if key in key_map:
@@ -115,9 +62,66 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
         with mgr._lock:
             statuses = dict(mgr._status)
 
+    return "(未知 action)"
+
+# ===== set_goal =====
+_GOAL_KEY = "_goals"
+_GOAL_CACHE: dict[str, dict] = {}  # 内存缓存,避免每次读文件
+
+
+def _exec_set_goal(args: dict, ctx: ToolContext) -> str:
+    """设置会话持续目标，通过 data_store 持久化。"""
+    goal = (args.get("goal") or "").strip()
+    if not goal:
+        return "(未提供 goal 参数)"
+    sid = ctx.session_id or ""
+    entry = {"goal": goal, "status": "active"}
+    _GOAL_CACHE[sid] = entry
+    if ctx.data_store:
+        tasks = ctx.data_store.get_session_tasks(sid) or {}
+        goals = tasks.get(_GOAL_KEY, {})
+        goals[sid] = entry
+        tasks[_GOAL_KEY] = goals
+        ctx.data_store.save_session_tasks(sid, tasks)
+    return f"(目标已设置：{goal})"
+
+
+def _exec_complete_goal(args: dict, ctx: ToolContext) -> str:
+    """完成当前目标。"""
+    sid = ctx.session_id or ""
+    if sid in _GOAL_CACHE:
+        _GOAL_CACHE[sid]["status"] = "completed"
+    if ctx.data_store:
+        tasks = ctx.data_store.get_session_tasks(sid) or {}
+        goals = tasks.get(_GOAL_KEY, {})
+        if sid in goals:
+            goals[sid] = {"goal": "", "status": "completed"}
+            tasks[_GOAL_KEY] = goals
+            ctx.data_store.save_session_tasks(sid, tasks)
+    return "(当前目标已完成)"
+
+
+def _get_goal_line(sid: str, data_store) -> str:
+    """读取当前活跃目标文本（优先走内存缓存）。"""
+    if sid in _GOAL_CACHE:
+        g = _GOAL_CACHE[sid]
+        if g.get("status") == "active" and g.get("goal"):
+            return f"\n当前目标：{g['goal']}"
+    if not data_store or not sid:
+        return ""
+    try:
+        tasks = data_store.get_session_tasks(sid) or {}
+        goals = tasks.get(_GOAL_KEY, {})
+        g = goals.get(sid)
+        if g and g.get("status") == "active" and g.get("goal"):
+            _GOAL_CACHE[sid] = g
+            return f"\n当前目标：{g['goal']}"
+    except Exception:
+        pass
+    return ""
+
 # ===== read_workflow（渐进式加载工作流） =====
 def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
-    """读取工作流的完整分步指令。"""
     name = (args.get("name") or "").strip()
     if not name:
         return "(未提供 name 参数)"
@@ -129,10 +133,8 @@ def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
         return f"(未找到工作流: {name})"
     return f"工作流：{name}\n\n{content}"
 
-
 # ===== read_tool_result =====
 def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
-    """读取被持久化的工具结果完整内容。支持 offset 分段读取。"""
     filename = (args.get("filename") or "").strip()
     if not filename:
         return "(未提供 filename 参数)"
@@ -140,7 +142,6 @@ def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
     base = Path(conf.data_dir) / "json_store" / "tool_results"
     target = None
 
-    # 先在根目录找
     try:
         t = (base / filename).resolve()
         t.relative_to(base.resolve())
@@ -149,7 +150,6 @@ def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
     except (ValueError, OSError):
         pass
 
-    # 没找到时搜索 session 子目录
     if target is None:
         for session_dir in base.iterdir():
             if not session_dir.is_dir():
@@ -182,3 +182,11 @@ def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
         return chunk + part_info
     except Exception as e:
         return f"(读取失败: {e})"
+
+# ===== 内省工具：my（查看状态）、ask_user_for_clarification（向用户追问） =====
+
+# ===== 目标管理：set_goal / complete_goal（通过 data_store 持久化） =====
+
+# ===== 工作流读取：read_workflow（渐进式加载完整指令） =====
+
+# ===== 工具结果追溯：read_tool_result（分段读取持久化的工具输出） =====

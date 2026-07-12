@@ -154,7 +154,7 @@ def _write_config_ini(updates: dict) -> bool:
         "search_timeout": ("search", "timeout"),                 # 搜索请求超时时间
         # 对话历史相关配置
         "max_history_length": ("conversation_history", "max_history_length"), # 对话历史最大条数
-        "context_window_tokens": ("conversation_history", "context_window_tokens"), # 上下文窗口(token)
+        "context_window_chars": ("conversation_history", "context_window_chars"), # 上下文窗口(字符)
         "consolidation_ratio": ("conversation_history", "consolidation_ratio"), # 压缩触发比例
         # 日志相关配置
         "log_path": ("logger", "log_path"),                     # 日志文件存放路径

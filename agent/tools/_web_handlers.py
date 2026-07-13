@@ -115,7 +115,7 @@ def _validate_url_chain(initial_url: str) -> tuple[str | None, str | None]:
     current = initial_url.strip(" \t\r\n`\"'")
     seen = set()
 
-    for step in range(_MAX_REDIRECTS + 1):
+    for _ in range(_MAX_REDIRECTS + 1):
         err = _validate_url_target(current)
         if err:
             return None, err
@@ -222,7 +222,7 @@ def _fetch_url(target: str) -> tuple:
     current = target
     seen = set()
 
-    for step in range(_MAX_REDIRECTS + 1):
+    for _ in range(_MAX_REDIRECTS + 1):
         err = _validate_url_target(current)
         if err:
             return None, err
@@ -388,23 +388,6 @@ def _try_raw_html(url: str) -> str | None:
                 super().__init__()
                 self._text = []
                 self._skip = False
-
-            def handle_starttag(self, tag, attrs):
-                """遇到开始标签时，判断是否进入跳过模式。"""
-                if tag in ("script", "style"):
-                    self._skip = True
-
-            def handle_endtag(self, tag):
-                """遇到结束标签时，退出跳过模式或在块级标签后插入换行。"""
-                if tag in ("script", "style"):
-                    self._skip = False
-                if tag in ("p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "div"):
-                    self._text.append("\n")
-
-            def handle_data(self, data):
-                """处理非跳过模式下的文本数据。"""
-                if not self._skip:
-                    self._text.append(data.strip())
 
             def get_text(self) -> str:
                 """返回提取的完整文本。"""

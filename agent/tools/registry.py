@@ -40,7 +40,6 @@ class ToolContext:
     data_store: Optional[object] = None
     session_id: str = ""
     workflow_router: Optional[object] = None
-    llm_client: Optional[object] = None
 
 
 @dataclass
@@ -137,14 +136,6 @@ class ToolRegistry:
         """
         return [t.schema for t in self._tools.values()]
 
-    @property
-    def tool_names(self) -> List[str]:
-        """获取所有已注册工具的名称列表。
-
-        Returns:
-            工具名字符串列表。
-        """
-        return list(self._tools.keys())
 
     def get(self, name: str) -> Optional[ToolDef]:
         """根据工具名称查找已注册的工具定义。

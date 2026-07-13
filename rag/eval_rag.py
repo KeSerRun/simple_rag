@@ -56,15 +56,6 @@ def load_test_queries(path: str = _QUERIES_FILE) -> List[str]:
     return queries
 
 
-def get_queries_file_path() -> str:
-    """返回测试查询文件路径。
-
-    Returns:
-        常量 _QUERIES_FILE 的路径字符串。
-    """
-    return _QUERIES_FILE
-
-
 def save_test_queries(queries: List[str], path: str = _QUERIES_FILE) -> None:
     """保存测试查询列表到外部 JSON 文件。
 

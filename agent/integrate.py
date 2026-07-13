@@ -46,18 +46,6 @@ class IntegratedSystem:
             event.set()
             logger.info(f"已发送中断信号: session={session_id}")
 
-    def _is_cancelled(self, session_id: str) -> bool:
-        """检查指定会话是否被要求中断。
-
-        Args:
-            session_id: 会话 ID。
-
-        Returns:
-            如果该会话已被标记为中断，返回 True。
-        """
-        event = self._cancel_events.get(session_id)
-        return event is not None and event.is_set()
-
 
 
     # ── 会话历史管理 ──
@@ -120,8 +108,6 @@ class IntegratedSystem:
             boundary = self._pick_consolidation_boundary(qa_entries, estimated_chars, target)
             if boundary:
                 compressed_qa = qa_entries[:boundary]
-                remaining_qa = qa_entries[boundary:]
-
                 summary_text = self._build_consolidated_summary(compressed_qa)
 
                 archive_id = self.data_store.insert_archive(

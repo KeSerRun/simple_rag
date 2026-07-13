@@ -49,7 +49,6 @@ class AgentState:
     session_id: str = "default"
     partition: Optional[str] = None
     style: Optional[str] = None
-    tool_exhausted: bool = False
     system_msg: str = ""
 
     def should_continue(self) -> bool:

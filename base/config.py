@@ -108,7 +108,7 @@ class Config:
     Attributes:
         data_dir: 数据存储根目录。
         vector_store_dir: 向量索引文件目录。
-        storage_backend: 持久化存储后端类型（如 'json'）。
+
         retrieval_top_k: 检索返回 Top-K 条数。
         candidate_top_k: 检索候选集大小。
         min_chunk_length: 最短分块字符数。
@@ -132,7 +132,7 @@ class Config:
         chat_reasoning_effort: 推理模型 effort 参数。
         max_history_length: 最大对话历史轮数。
         context_window_chars: 上下文窗口字符数上限。
-        context_window_tokens: 上下文窗口 token 数上限。
+
         context_input_ratio: 输入占用上下文窗口的比例。
         consolidation_ratio: 历史合并触发比例。
         search_backend: 搜索后端类型（如 'duckduckgo'）。
@@ -199,7 +199,7 @@ class Config:
         # ── 存储配置 ──
         self.data_dir = get_file(config, 'storage', 'data_dir')
         self.vector_store_dir = get_file(config, 'storage', 'vector_store_dir')
-        self.storage_backend = _strip_quotes(config.get('storage', 'backend', fallback='json'))
+
 
         # ── 检索配置 ──
         self.retrieval_top_k = config.getint('retrieval', 'retrieval_top_k', fallback=10)
@@ -250,11 +250,8 @@ class Config:
 
         # ── 对话历史配置 ──
         self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=500)
-        raw = config.get('conversation_history', 'context_window_chars', fallback=None)
-        if raw is None:
-            raw = config.get('conversation_history', 'context_window_tokens', fallback='32768')
+        raw = config.get('conversation_history', 'context_window_chars', fallback='32768')
         self.context_window_chars = int(raw.strip())
-        self.context_window_tokens = self.context_window_chars
         self.context_input_ratio = config.getfloat('conversation_history', 'context_input_ratio', fallback=0.8)
         self.consolidation_ratio = config.getfloat('conversation_history', 'consolidation_ratio', fallback=0.5)
 

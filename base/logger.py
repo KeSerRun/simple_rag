@@ -155,26 +155,8 @@ def log_qa(username: str, session_id: str, question: str, answer: str):
     )
 
 
-def batch_configure_loggers(level=logging.WARNING, propagate=False):
-    """批量配置第三方日志器的级别和传播行为。
-
-    保护 'RAGLogger' / 'HTTPLogger' / 'UserLogger' 不被修改，
-    其余日志器统一设置为指定级别。
-
-    Args:
-        level: 日志级别，默认 WARNING。
-        propagate: 是否向上传播，默认 False。
-    """
-    _protected = {'RAGLogger', 'HTTPLogger', 'UserLogger'}
-    manager = logging.Logger.manager
-    for name, logger_obj in manager.loggerDict.items():
-        if isinstance(logger_obj, logging.Logger):
-            if logger_obj.name not in _protected:
-                logger_obj.propagate = propagate
-                logger_obj.level = level
 
 
-if __name__ == "__main__":
     logger.debug("这是一个调试日志")
     logger.info("这是一个信息日志")
     logger.warning("这是一个警告日志")

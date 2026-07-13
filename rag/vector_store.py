@@ -40,26 +40,6 @@ class Document:
     metadata: dict = field(default_factory=dict)
 
 
-class _BaseLoader:
-    """轻量 BaseLoader 基类。"""
-
-    def lazy_load(self) -> Iterator[Document]:
-        """惰性加载文档。
-
-        Yields:
-            Document 实例。
-        """
-        raise NotImplementedError
-
-    def load(self) -> List[Document]:
-        """立即加载所有文档。
-
-        Returns:
-            Document 列表。
-        """
-        return list(self.lazy_load())
-
-
 # ── 向量存储 ──────────────────────────────────────────────────────
 
 

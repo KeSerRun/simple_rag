@@ -24,38 +24,6 @@ from rag.vector_store import Document
 
 from .registry import ToolContext
 
-# ── 文档路径解析 ──
-
-
-def _resolve_document_path(filename: str, partition: str | None = None, search_system: bool = True) -> str | None:
-    """统一的文档 chunk 文件路径解析，包含路径穿越防护。
-
-    在用户分区和（可选）系统分区的 chunk_out 目录下查找指定文件名的文件。
-
-    Args:
-        filename: 文件名（含扩展名）。
-        partition: 用户分区名。
-        search_system: 是否同时在系统分区下搜索。
-
-    Returns:
-        解析后的绝对路径字符串，未找到时返回 None。
-    """
-    stem = Path(filename).stem
-    base = Path(conf.data_dir) / "uploads"
-    candidates = [base / (partition or "") / "chunk_out" / stem]
-    if search_system and partition and partition != "__system__":
-        candidates.append(base / "__system__" / "chunk_out" / stem)
-    for path in candidates:
-        try:
-            r = path.resolve()
-            r.relative_to(base.resolve())
-            if r.is_file():
-                return str(r)
-        except (ValueError, OSError):
-            continue
-    return None
-
-
 from ._format import SYSTEM_PARTITION, format_retrieved_chunks
 
 
@@ -615,7 +583,7 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     heading_lower = heading.lower()
     best_match = None
     best_score = 0
-    for idx, (line_idx, level, text) in enumerate(heading_positions):
+    for idx, (_, level, text) in enumerate(heading_positions):
         text_lower = text.lower()
         if heading_lower in text_lower:
             score = len(heading) / len(text) if text else 0
@@ -624,7 +592,7 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
                 best_match = idx
 
     if best_match is None:
-        for idx, (line_idx, level, text) in enumerate(heading_positions):
+        for idx, (_, level, text) in enumerate(heading_positions):
             text_lower = text.lower()
             for kw in heading_lower.split():
                 if len(kw) > 1 and kw in text_lower:

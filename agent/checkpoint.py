@@ -22,12 +22,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 from base.logger import logger
-
-
-CHECKPOINT_KEY = "_agent_checkpoint"
 
 
 # ──

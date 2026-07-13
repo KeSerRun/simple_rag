@@ -13,7 +13,7 @@ import time
 import uuid
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterator, Optional, TYPE_CHECKING
+from typing import Iterator, Optional, TYPE_CHECKING
 
 import requests
 
@@ -169,7 +169,6 @@ class MinerUClient:
         start = time.time()
         url = f"{self._base}/extract-results/batch/{batch_id}"
         last_heartbeat = -1
-        first_data_ts: float | None = None
 
         while True:
             body = self._get(url)

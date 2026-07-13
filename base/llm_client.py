@@ -90,38 +90,6 @@ class OpenAIClient:
             return f"模型不存在或不可用，请检查模型名称配置。"
         return f"LLM 调用失败: {e}"
 
-    # ── 聊天（带重试） ────────────────────────────────────────────
-
-    def chat_with_retry(self, **kwargs):
-        """带重试和错误分类的 chat 调用。
-
-        自动重试 429 和 5xx 错误最多 2 次。
-
-        Args:
-            **kwargs: 透传给 chat() 的参数。
-
-        Returns:
-            chat() 的返回结果，或重试耗尽后的错误描述字符串。
-        """
-        from time import sleep
-        max_attempts = 3
-        last_error = None
-        for attempt in range(max_attempts):
-            try:
-                return self.chat(**kwargs)
-            except Exception as e:
-                cls = self.classify_error(e)
-                last_error = cls
-                msg = str(e)
-                if "429" in msg or "500" in msg or "502" in msg or "503" in msg:
-                    if attempt < max_attempts - 1:
-                        wait = 2 ** attempt
-                        logger.warning(f"API 错误, {wait}秒后重试 ({attempt+1}/{max_attempts}): {cls}")
-                        sleep(wait)
-                        continue
-                return f"({cls})"
-        return f"({last_error})"
-
     # ── 聊天 ──────────────────────────────────────────────────────
 
     def chat(

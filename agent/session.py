@@ -71,14 +71,4 @@ class SessionLockManager:
                 self._locks[session_id] = threading.Lock()
             return self._locks[session_id]
 
-    def remove_lock(self, session_id: str):
-        """移除指定会话的锁，释放资源。
 
-        在会话结束后调用此方法清理，避免锁字典无限增长。
-        如果会话不存在，静默忽略。
-
-        Args:
-            session_id: 要清理的会话标识
-        """
-        with self._global_lock:
-            self._locks.pop(session_id, None)

@@ -414,8 +414,6 @@ async def upload_system_data(request: Request, files: list[UploadFile] = File(..
         HTTPException 400: 未提供文件。
         HTTPException 500: 接收失败。
     """
-    from rag.vector_store import process_documents_from_dir
-
     if not files:
         raise HTTPException(status_code=400, detail="未提供文件")
 

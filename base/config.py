@@ -423,6 +423,3 @@ class Config:
 
 conf = Config()
 
-if __name__ == "__main__":
-    from rich import print
-    print(conf.__dict__)

@@ -1,23 +1,11 @@
 """管理后台 API:仪表盘 / 配置 / 用户管理 / 日志 / 数据库"""
 
-
-import glob
-import json
 import os
-import time
-import uuid as _uuid
-from datetime import datetime
-from pathlib import Path
 
-
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
-
+from fastapi import APIRouter
 
 from base.config import conf
 from base.logger import logger
-
-from ..deps import admin_required, auth_required, system
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 

@@ -290,8 +290,6 @@ async def upload_file(
 
         filenames = []
 
-        import os
-
         for file in files:
             content = await file.read()
 
@@ -373,8 +371,6 @@ async def upload_embeddings(
     files_data = []
 
     total_upload_bytes = 0
-
-    import os
 
     for file in files:
         content = await file.read()
@@ -493,8 +489,6 @@ async def get_storage_info(request: Request):
         username = request.state.user["username"]
 
         role = request.state.user.get("role", "user")
-
-        from .deps import check_user_storage_limit
 
         ok, current_mb, max_mb = check_user_storage_limit(username, role)
 

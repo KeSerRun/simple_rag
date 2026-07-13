@@ -154,10 +154,3 @@ def log_qa(username: str, session_id: str, question: str, answer: str):
         f"A: {answer}"
     )
 
-
-
-
-    logger.debug("这是一个调试日志")
-    logger.info("这是一个信息日志")
-    logger.warning("这是一个警告日志")
-    logger.error("这是一个错误日志")

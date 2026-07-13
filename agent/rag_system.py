@@ -20,7 +20,7 @@ from typing import Callable, List, Optional
 # —— 配置与日志 ——  （这两个是项目自己的基础模块）
 from base.config import conf          # 全局配置（模型名、超时、token 限制等）
 # conf 是一个全局配置对象，里面保存了所有模型名称、API 密钥、超时时间等配置项
-from base.logger import logger        # 结构化日志
+from base.logger import logger, log_llm_input        # 结构化日志
 # logger 是项目的日志工具，用于在控制台输出带时间戳和级别的日志信息
 
 # —— RAG 核心组件 ——  （RAG 系统的三个核心模块）
@@ -47,44 +47,8 @@ _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 这行代码通过两次 dirname 从当前文件路径向上跳两级，得到 backend/ 目录的绝对路径
 # 比如：文件在 backend/agent/rag_system.py → 得到 backend/
 
-# 输入日志（每次调 LLM 的完整 messages）
-_input_log_path = os.path.join(_BACKEND_ROOT, "logs", "input.log")
-# 这行代码拼接出日志文件的完整路径：backend/logs/input.log
-# 每次调用 LLM 时，发送给 LLM 的消息都会记录到这个日志文件，方便调试
-
-# 确保日志目录在启动时已创建，与 base/logger.py 中 app.log/http.log/user.log 保持一致
-os.makedirs(os.path.dirname(_input_log_path), exist_ok=True)
-
 
 # ===== 日志记录辅助函数 =====
-def _log_input(messages: list, round: int = 0, suffix: str = ""):
-    """将 messages 追加到 input.log。suffix 用于区分不同阶段的日志。"""
-    # 这个函数的作用是把 messages 写入 input.log 文件
-    # messages 参数是发送给 LLM 的消息列表
-    # round 参数表示当前的轮次
-    # suffix 参数是一个后缀标识，比如 "_sent" 表示实际发送的（可能被截断后的）消息
-
-    import json as _json, datetime as _dt  # 导入 JSON 模块（用于序列化数据）和 datetime 模块（用于获取当前时间）
-    # 在函数内部导入，避免模块级别的命名冲突（加下划线前缀表示内部使用）
-
-    try:  # 用 try 包裹，防止日志写入失败影响主流程
-        os.makedirs(os.path.dirname(_input_log_path), exist_ok=True)  # 确保 logs/ 目录存在，如果不存在就自动创建
-        # os.makedirs 会递归创建目录，exist_ok=True 表示目录已存在时不报错
-
-        with open(_input_log_path, "a", encoding="utf-8") as _f:  # 以追加模式（a）打开日志文件，编码用 UTF-8
-            tag = f" round={round}{suffix}" if suffix else f" round={round}"  # 构造日志标签，比如 " round=1_sent"
-            # 如果有 suffix，标签就是 " round=1_sent"；没有就是 " round=1"
-
-            _f.write(f"\n=== {_dt.datetime.now().isoformat()}{tag} ===\n")  # 写入分隔行，包含当前时间和轮次信息
-            # 例：=== 2026-07-08T10:30:00.123456 round=1_sent ===
-
-            _f.write(_json.dumps(messages, ensure_ascii=False, indent=2))  # 把消息列表转为格式化的 JSON 字符串写入文件
-            # ensure_ascii=False 表示中文不会被转义成 \uXXXX
-            # indent=2 表示 JSON 缩进 2 个空格，方便阅读
-
-            _f.write("\n")  # 末尾加一个换行，分隔不同的日志记录
-    except Exception:
-        pass
 
 
 # ===== 字符数估算 =====
@@ -397,33 +361,16 @@ class RAGSystem:
     def _govern_context(self, messages: List[dict]) -> List[dict]:
         """上下文治理流水线：在每次调用 LLM 前清理消息列表。
 
-        4 步治理：
-          1. 丢弃孤立 tool_result（没有对应 assistant tool_calls 的）
-          2. 补充缺失 tool_result（有 tool_calls 但没有结果的）
-          3. 预算控制：截断超过上限的工具结果
-          4. 历史裁剪：按 token 预算从最早的消息开始丢弃
+        3 步治理：
+          1. 补充缺失 tool_result（有 tool_calls 但没有结果的，中断恢复场景）
+          2. 预算控制：截断超过上限的工具结果
+          3. 历史裁剪：按字符预算从最早的消息开始丢弃
         """
-        # ── 1. 收集所有活跃的 tool_call ID ──
-        active_ids = set()
-        for m in messages:
-            if m.get("role") == "assistant" and "tool_calls" in m:
-                for tc in m["tool_calls"]:
-                    if isinstance(tc, dict):
-                        active_ids.add(tc.get("id", ""))
+        governed = list(messages)
 
-        # ── 2. 过滤消息 ──
-        governed = []
-        for m in messages:
-            role = m.get("role", "")
-            # 丢弃孤立 tool_result（不在活跃 ID 中的）
-            if role == "tool" and m.get("tool_call_id"):
-                if m["tool_call_id"] not in active_ids:
-                    continue
-            governed.append(m)
-
-        # ── 3. Backfill：补充缺失的 tool_result ──
-        # 如果 assistant 有 tool_calls 但没有对应的 tool 消息（中断场景），
-        # 注入合成错误结果，防止 LLM 以为工具还没执行
+        # ── 1. Backfill：补充缺失的 tool_result ──
+        # 中断恢复场景：assistant 有 tool_calls 但没有对应的 tool 消息，
+        # 注入合成结果防止 LLM 以为工具还没执行
         backfill_needed = {}
         for m in governed:
             if m.get("role") == "assistant" and "tool_calls" in m:
@@ -432,12 +379,10 @@ class RAGSystem:
                     if tc_id:
                         backfill_needed[tc_id] = tc
 
-        # 移除已有结果的 ID
         for m in governed:
             if m.get("role") == "tool" and m.get("tool_call_id"):
                 backfill_needed.pop(m["tool_call_id"], None)
 
-        # 为剩余未完成的调用补结果
         for tc_id, tc in backfill_needed.items():
             tc_name = tc.get("name", "") if isinstance(tc, dict) else ""
             governed.append({
@@ -449,7 +394,7 @@ class RAGSystem:
         logger.debug(f"_govern_context: 输入 {len(messages)} 条消息, "
                      f"backfill={len(backfill_needed)} 条")
 
-        # ── 4. Tool Result Budget：单个工具结果上限（默认 8000 字符） ──
+        # ── 2. Tool Result Budget：单个工具结果上限 ──
         MAX_TOOL_CHARS = conf.max_tool_result_chars
         for i, m in enumerate(governed):
             if m.get("role") == "tool":
@@ -460,7 +405,7 @@ class RAGSystem:
                     governed[i]["content"] = truncated + "\n\n...(工具结果过长，已截断)..."
                     logger.debug(f"工具结果预算截断: {len(content)} → {MAX_TOOL_CHARS} 字符")
 
-        # ── 5. 调用截断方法做最终裁剪 ──
+        # ── 3. 调用截断方法做最终裁剪 ──
         return self._truncate_messages(governed)
 
     # ===== 上下文窗口裁剪 =====
@@ -557,7 +502,7 @@ class RAGSystem:
             truncated_messages = self._govern_context(state.messages)  # 上下文治理：去孤/压缩/裁剪
 
             # 记录每轮发送给 LLM 的输入日志
-            _log_input(truncated_messages, round=state.iteration, suffix="_sent")
+            log_llm_input(truncated_messages, round=state.iteration, suffix="_sent")
 
             # —— 1. 调用 LLM ——
             total_chars = sum(len(str(m.get("content", "") or "")) for m in truncated_messages)
@@ -765,7 +710,7 @@ class RAGSystem:
             truncated_messages = self._govern_context(state.messages)  # 上下文治理：去孤/压缩/裁剪
 
             # 记录实际发送给 LLM 的输入（截断后）
-            _log_input(truncated_messages, round=it, suffix="_sent")  # 记录实际发送的消息到日志
+            log_llm_input(truncated_messages, round=it, suffix="_sent")  # 记录实际发送的消息到日志
 
             # —— 1. 流式调用 LLM ——
             total_chars = sum(len(str(m.get("content", "") or "")) for m in truncated_messages)

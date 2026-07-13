@@ -27,8 +27,8 @@ from .state import AgentState
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-# ── RAG 系统核心 ──
-class RAGSystem:
+# ── 工具循环 ──
+class ToolLoop:
     """RAG 系统核心入口，管理 LLM 客户端、向量库、工具注册表和工作流路由。
 
     整体流程:
@@ -44,81 +44,40 @@ class RAGSystem:
 
     def __init__(
         self,
-        chat_model: Optional[str] = None,
-        embedding_model: Optional[str] = None,
-        embedding_dim: Optional[int] = None,
+        chat_client: OpenAIClient,
+        embed_client: OpenAIClient,
         data_store: Optional[object] = None,
+        vector_store: VectorStore = None,
     ):
         """初始化 RAGSystem 实例。
 
         创建 LLM 客户端、向量库、上下文构建器和工作流路由器。
+        所有模型配置直接从全局配置读取。
 
         Args:
-            chat_model: 聊天模型名称，默认使用配置中的 chat_model。
-            embedding_model: 嵌入模型名称，默认使用配置中的 openai_embedding_model。
-            embedding_dim: 嵌入向量维度，默认使用配置中的 openai_embedding_dim。
+            chat_client: 对话客户端实例。
+            embed_client: 词嵌入客户端实例。
             data_store: 数据存储实例。
+            vector_store: 向量库实例。
         """
-        self.chat_model = chat_model or conf.chat_model
-        self.embedding_model = embedding_model or conf.openai_embedding_model
-        self.embedding_dim = embedding_dim or conf.openai_embedding_dim
+        self.chat_client = chat_client
+        self.embed_client = embed_client
         self.data_store = data_store
-
+        self.vector_store = vector_store
         self.skill_loader = SkillLoader(os.path.join(_BACKEND_ROOT, "prompts", "style"))
         self.workflow_router = WorkflowRouter(os.path.join(_BACKEND_ROOT, "prompts", "workflow"))
-
-        self.client = OpenAIClient(
-            api_key=conf.openai_api_key,
-            base_url=conf.openai_base_url,
-            timeout=conf.openai_timeout,
-            max_retries=conf.openai_max_retries,
-        )
-
-        if conf.embedding_api_key == conf.openai_api_key and conf.embedding_base_url == conf.openai_base_url:
-            self.embed_client = self.client
-            logger.debug("Embedding 端与 chat 端共用同一 OpenAI 客户端")
-        else:
-            self.embed_client = OpenAIClient(
-                api_key=conf.embedding_api_key,
-                base_url=conf.embedding_base_url,
-                timeout=conf.openai_timeout,
-                max_retries=conf.openai_max_retries,
-            )
-            logger.debug(f"Embedding 端使用独立客户端: base_url={conf.embedding_base_url}")
-
-        self.vector_store = VectorStore(
-            client=self.embed_client,
-            embedding_model=self.embedding_model,
-            embedding_dim=self.embedding_dim,
-        )
-
-        self.workflow_router = WorkflowRouter(
-            os.path.join(_BACKEND_ROOT, "prompts")
-        )
-
-        logger.info(
-            f"RAG agent 就绪, chat_model={self.chat_model}, "
-            f"工具={[t['function']['name'] for t in registry.schemas]}"
-        )
-
-        if conf.mineru_api_key:
-            tok_preview = f"{conf.mineru_api_key[:12]}...({conf.mineru_token_name})"
-            logger.debug(f"PDF 解析: MinerU {conf.mineru_model_version}/{conf.mineru_language} token={tok_preview}")
-        else:
-            logger.debug("PDF 解析: OCRPDFLoader (MinerU token 未配置)")
-
+        self.chat_model = conf.chat_model
 
     def _build_system_message(
         self,
         style: Optional[str] = None,
+        workflow_name: Optional[str] = None,
     ) -> str:
-        """构造 system message: identity + 可选回答风格。
-
-        style 为 None / "style-default" 时跳过风格注入。
-        文档清单不再注入 system message，LLM 通过 list_documents 工具按需获取。
+        """构造 system message: identity + 可选回答风格 + 可选工作流。
 
         Args:
-            style: 回答风格模板名称。None 或 "style-default" 时跳过风格注入。
+            style: 回答风格模板名称。
+            workflow_name: 工作流名称，None 或 "__auto__" 时加载摘要列表。
 
         Returns:
             拼接后的 system message 字符串。
@@ -130,11 +89,27 @@ class RAGSystem:
         _tz = _time.tzname
         parts.append(f"\n当前日期: {_dt.now().strftime('%Y年%m月%d日 %A %H:%M')} (时区: {_tz[0] if _tz else 'UTC'})")
 
-
         if style and style != "style-default":
             skill = self.skill_loader.skills.get(style)
             if skill and skill.template:
                 parts.append(f"\n\n{skill.template}")
+
+        wf_name = workflow_name if workflow_name and workflow_name != "__auto__" else None
+        if wf_name:
+            wf_content = self.workflow_router.get_workflow_content(wf_name)
+            if wf_content:
+                parts.append(f"\n\n---\n# 工作流: {wf_name}\n{wf_content}")
+                logger.info(f"工作流已加载: {wf_name}")
+            else:
+                logger.warning(f"工作流 '{wf_name}' 未找到")
+        else:
+            wf_summaries = self.workflow_router.get_workflow_summaries()
+            if wf_summaries:
+                parts.append(
+                    f"\n\n---\n# 工作流\n"
+                    f"{wf_summaries}\n"
+                    f"如需加载完整工作流指令，请调用 read_workflow 工具。"
+                )
         return "".join(parts)
 
 
@@ -206,24 +181,8 @@ class RAGSystem:
 
         system_msg = self._build_system_message(
             style=style,
+            workflow_name=workflow_name,
         )
-
-        wf_name = workflow_name if workflow_name and workflow_name != "__auto__" else None
-        if wf_name:
-            wf_content = self.workflow_router.get_workflow_content(wf_name)
-            if wf_content:
-                system_msg += f"\n\n---\n# 工作流: {wf_name}\n{wf_content}"
-                logger.info(f"工作流已加载: {wf_name}")
-            else:
-                logger.warning(f"工作流 '{wf_name}' 未找到")
-        else:
-            wf_summaries = self.workflow_router.get_workflow_summaries()
-            if wf_summaries:
-                system_msg += (
-                    f"\n\n---\n# 工作流\n"
-                    f"{wf_summaries}\n"
-                    f"如需加载完整工作流指令，请调用 read_workflow 工具。"
-                )
 
         if data_store and session_id:
             from .tools._infra_handlers import _get_goal_line
@@ -233,7 +192,7 @@ class RAGSystem:
                 logger.debug(f"注入活跃目标: session={session_id[:8]}")
 
         logger.debug(f"system_msg 长度: {len(system_msg)} 字符")
-
+        from typing import List
         messages: List[dict] = [{"role": "system", "content": system_msg}]
         if history:
             messages.extend(history)
@@ -332,7 +291,7 @@ class RAGSystem:
                          f"total_chars={total_chars}, iteration={state.iteration}")
             logger.info(f"→ LLM 输入上下文字符数: {total_chars} chars ({len(truncated_messages)} 条消息)")
             try:
-                resp = self.client.chat_with_tools(
+                resp = self.chat_client.chat_with_tools(
                     messages=truncated_messages,
                     model=self.chat_model,
                     tools=registry.schemas,
@@ -540,6 +499,7 @@ class RAGSystem:
                 return
         
             accumulated_content = ""
+            from typing import List
             tool_calls: List[dict] = []
 
             if emit_event: emit_event({"type": "status", "status": "thinking"})
@@ -554,7 +514,7 @@ class RAGSystem:
                          f"total_chars={total_chars}, iteration={state.iteration}")
             logger.info(f"→ LLM 输入上下文字符数: {total_chars} chars ({len(truncated_messages)} 条消息)")
             try:
-                events = self.client.chat_with_tools(
+                events = self.chat_client.chat_with_tools(
                     messages=truncated_messages,
                     model=self.chat_model,
                     tools=registry.schemas,

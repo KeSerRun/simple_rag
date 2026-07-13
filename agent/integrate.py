@@ -6,13 +6,14 @@
 from base.config import conf
 from base.logger import logger, log_qa
 from storage import JSONFileStore as DataStore
-from agent import RAGSystem
+from agent import ToolLoop
+from rag.vector_store import VectorStore
+from base.llm_client import OpenAIClient
+from .governor import compress_history, truncate_history
 
-
-import uuid
-import re
 import threading
 from typing import Optional
+
 
 # ── 集成系统 ──
 
@@ -25,11 +26,40 @@ class IntegratedSystem:
 
         创建数据存储、RAG 问答引擎、向量库和会话状态管理。
         """
-        self.data_store = DataStore()
-        self.rag_qa = RAGSystem(data_store=self.data_store)
-        self.vector_store = self.rag_qa.vector_store
+        self.data_store = DataStore(
+            data_dir = conf.data_dir
+        )
+
+        self.chat_client = OpenAIClient(
+            api_key=conf.openai_api_key,
+            base_url=conf.openai_base_url,
+            timeout=conf.openai_timeout,
+            max_retries=conf.openai_max_retries,
+        )
+
+        self.embed_client = OpenAIClient(
+            api_key=conf.embedding_api_key,
+            base_url=conf.embedding_base_url,
+            timeout=conf.openai_timeout,
+            max_retries=conf.openai_max_retries,
+        )
+
+        self.vector_store = VectorStore(
+            client=self.embed_client,
+            embedding_model=conf.openai_embedding_model,
+            embedding_dim=conf.openai_embedding_dim,
+        )
+
+        self.rag_qa = ToolLoop(
+            data_store=self.data_store,
+            chat_client=self.chat_client,
+            embed_client=self.embed_client,
+            vector_store=self.vector_store
+        )
+
         self.session_last_style: dict[str, str] = {}
         self._cancel_events: dict[str, threading.Event] = {}
+
 
     def cancel_generation(self, session_id: str) -> None:
         """中断指定会话的正在进行的生成。
@@ -41,7 +71,6 @@ class IntegratedSystem:
         if event:
             event.set()
             logger.info(f"已发送中断信号: session={session_id}")
-
 
 
     # ── 会话历史管理 ──
@@ -71,7 +100,6 @@ class IntegratedSystem:
         budget = int(conf.context_window_chars * conf.context_input_ratio)
         total = sum(len(str(m.get("content", "") or "")) for m in messages)
         if total > budget and len(raw) > 2:
-            from .governor import compress_history
             # 因为只压缩工具结果，所以需要放大压缩比 1.5 倍
             compress_history(self.data_store, session_id, raw,
                              compression_ratio=min(conf.compression_ratio * 1.5, 1.0), archive=True)
@@ -83,7 +111,6 @@ class IntegratedSystem:
         # ── 第二关：压缩后仍超预算 → 截断历史 ──
         total = sum(len(str(m.get("content", "") or "")) for m in messages)
         if total > budget and len(raw) > 2:
-            from .governor import truncate_history
             # 这里保留压缩比，确保达标
             target = int(budget * conf.compression_ratio)
             truncate_history(self.data_store, session_id, raw,

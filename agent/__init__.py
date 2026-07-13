@@ -14,7 +14,7 @@
   - agent/tools/:        工具注册、执行与 schemas
 """
 
-from .rag_system import RAGSystem
+from .loop import ToolLoop
 from .integrate import IntegratedSystem
 from .state import AgentState
 from .tools.registry import ToolRegistry, ToolContext, ToolDef
@@ -22,9 +22,13 @@ from .tools import registry, TOOL_SCHEMAS, execute_tool
 from .context import WorkflowRouter
 
 __all__ = [
-    "RAGSystem", "IntegratedSystem",
+    "ToolLoop", 
+    "IntegratedSystem",
     "AgentState",
-    "ToolRegistry", "ToolContext", "ToolDef",
-    "registry", "TOOL_SCHEMAS", "execute_tool",
+    "ToolRegistry", 
+    "ToolContext", "ToolDef",
+    "registry", 
+    "TOOL_SCHEMAS", 
+    "execute_tool",
     "WorkflowRouter",
 ]

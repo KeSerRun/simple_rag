@@ -167,8 +167,6 @@ def _load_identity(prompts_dir: Path) -> str:
     return f.read_text(encoding="utf-8").strip()
 
 
-# ── Builder ──
-
 
 class SkillLoader:
     """从 prompts 目录加载 identity 和 skills，供 LLM 构建 system message。

@@ -1,5 +1,18 @@
-"""KB 工具 handlers: 知识库检索 / 读全文 / 列文档 / 读归档。
-注册统一在 registry.py 的 register_all_builtins() 中。"""
+"""KB 工具 handlers：知识库检索 / 读全文 / 列文档 / 读归档。
+
+提供知识库相关的工具 handler 实现：
+  - search_knowledge_base: 多 query + 多分区 + 去重检索
+  - read_full_document: 读取文档全文（MinerU 解析后的 Markdown）
+  - list_documents: 列出用户 / 系统分区文档
+  - read_archive: 读取归档的历史对话
+  - read_chunk_context: 读取某 chunk 前后的上下文
+  - read_document_titles: 读取文档 Markdown 标题结构
+  - read_section: 根据标题关键词定位并读取正文
+  - search_document_content: 全文关键词搜索
+
+注册统一在 registry.py 的 register_all_builtins() 中完成。
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,8 +23,23 @@ from base.logger import logger
 from rag.vector_store import Document
 
 from .registry import ToolContext
+
+# ── 文档路径解析 ──
+
+
 def _resolve_document_path(filename: str, partition: str | None = None, search_system: bool = True) -> str | None:
-    """统一的文档路径解析（路径穿越防护）。"""
+    """统一的文档 chunk 文件路径解析，包含路径穿越防护。
+
+    在用户分区和（可选）系统分区的 chunk_out 目录下查找指定文件名的文件。
+
+    Args:
+        filename: 文件名（含扩展名）。
+        partition: 用户分区名。
+        search_system: 是否同时在系统分区下搜索。
+
+    Returns:
+        解析后的绝对路径字符串，未找到时返回 None。
+    """
     stem = Path(filename).stem
     base = Path(conf.data_dir) / "uploads"
     candidates = [base / (partition or "") / "chunk_out" / stem]
@@ -27,13 +55,21 @@ def _resolve_document_path(filename: str, partition: str | None = None, search_s
             continue
     return None
 
+
 from ._format import SYSTEM_PARTITION, format_retrieved_chunks
 
 
 def _resolve_full_md(filename: str, partition: str | None = None) -> str | None:
-    """统一解析 full.md 文档路径，供多个工具共享。
+    """解析文档 full.md 路径，供多个工具共享。
 
-    同时搜索用户分区和系统分区，含路径穿越防护。
+    在用户分区和系统分区下同时搜索 full.md，含路径穿越防护。
+
+    Args:
+        filename: 文档文件名（含扩展名）。
+        partition: 用户分区名。
+
+    Returns:
+        full.md 的绝对路径字符串，未找到时返回 None。
     """
     stem = Path(filename).stem
     base = Path(conf.data_dir) / "uploads"
@@ -51,10 +87,25 @@ def _resolve_full_md(filename: str, partition: str | None = None) -> str | None:
     return None
 
 
+# ── 知识库检索 ──
+
+
 def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: search_knowledge_base
-    多 query + 多分区 + 去重。
+    """工具 handler：search_knowledge_base。
+
+    多 query + 多分区 + 全局去重检索知识库。
+    单 query 走快速路径，多 query 公平分配 top_k。
+    自动附加 read_chunk_context 调用提示。
+
+    Args:
+        args: 工具参数字典，键:
+            queries: 检索查询列表（必填，1-5 个）。
+            search_system: 是否同时搜索系统文档（可选，默认 True）。
+            top_k: 返回结果数（可选，默认 5）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        format_retrieved_chunks 格式化后的文本，含上下文提示。
     """
     queries = args.get("queries") or []
     if isinstance(queries, str):
@@ -65,7 +116,6 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         return "(未提供任何检索 query)"
 
     search_system = args.get("search_system", True)
-    # LLM 控制返回结果数（默认使用配置值）
     top_k = int(args.get("top_k", conf.candidate_top_k))
     top_k = max(1, min(top_k, conf.retrieval_top_k))
     system_partitions = [SYSTEM_PARTITION] if search_system else None
@@ -76,10 +126,8 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
         logger.debug("tool search_knowledge_base 未检索到相关内容, 返回 0 块")
         return "(知识库中未检索到相关内容)"
 
-    # 截断到 top_k 个
     chunks = chunks[:top_k]
 
-    # 日志记录
     for ci, c in enumerate(chunks):
         meta = c.metadata or {}
         logger.debug(
@@ -96,10 +144,23 @@ def _exec_search_kb(args: dict, ctx: ToolContext) -> str:
     return formatted
 
 
+# ── 文档全文读取 ──
+
+
 def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: read_full_document
-    读取 MinerU 解析后的完整文档全文。支持 offset 分页（分页大小由配置决定）。
+    """工具 handler：read_full_document。
+
+    读取 MinerU 解析后的完整文档全文（Markdown 格式）。
+    支持 offset 分页，分页大小由配置 conf.tool_page_chars 决定。
+
+    Args:
+        args: 工具参数字典，键:
+            filename: 文档文件名（含扩展名，必填）。
+            offset: 字符偏移位置（可选，默认 0）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        文档全文片段，末尾附带分页提示。
     """
     filename = (args.get("filename") or "").strip()
     if not filename:
@@ -131,12 +192,19 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
 
 
 def _get_file_stats(filename: str, partition: str | None = None) -> dict:
-    """获取文档文件的元信息（大小、修改时间、类型）。"""
+    """获取文档文件的元信息（大小、修改时间、类型）。
+
+    Args:
+        filename: 文档文件名。
+        partition: 分区名。
+
+    Returns:
+        包含 'size'、'mtime'、'type' 三个键的字典，各字段可能为空字符串。
+    """
     import datetime as _dt
     import mimetypes
 
     stats = {"size": "", "mtime": "", "type": ""}
-    # 优先从 full.md 获取文件信息
     resolved = _resolve_full_md(filename, partition)
     if resolved:
         try:
@@ -152,7 +220,6 @@ def _get_file_stats(filename: str, partition: str | None = None) -> dict:
             stats["mtime"] = mtime
         except OSError:
             pass
-    # 从扩展名判断类型
     ext = Path(filename).suffix.lower()
     if ext == ".pdf":
         stats["type"] = "PDF"
@@ -173,17 +240,30 @@ def _get_file_stats(filename: str, partition: str | None = None) -> dict:
     return stats
 
 
+# ── 文档清单 ──
+
+
 def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: list_documents
-    列出用户/系统分区的文档，支持关键词过滤。
+    """工具 handler：list_documents。
+
+    列出用户 / 系统分区的文档，支持关键词过滤和排序。
     返回文档名、类型、大小、修改时间。
+
+    Args:
+        args: 工具参数字典，键:
+            pattern: 文件名关键词过滤（可选）。
+            list_system: 是否同时列出系统文档（可选，默认 True）。
+            sort_by: 排序方式，'name' 或 'time'（可选，默认 'name'）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        格式化的文档列表文本。
     """
     if not ctx.vector_store:
         return "(知识库不可用)"
     pattern = (args.get("pattern") or "").strip().lower()
     list_system = args.get("list_system", True)
-    sort_by = args.get("sort_by", "name")  # name, time
+    sort_by = args.get("sort_by", "name")
     logger.debug(f"tool list_documents pattern={pattern!r} list_system={list_system} "
                  f"partition={ctx.partition} sort={sort_by}")
 
@@ -208,9 +288,7 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     if not doc_entries:
         return "(当前没有匹配的文档)"
 
-    # 排序
     if sort_by == "time":
-        # 有 mtime 的排前面，按 mtime 降序；没有的放最后
         doc_entries.sort(key=lambda d: (not bool(d["mtime"]), d["mtime"]), reverse=True)
     else:
         doc_entries.sort(key=lambda d: d["name"].lower())
@@ -227,10 +305,24 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
     return "当前知识库中的文档：\n" + "\n".join(lines)
 
 
+# ── 归档读取 ──
+
+
 def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: read_archive
+    """工具 handler：read_archive。
+
     读取被归档的历史对话记录。
+
+    Args:
+        args: 工具参数字典，键:
+            archive_id: 归档 ID，格式如 arch_xxx（必填）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        归档对话的格式化文本。
+
+    Raises:
+        Exception: data_store.format_archive_turns 抛出异常时被捕获并返回错误提示。
     """
     archive_id = (args.get("archive_id") or "").strip()
     if not archive_id:
@@ -249,14 +341,25 @@ def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
         return f"(读取归档失败: {e})"
 
 
+# ── 多 query 多分区检索 ──
+
+
 def _retrieve_and_dedup(
     vector_store, queries, partition, system_partitions: Optional[list] = None,
 ) -> List[Document]:
-    """
-    多 query + 多分区 + 全局去重检索。
+    """多 query + 多分区 + 全局去重检索。
 
-    单 query 快速路径 / 多 query 公平分配 + chunk id/page_content 去重
-    + 跨分区二次去重。
+    单 query 走快速路径（完整 top_k），多 query 公平分配每个 query 的检索配额。
+    跨分区二次去重确保同一 chunk_id 不重复出现。
+
+    Args:
+        vector_store: 向量存储实例。
+        queries: 检索查询字符串列表。
+        partition: 用户分区名。
+        system_partitions: 要搜索的系统分区名列表（可选）。
+
+    Returns:
+        去重后的 Document 列表。
     """
     if not queries:
         return []
@@ -266,6 +369,14 @@ def _retrieve_and_dedup(
         search_partitions.extend(sp for sp in system_partitions if sp and sp not in search_partitions)
 
     def _search_partition(p):
+        """在单个分区中执行检索，含多 query 公平分配和去重。
+
+        Args:
+            p: 分区名。
+
+        Returns:
+            该分区的 Document 列表。
+        """
         if len(queries) == 1:
             try:
                 return vector_store.search(
@@ -307,17 +418,29 @@ def _retrieve_and_dedup(
     return merged
 
 
+# ── Chunk 上下文读取 ──
+
+
 def _exec_read_chunk_context(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: read_chunk_context
+    """工具 handler：read_chunk_context。
+
     根据 chunk ID 读取其前后相邻的文档块（按页面顺序），提供上下文。
     当 search_knowledge_base 返回的某个片段需要更多上下文时使用此工具，
     避免多次调用 search_knowledge_base。
+
+    Args:
+        args: 工具参数字典，键:
+            chunk_id: 目标 chunk ID（必填）。
+            before: 向前取多少块（可选，默认 3，最大 10）。
+            after: 向后取多少块（可选，默认 3，最大 10）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        相邻 chunks 的汇总文本，目标 chunk 标记为 【目标】。
     """
     chunk_id = (args.get("chunk_id") or "").strip()
     before = args.get("before", 3)
     after = args.get("after", 3)
-    # 限制范围
     before = min(max(int(before), 0), 10)
     after = min(max(int(after), 0), 10)
 
@@ -331,7 +454,6 @@ def _exec_read_chunk_context(args: dict, ctx: ToolContext) -> str:
     if not meta_list:
         return "(元数据不可用)"
 
-    # 1. 查找目标 chunk（[id=] 只显示前 8 位，用前缀匹配）
     target_meta = None
     for m in meta_list:
         if str(m.get("id", "")).startswith(chunk_id):
@@ -340,32 +462,26 @@ def _exec_read_chunk_context(args: dict, ctx: ToolContext) -> str:
     if target_meta is None:
         return f"(未找到 chunk_id={chunk_id})"
 
-    # 2. 获取同源文档的所有块，按 page 排序
     source = target_meta.get("source", "")
     partition = target_meta.get("partition", "")
     siblings = [
         m for m in meta_list
         if m.get("source") == source and m.get("partition") == partition
     ]
-    # 按 page → 元数据列表原始顺序 稳定排序
     siblings.sort(key=lambda m: (m.get("page") or 0))
 
-    # 3. 在排序列表中定位目标（前缀匹配，因为 [id=] 只显示前 8 位）
     target_idx = None
     for i, m in enumerate(siblings):
         if str(m.get("id", "")).startswith(chunk_id):
             target_idx = i
             break
     if target_idx is None:
-        # 同源同分区找不到（理论上不会发生）
         return f"(chunk_id={chunk_id} 定位失败)"
 
-    # 4. 截取范围
     start = max(0, target_idx - before)
     end = min(len(siblings), target_idx + after + 1)
     selected = siblings[start:end]
 
-    # 5. 格式化输出
     lines = []
     for m in selected:
         tag = "【目标】" if str(m.get("id", "")).startswith(chunk_id) else ""
@@ -390,11 +506,22 @@ def _exec_read_chunk_context(args: dict, ctx: ToolContext) -> str:
     return output
 
 
+# ── 文档标题目录 ──
+
+
 def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: read_document_titles
+    """工具 handler：read_document_titles。
+
     读取某篇文档的完整 Markdown 源文件，提取所有 Markdown 标题（# 开头）。
     返回文档的标题目录结构。配合 read_section 使用。
+
+    Args:
+        args: 工具参数字典，键:
+            source: 文档文件名（含扩展名，必填）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        格式化的标题层级文本。
     """
     source = (args.get("source") or "").strip()
     if not source:
@@ -409,7 +536,6 @@ def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
     except Exception as e:
         return f"(读取 {source} 失败: {e})"
 
-    # 提取所有 Markdown 标题行
     lines = content.splitlines()
     headings = []
     for line in lines:
@@ -423,7 +549,6 @@ def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
     if not headings:
         return f"(文档 {source} 中未找到 Markdown 标题)"
 
-    # 格式化为缩进树
     output_lines = [f"📖 {source} 的文档结构："]
     for level, text in headings:
         indent = "  " * (level - 1)
@@ -434,11 +559,24 @@ def _exec_read_document_titles(args: dict, ctx: ToolContext) -> str:
     return output
 
 
+# ── 文档章节定位读取 ──
+
+
 def _exec_read_section(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: read_section
+    """工具 handler：read_section。
+
     根据文档名和标题关键词，从 Markdown 源文件中定位该标题下的正文内容。
     与 read_document_titles 使用同一数据源，匹配更准确。
+    支持精确匹配和关键词拆词匹配。
+
+    Args:
+        args: 工具参数字典，键:
+            source: 文档文件名（含扩展名，必填）。
+            heading: 标题关键词，匹配任意级别标题（必填）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        该标题下的正文内容（最多 30000 字符），超出部分截断。
     """
     source = (args.get("source") or "").strip()
     heading = (args.get("heading") or "").strip()
@@ -447,7 +585,6 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     if not heading:
         return "(未提供 heading 参数)"
 
-    # 1. 定位 full.md 源文件
     resolved = _resolve_full_md(source, ctx.partition)
     if resolved is None:
         return f"(未找到 {source} 的全文，可能该文档不是由 MinerU 解析的)"
@@ -457,10 +594,8 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     except Exception as e:
         return f"(读取 {source} 失败: {e})"
 
-    # 2. 按 Markdown 标题分割内容
     lines = content.splitlines()
-    # 找到所有标题行及其位置
-    heading_positions = []  # [(line_index, level, text), ...]
+    heading_positions = []
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#"):
@@ -477,13 +612,11 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     if not heading_positions:
         return f"(文档 {source} 中未找到 Markdown 标题)"
 
-    # 3. 模糊匹配标题
     heading_lower = heading.lower()
     best_match = None
     best_score = 0
     for idx, (line_idx, level, text) in enumerate(heading_positions):
         text_lower = text.lower()
-        # 计算匹配得分：完全包含得分最高，部分包含次之
         if heading_lower in text_lower:
             score = len(heading) / len(text) if text else 0
             if score > best_score:
@@ -491,7 +624,6 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
                 best_match = idx
 
     if best_match is None:
-        # 尝试反向：标题文本是否包含关键词（更宽松）
         for idx, (line_idx, level, text) in enumerate(heading_positions):
             text_lower = text.lower()
             for kw in heading_lower.split():
@@ -503,7 +635,6 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     if best_match is None:
         return f"(未找到匹配标题「{heading}」的内容)"
 
-    # 4. 提取该标题到下一个同级/上级标题之间的内容
     match_line, match_level, match_text = heading_positions[best_match]
     next_start = None
     for j in range(best_match + 1, len(heading_positions)):
@@ -512,7 +643,6 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
             break
 
     section_lines = lines[match_line:next_start]
-    # 去掉首尾空行
     while section_lines and not section_lines[0].strip():
         section_lines = section_lines[1:]
     while section_lines and not section_lines[-1].strip():
@@ -520,7 +650,6 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
 
     section_text = "\n".join(section_lines)
 
-    # 限制输出长度
     if len(section_text) > 30000:
         section_text = section_text[:30000] + "\n\n...(已截断)"
 
@@ -531,11 +660,24 @@ def _exec_read_section(args: dict, ctx: ToolContext) -> str:
     return section_text
 
 
+# ── 文档全文关键词搜索 ──
+
+
 def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
-    """
-    工具 handler: search_document_content
-    在文档的全文（full.md）中搜索关键词，返回匹配的文档名和上下文片段。
+    """工具 handler：search_document_content。
+
+    在所有知识库文档的全文（full.md）中搜索关键词，返回匹配的文档名和上下文片段。
     类似 grep，但针对知识库文档。
+
+    Args:
+        args: 工具参数字典，键:
+            keyword: 搜索关键词，大小写不敏感（必填）。
+            source: 限定仅搜索某篇文档（可选）。
+            max_results: 最大返回匹配数（可选，默认 10，上限 50）。
+        ctx: 工具运行时上下文。
+
+    Returns:
+        格式化的搜索结果列表。
     """
     keyword = (args.get("keyword") or "").strip()
     if not keyword:
@@ -557,7 +699,6 @@ def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
     if source_filter == "__system__":
         doc_names = system_docs
     elif source_filter:
-        # 搜索指定文档（可能在任一分区）
         doc_names = [source_filter]
     else:
         user_docs = ctx.vector_store.get_documents_by_partition(partition=ctx.partition) or []
@@ -567,10 +708,8 @@ def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
     matches = []
 
     for doc in doc_names:
-        # 如果指定了 source_filter（非系统分区），快速过滤
         resolved = _resolve_full_md(doc, ctx.partition)
         if not resolved:
-            # 尝试系统分区
             resolved = _resolve_full_md(doc, SYSTEM_PARTITION) if ctx.partition else _resolve_full_md(doc, None)
         if not resolved:
             continue
@@ -584,7 +723,6 @@ def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
         doc_matches = []
         for i, line in enumerate(lines, 1):
             if keyword_lower in line.lower():
-                # 提取前后少量上下文
                 snippet = line.strip()[:200]
                 doc_matches.append((i, snippet))
 
@@ -597,7 +735,6 @@ def _exec_search_document_content(args: dict, ctx: ToolContext) -> str:
     if not matches:
         return f"(未找到包含「{keyword}」的文档)"
 
-    # 限制总结果数
     total = 0
     output_lines = [f"搜索「{keyword}」结果："]
     for doc, doc_matches in matches:

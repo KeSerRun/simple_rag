@@ -3,7 +3,6 @@
 import glob
 
 import json
-# ---- 文档上传与向量化 ----
 
 import jwt
 
@@ -30,18 +29,29 @@ from .deps import auth_required, check_user_storage_limit, system
 router = APIRouter(prefix="/api", tags=["documents"])
 
 
-# ---- _user_upload_dir ----
 def _user_upload_dir(username: str) -> str:
+    """返回指定用户的暂存目录路径。
+
+    Args:
+        username: 用户名(自动转小写)。
+
+    Returns:
+        str: ``{conf.data_dir}/uploads/{username}/``。
+    """
     return f"{conf.data_dir}/uploads/{username.lower()}"
 
 
-# ---- _purge_files ----
 def _purge_files(username: str, sources: Optional[List[str]] = None):
-
     """清理用户暂存目录下的原文件与 chunk 产物。
 
-    sources=None        → 清空整个 tmp/{username}/ (含所有文件 + chunk_out/)
-    sources=[...]       → 仅清掉指定文件及其对应的 chunk_out/{stem}/
+    # ── 清理策略
+
+    - ``sources=None``: 清空整个 ``{upload_dir}/`` (含所有文件 + chunk_out/)
+    - ``sources=[...]``: 仅清掉指定文件及其对应的 ``chunk_out/{stem}/``
+
+    Args:
+        username: 用户名。
+        sources: 要清理的源文件名列表。None 表示全部清理。
     """
 
     upload_dir = _user_upload_dir(username)
@@ -67,7 +77,7 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
                 logger.info(f"已删除原文件: {file_path}")
             except Exception as e:
                 logger.warning(f"删除 {file_path} 失败: {e}")
-              
+            
 
         mineru_sub = os.path.join(chunk_root, os.path.splitext(src)[0])
         if os.path.isdir(mineru_sub):
@@ -76,16 +86,33 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
                 logger.info(f"已删除 chunk 产物: {mineru_sub}")
             except Exception as e:
                 logger.warning(f"删除 {mineru_sub} 失败: {e}")
-              
+            
 
 
-# ---- add documents ----
 @router.post("/add_documents")
 
 @auth_required
 async def add_documents(request: Request):
 
-    """添加文档到检索器(任意已登录用户均可,仅作用于自己的分区)"""
+    """添加文档到检索器(任意已登录用户均可,仅作用于自己的分区)。
+
+    # ── 处理流程
+
+    1. 从 token 获取用户名
+    2. 解析文档路径,做路径穿越防护(resolve + relative_to)
+    3. 调用 ``system.vector_store.store_documents_from_dir`` 入库
+
+    Args:
+        request: FastAPI 请求对象,包含 JSON 体 ``{"documents_path": str}``。
+
+    Returns:
+        JSONResponse: ``{"message": "Documents added successfully"}``。
+
+    Raises:
+        HTTPException 400: 缺少路径、路径不存在或 JSON 无效。
+        HTTPException 403: 路径穿越。
+        HTTPException 500: 添加失败。
+    """
 
     try:
         data = await request.json()
@@ -123,7 +150,6 @@ async def add_documents(request: Request):
         logger.error(f"添加文档失败: {e}")
 
 
-# ---- clear documents ----
 @router.post("/clear_documents")
 
 @auth_required
@@ -132,7 +158,23 @@ async def clear_documents(
     x_session_id: str = Header(None, alias="X-Session-ID"),
 ):
 
-    """清除当前用户自己的所有文档(向量 + 原文件 + chunk 产物)"""
+    """清除当前用户自己的所有文档(向量 + 原文件 + chunk 产物)。
+
+    # ── 清理范围
+
+    - 向量库中该分区的所有文档 (delete_documents_by_partition)
+    - 暂存目录所有文件及 chunk_out/ (_purge_files all)
+
+    Args:
+        request: FastAPI 请求对象。
+        x_session_id: 可选,从 ``X-Session-ID`` 头获取会话 ID,用于记录事件。
+
+    Returns:
+        JSONResponse: ``{"message": "User documents cleared successfully"}``。
+
+    Raises:
+        HTTPException 500: 清除失败。
+    """
 
     try:
         username = request.state.user["username"]
@@ -153,7 +195,6 @@ async def clear_documents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---- clear chosen documents ----
 @router.post("/clear_chosen_documents")
 
 @auth_required
@@ -162,7 +203,19 @@ async def clear_chosen_documents(
     x_session_id: str = Header(None, alias="X-Session-ID"),
 ):
 
-    """清除当前用户分区中指定来源的文档(向量 + 原文件 + 对应 chunk 产物)"""
+    """清除当前用户分区中指定来源的文档(向量 + 原文件 + 对应 chunk 产物)。
+
+    Args:
+        request: FastAPI 请求对象,包含 JSON 体 ``{"sources": [str, ...]}``。
+        x_session_id: 可选,``X-Session-ID`` 头。
+
+    Returns:
+        JSONResponse: ``{"message": "Selected documents cleared successfully"}``。
+
+    Raises:
+        HTTPException 400: 缺少 sources 或 JSON 无效。
+        HTTPException 500: 清除失败。
+    """
 
     try:
         data = await request.json()
@@ -197,7 +250,6 @@ async def clear_chosen_documents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---- upload file ----
 @router.post("/upload")
 
 @auth_required
@@ -207,7 +259,24 @@ async def upload_file(
     x_session_id: str = Header(None, alias="X-Session-ID"),
 ):
 
-    """上传文件到当前用户的暂存目录(任意已登录用户均可)"""
+    """上传文件到当前用户的暂存目录(任意已登录用户均可)。
+
+    # ── 限制
+
+    仅支持 PDF 文件;需要提供 ``X-Session-ID`` 头或 ``session_id`` cookie。
+
+    Args:
+        request: FastAPI 请求对象。
+        files: 上传文件列表(仅 PDF)。
+        x_session_id: 会话 ID(可选,可从 cookie 回退)。
+
+    Returns:
+        JSONResponse: ``{"files": [{"filename": str, "size": int, "content_type": str}, ...]}``。
+
+    Raises:
+        HTTPException 400: 缺少 session_id 或非 PDF 文件。
+        HTTPException 500: 上传失败。
+    """
 
     try:
         username = request.state.user["username"]
@@ -259,7 +328,6 @@ async def upload_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---- upload embeddings ----
 @router.post("/upload_embeddings")
 
 @auth_required
@@ -270,7 +338,30 @@ async def upload_embeddings(
     stream: bool = Query(False, description="是否 SSE 流式返回处理进度"),
 ):
 
-    """上传文件并立即向量化入库到当前用户分区(任意已登录用户均可)"""
+    """上传文件并立即向量化入库到当前用户分区(任意已登录用户均可)。
+
+    # ── 处理流程
+
+    1. 上传前先检查存储配额 (check_user_storage_limit)
+    2. 删除同名文档旧向量 (delete_documents_by_sources)
+    3. 保存文件后立即调用 store_documents_from_dir 入库
+    4. 支持 SSE 流式返回处理进度
+
+    Args:
+        request: FastAPI 请求对象。
+        files: 上传文件列表(仅 PDF)。
+        x_session_id: 会话 ID。
+        stream: 是否以 SSE 流式返回处理进度,默认 False。
+
+    Returns:
+        JSONResponse: 非流式返回 ``{"files": [...]}``。
+        StreamingResponse: 流式返回 ``text/event-stream``。
+
+    Raises:
+        HTTPException 400: 缺少 session_id 或非 PDF 文件。
+        HTTPException 413: 存储空间不足。
+        HTTPException 500: 处理失败。
+    """
 
     username = request.state.user["username"]
 
@@ -350,13 +441,27 @@ async def upload_embeddings(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---- get documents ----
 @router.get("/documents/{username}")
 
 @auth_required
 async def get_documents(request: Request, username: str):
 
-    """获取当前用户分区下的文档列表(路径参数 username 仅用于路由兼容,实际以 token 为准)"""
+    """获取当前用户分区下的文档列表。
+
+    # ── 安全
+
+    路径参数 username 仅用于路由兼容,实际以 token 为准。
+
+    Args:
+        request: FastAPI 请求对象。
+        username: URL 路径参数(仅用于路由匹配,实际以 token username 查询)。
+
+    Returns:
+        JSONResponse: ``{"documents": [...]}``。
+
+    Raises:
+        HTTPException 500: 查询失败。
+    """
 
     try:
         token_username = request.state.user["username"]
@@ -370,13 +475,19 @@ async def get_documents(request: Request, username: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---- get storage info ----
 @router.get("/documents/storage/info")
 
 @auth_required
 async def get_storage_info(request: Request):
 
-    """获取当前用户的存储使用情况"""
+    """获取当前用户的存储使用情况。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        JSONResponse: ``{"current_mb": float, "max_mb": float, "limit_enabled": bool, "ok": bool}``。
+    """
 
     try:
         username = request.state.user["username"]
@@ -398,15 +509,28 @@ async def get_storage_info(request: Request):
         return JSONResponse(content={"current_mb": 0, "max_mb": 0, "limit_enabled": False, "ok": True})
 
 
-# ---- download document ----
 @router.get("/documents/file/{filename:path}")
 
 @auth_required
 async def download_document(request: Request, filename: str):
 
-    """返回当前用户上传过的原文件, 浏览器可直接打开 (PDF inline) 或下载。
+    """返回当前用户上传过的原文件,浏览器可直接打开(PDF inline)或下载。
+
+    # ── 安全
 
     路径穿越防护: 解析后的真实路径必须在用户暂存目录下。
+
+    Args:
+        request: FastAPI 请求对象。
+        filename: 文件名(可含子路径)。
+
+    Returns:
+        FileResponse: 文件响应,Content-Disposition 为 inline。
+
+    Raises:
+        HTTPException 400: 文件名字符不合法。
+        HTTPException 403: 路径穿越。
+        HTTPException 404: 文件不存在。
     """
 
     username = request.state.user["username"]
@@ -436,7 +560,6 @@ async def download_document(request: Request, filename: str):
     )
 
 
-# ---- serve mineru image ----
 @router.get("/documents/image/{doc_stem}/{img_name:path}")
 
 async def serve_mineru_image(
@@ -446,7 +569,34 @@ async def serve_mineru_image(
     token: str = Query(None),
 ):
 
-    """提供 MinerU 解析产出的图片。支持 ?token= 参数供 <img> 标签加载。"""
+    """提供 MinerU 解析产出的图片。
+
+    # ── 认证
+
+    同时支持 ``Authorization: Bearer <token>`` 头和 ``?token=`` 查询参数,
+    供 HTML ``<img>`` 标签直接加载使用。
+
+    # ── 查找策略
+
+    逐级放宽匹配条件:
+    1. 精确 ``{doc_stem}/{img_name}``
+    2. 带通配符 ``{doc_stem}*``
+    3. 去掉 doc_stem 扩展名再尝试
+    4. img_name 含子路径时搜索 ``{doc_stem}/{prefix}/*``
+
+    Args:
+        request: FastAPI 请求对象。
+        doc_stem: 文档 stem(文件名不含扩展名)。
+        img_name: 图片文件名(可含子路径)。
+        token: 可选 JWT token 查询参数。
+
+    Returns:
+        FileResponse: 图片文件,Content-Disposition 为 inline。
+
+    Raises:
+        HTTPException 401: token 无效。
+        HTTPException 404: 图片未找到。
+    """
 
     auth_token = token
 
@@ -513,7 +663,6 @@ async def serve_mineru_image(
     return FileResponse(path=str(target), media_type=media_type, filename=target.name, content_disposition_type="inline")
 
 
-# ---- serve mineru image global ----
 @router.get("/documents/image/{img_name:path}")
 
 async def serve_mineru_image_global(
@@ -522,7 +671,25 @@ async def serve_mineru_image_global(
     token: str = Query(None),
 ):
 
-    """全局搜索 MinerU 图片。当前端无法提供正确的 doc_stem，仅有图片 hash 时使用。"""
+    """全局搜索 MinerU 图片。
+
+    # ── 适用场景
+
+    当前端无法提供正确的 doc_stem,仅有图片 hash 时使用。
+    通过通配符 ``uploads/*/chunk_out/*/images/{img_name}`` 全局搜索。
+
+    Args:
+        request: FastAPI 请求对象。
+        img_name: 图片路径(可含子路径)。
+        token: 可选 JWT token 查询参数。
+
+    Returns:
+        FileResponse: 图片文件。
+
+    Raises:
+        HTTPException 401: token 无效。
+        HTTPException 404: 图片未找到。
+    """
 
     auth_token = token
 
@@ -563,10 +730,29 @@ async def serve_mineru_image_global(
     return FileResponse(path=str(target), media_type=media_type, filename=target.name, content_disposition_type="inline")
 
 
-# ---- _upload_sse_generator ----
 def _upload_sse_generator(username: str, session_id: str, files_data: list):
 
-    """SSE 生成器：上传处理各阶段状态事件。"""
+    """SSE 生成器:上传处理各阶段状态事件。
+
+    # ── 事件流
+
+    - ``{"status": "uploading", ...}``: 文件上传中
+    - ``{"status": "parsing", ...}``: 文档解析中
+    - ``{"status": "embedding", ...}``: 向量化中
+    - ``{"status": "done", ...}``: 处理完成
+    - ``{"status": "error", ...}``: 处理失败
+
+    使用 ``ThreadPoolExecutor`` 并发处理文档解析和向量化,
+    受 ``conf.parse_workers`` 控制并发度。
+
+    Args:
+        username: 当前用户(用于分区归属)。
+        session_id: 会话 ID(用于记录事件)。
+        files_data: ``[(filename, content_bytes, content_type), ...]`` 列表。
+
+    Yields:
+        str: SSE 格式的 data 行。
+    """
 
     import json as _json
 
@@ -578,12 +764,11 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
 
     error_count = 0
 
-# ---- _sse ----
     def _sse(data: dict) -> str:
 
         return f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
 
-    saved_files = []  # [(filename, save_path, content_len, content_type)]
+    saved_files = []
     for idx, (filename, content, _ct) in enumerate(files_data):
         save_path = f"{conf.data_dir}/uploads/{username.lower()}/{filename}"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -600,7 +785,6 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ---- _process_one ----
     def _process_one(fn, sp, usr):
         events = []
         events.append({"status": "parsing", "text": "文档解析", "file": fn})
@@ -644,8 +828,5 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
     else:
         yield _sse({"status": "done", "text": "入库成功", "files": results})
 
-# ===== 文档上传与向量化 =====
 
-# ===== 文档列表与删除 =====
 
-# ===== 文档下载与预览 =====

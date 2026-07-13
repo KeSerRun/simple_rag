@@ -1,9 +1,13 @@
-"""MinerU PDF 解析：API 客户端 → 内容分块 → PDF 加载器。"""
+# ── MinerU PDF 解析 ──────────────────────────────────────────────
+"""MinerU PDF 解析：API 客户端 → 内容分块 → PDF 加载器。
+
+实现与 MinerU 精准解析 API v4 的对接，涵盖上传、轮询、下载解压
+以及 content_list 标准化分块的全流程。
+"""
 
 from __future__ import annotations
 
 import json
-# ---- MinerU API 客户端 ----
 import re
 import time
 import uuid
@@ -19,28 +23,42 @@ from base.logger import logger
 if TYPE_CHECKING:
     from .vector_store import Document
 
-# ---- PDF 分块策略 ----
+
+# ── 异常定义 ──────────────────────────────────────────────────────
 
 
-# ---- MinerUError ----
 class MinerUError(Exception):
     """MinerU API 调用异常。"""
     pass
 
 
-# ---- MinerUClient ----
+# ── API 客户端 ────────────────────────────────────────────────────
+
+
 class MinerUClient:
     """MinerU PDF 解析 API 客户端（对接精准解析 API v4）。
 
-    流程:
+    解析流程：
       1. POST {base}/file-urls/batch → 获取签名上传 URL + batch_id
       2. PUT 文件到签名 URL → 系统自动开始解析
       3. GET {base}/extract-results/batch/{batch_id} → 轮询至全部完成
       4. 下载 ZIP → 解压到输出目录
+
+    Attributes:
+        token: API 认证令牌。
+        _base: API 基础地址。
+        _session: 复用的 requests Session。
     """
 
-# ---- __init__ ----
     def __init__(self, token: str | None = None):
+        """初始化 MinerU 客户端。
+
+        Args:
+            token: API 令牌；缺失时使用 conf.mineru_api_key。
+
+        Raises:
+            MinerUError: 未配置 API Token 时抛出。
+        """
         self.token = token or conf.mineru_api_key
         if not self.token:
             raise MinerUError(
@@ -52,11 +70,21 @@ class MinerUClient:
         self._session.headers.update({"Authorization": f"Bearer {self.token}"})
         logger.info(f"MinerU 客户端就绪: token={self.token[:12]}...")
 
+    # ── 完整解析流程 ──────────────────────────────────────────────
 
-# ---- parse_pdf ----
     def parse_pdf(self, pdf_path: Path, work_dir: Path | None = None,
                   model_version: str = "vlm", language: str = "ch") -> Path:
-        """上传 PDF → 等待解析 → 下载解压，返回输出目录。"""
+        """上传 PDF → 等待解析 → 下载解压，返回输出目录。
+
+        Args:
+            pdf_path: PDF 文件路径。
+            work_dir: 输出工作目录；默认使用 pdf_path 同级 chunk_out/<stem>。
+            model_version: MinerU 模型版本（如 "vlm"）。
+            language: 解析语言（如 "ch"）。
+
+        Returns:
+            解压后的输出目录 Path。
+        """
         pdf_path = Path(pdf_path)
         work_dir = Path(work_dir or pdf_path.parent / "chunk_out" / pdf_path.stem)
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -80,12 +108,21 @@ class MinerUClient:
         logger.info(f"      -> {out}")
         return out
 
+    # ── 内部 HTTP 流程 ────────────────────────────────────────────
 
-# ---- _request_upload_url ----
     def _request_upload_url(self, file_name: str,
                             model_version: str = "vlm",
                             language: str = "ch") -> tuple[str, str]:
-        """获取签名上传 URL 和 batch_id。"""
+        """获取签名上传 URL 和 batch_id。
+
+        Args:
+            file_name: 文件名。
+            model_version: MinerU 模型版本。
+            language: 解析语言。
+
+        Returns:
+            (batch_id, presigned_url) 元组。
+        """
         data_id = str(uuid.uuid4())
         payload = {
             "files": [{"name": file_name, "data_id": data_id}],
@@ -96,23 +133,38 @@ class MinerUClient:
             "language": language,
         }
         body = self._post(f"{self._base}/file-urls/batch", payload)
-        # body 的结构预期为: {"batch_id": "...", "file_urls": ["https://..."]}
         return body["batch_id"], body["file_urls"][0]
 
-
-# ---- _upload_file ----
     def _upload_file(self, presigned_url: str, file_path: Path):
-        """PUT 文件到签名 URL。"""
+        """PUT 文件到签名 URL。
+
+        Args:
+            presigned_url: 预签名上传地址。
+            file_path: 本地文件路径。
+
+        Raises:
+            MinerUError: 上传失败时抛出。
+        """
         with open(file_path, "rb") as f:
             r = requests.put(presigned_url, data=f, timeout=300)
         if r.status_code not in (200, 204):
             raise MinerUError(f"上传失败 status={r.status_code} body={r.text[:200]}")
 
-
-# ---- _poll_batch ----
     def _poll_batch(self, batch_id: str, interval: float = 5.0,
                     max_wait: float = 1200.0) -> list[dict]:
-        """轮询解析结果，返回 extract_result 列表。"""
+        """轮询解析结果，返回 extract_result 列表。
+
+        Args:
+            batch_id: 批次 ID。
+            interval: 轮询间隔秒数。
+            max_wait: 最大等待秒数。
+
+        Returns:
+            extract_result 列表，每项为包含解析状态和结果的 dict。
+
+        Raises:
+            MinerUError: 超时或 API 返回异常时抛出。
+        """
         deadline = time.time() + max_wait
         start = time.time()
         url = f"{self._base}/extract-results/batch/{batch_id}"
@@ -128,7 +180,7 @@ class MinerUClient:
                     f"期望 dict, 内容: {str(body)[:200]}"
                 )
 
-            raw = body.get("extract_result")      # 可能是 None / [] / [items]
+            raw = body.get("extract_result")
             results = raw if isinstance(raw, list) else []
 
             if results:
@@ -173,10 +225,16 @@ class MinerUClient:
 
             time.sleep(interval)
 
-
-# ---- _download_zip ----
     def _download_zip(self, zip_url: str, out_dir: Path) -> Path:
-        """下载并解压 ZIP。"""
+        """下载并解压 ZIP。
+
+        Args:
+            zip_url: ZIP 文件下载地址。
+            out_dir: 解压目标目录。
+
+        Returns:
+            解压后的目录路径。
+        """
         r = requests.get(zip_url, timeout=120)
         r.raise_for_status()
         import zipfile
@@ -184,20 +242,29 @@ class MinerUClient:
             zf.extractall(out_dir)
         return out_dir
 
+    # ── 底层 HTTP 工具 ────────────────────────────────────────────
 
-# ---- _post ----
     def _post(self, url: str, payload: dict) -> dict:
         r = self._session.post(url, json=payload, timeout=60)
         return self._check(r)
 
-# ---- _get ----
     def _get(self, url: str) -> dict:
         r = self._session.get(url, timeout=60)
         return self._check(r)
 
     @staticmethod
-# ---- _check ----
     def _check(resp: requests.Response) -> dict:
+        """检查 API 响应并提取 data 字段。
+
+        Args:
+            resp: requests.Response 对象。
+
+        Returns:
+            API 响应中的 data 字段。
+
+        Raises:
+            MinerUError: 响应异常时抛出。
+        """
         try:
             body = resp.json()
         except Exception:
@@ -224,19 +291,27 @@ class MinerUClient:
         return body["data"]
 
 
-# ---- chunk_content_list ----
+# ── 内容分块工具 ──────────────────────────────────────────────────
+
+
 def chunk_content_list(content_list: list, doc_meta: dict) -> list[dict]:
     """将 MinerU 的 content_list 转为标准化的分块列表。
 
-    MinerU 字段说明:
+    MinerU 字段说明：
       - type: text / table / chart / header / footer / image
       - page_idx: 页码（从 0 开始）
       - text / table_body / content: 正文内容
       - img_path: 图片路径
       - table_caption / chart_caption / table_footnote / chart_footnote: 标题/注释
       - bbox: 坐标 [x0, y0, x1, y1]
+
+    Args:
+        content_list: MinerU 返回的 content_list 或包含该字段的 dict。
+        doc_meta: 文档元数据（当前未使用，预留扩展）。
+
+    Returns:
+        标准化分块字典列表，每项包含 content / chunk_type / section_path / page 等。
     """
-    # 兼容新版 MiningU JSON 格式（dict 含 content_list 键）
     if isinstance(content_list, dict):
         content_list = content_list.get("content_list", content_list)
     if not isinstance(content_list, list):
@@ -250,7 +325,7 @@ def chunk_content_list(content_list: list, doc_meta: dict) -> list[dict]:
 
     for item in sorted_items:
         typ = item.get("type", "")
-        page = (item.get("page_idx") or 0) + 1  # page_idx 从 0 开始
+        page = (item.get("page_idx") or 0) + 1
 
         if typ in ("header", "footer"):
             continue
@@ -289,24 +364,47 @@ def chunk_content_list(content_list: list, doc_meta: dict) -> list[dict]:
     return chunks
 
 
-# ---- _extract_text ----
+# ── 文本处理工具 ──────────────────────────────────────────────────
+
+
 def _extract_text(item: dict) -> str:
+    """从 item 中提取文本内容。
+
+    Args:
+        item: MinerU 内容项字典。
+
+    Returns:
+        拼接后的文本字符串。
+    """
     texts = item.get("text", "")
     if isinstance(texts, list):
         return "".join(texts)
     return str(texts) if texts else ""
 
 
-# ---- _extract_section ----
 def _extract_section(title: str) -> list:
+    """将标题解析为章节路径列表。
+
+    Args:
+        title: 以 ">" 分隔的标题字符串。
+
+    Returns:
+        章节名称列表。
+    """
     if not title:
         return []
     return [s.strip() for s in title.split(">") if s.strip()]
 
 
-# ---- _normalize_text ----
 def _normalize_text(text: str) -> str:
-    """规范表格/图表中的标点为中文符号，压缩空白。"""
+    """规范表格/图表中的标点为中文符号，压缩空白。
+
+    Args:
+        text: 原始文本。
+
+    Returns:
+        规范化后的文本。
+    """
     if not text:
         return ""
     text = text.replace(",", "，")
@@ -318,9 +416,15 @@ def _normalize_text(text: str) -> str:
     return text
 
 
-# ---- _table_html_to_md ----
 def _table_html_to_md(html: str) -> str:
-    """将 HTML 表格转为 Markdown 表格格式。"""
+    """将 HTML 表格转为 Markdown 表格格式。
+
+    Args:
+        html: HTML 表格字符串。
+
+    Returns:
+        Markdown 表格字符串。
+    """
     import re
     if "<table" not in html:
         return re.sub(r"<[^>]+>", "", html).strip()
@@ -345,16 +449,33 @@ def _table_html_to_md(html: str) -> str:
     return "\n".join(md_rows)
 
 
-# ---- MinerUPDFLoader ----
-class MinerUPDFLoader:
-    """MinerU PDF 解析器入口。需要配置 mineru_api_key。"""
+# ── PDF 加载器入口 ────────────────────────────────────────────────
 
-# ---- __init__ ----
+
+class MinerUPDFLoader:
+    """MinerU PDF 解析器入口。需要配置 mineru_api_key。
+
+    Attributes:
+        file_path: PDF 文件路径。
+    """
+
     def __init__(self, file_path: str) -> None:
+        """初始化 MinerU PDF 加载器。
+
+        Args:
+            file_path: PDF 文件路径。
+        """
         self.file_path = file_path
 
-# ---- lazy_load ----
     def lazy_load(self) -> Iterator[Document]:
+        """惰性加载 PDF：解析 → 分块 → 逐个 yield Document。
+
+        Yields:
+            每个分块对应一个 Document 实例。
+
+        Raises:
+            RuntimeError: 解析结果为空或缺少 content_list.json 时抛出。
+        """
         from .vector_store import Document
         path = Path(self.file_path)
         client = MinerUClient(token=conf.mineru_api_key or None)
@@ -368,7 +489,6 @@ class MinerUPDFLoader:
         if not candidates:
             raise RuntimeError(f"MinerU 输出未找到 content_list.json: {path.name}")
         content = json.loads(candidates[0].read_text(encoding="utf-8"))
-        # MinerU 新版返回 {"content_list": [...]}，旧版直接返回 [...]
         if isinstance(content, dict):
             content = content.get("content_list", content)
         doc_meta = {"doc_id": path.stem, "doc_title": path.stem}
@@ -395,12 +515,10 @@ class MinerUPDFLoader:
                 },
             )
 
-# ---- load ----
     def load(self) -> list:
+        """立即加载 PDF，返回所有 Document 列表。
+
+        Returns:
+            Document 实例列表。
+        """
         return list(self.lazy_load())
-
-# ===== MinerU API 客户端 =====
-
-# ===== PDF 下载与缓存 =====
-
-# ===== 分块策略：按段落/标题 =====

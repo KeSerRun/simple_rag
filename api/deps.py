@@ -15,13 +15,23 @@ system = IntegratedSystem()
 
 
 def auth_required(func):
-    """要求请求携带合法 JWT,不限制 role。payload 注入到 request.state.user
+    """要求请求携带合法 JWT,不限制 role。payload 注入到 request.state.user。
 
-    用法:
+    # ── 用法
+
         @router.post("/foo")
         @auth_required
         async def foo(request: Request):
             username = request.state.user["username"]
+
+    Args:
+        func: 被装饰的异步路由处理函数,其首参数必须为 ``request: Request``。
+
+    Returns:
+        wrapper: 异步闭包函数,注入 ``request.state.user`` 后调用原函数。
+
+    Raises:
+        JSONResponse 401: Authorization 头缺失、格式错误或 JWT 校验失败。
     """
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
@@ -42,14 +52,26 @@ def auth_required(func):
 
 
 def admin_required(func):
-    """要求当前认证用户角色为 admin,需在 @auth_required 之后使用
+    """要求当前认证用户角色为 admin,需在 @auth_required 之后使用。
 
-    用法:
+    # ── 用法
+
         @router.get("/api/admin/foo")
         @auth_required        # 先验证用户已登录
         @admin_required        # 再验证用户是管理员
         async def foo(request: Request):
             ...
+
+    # ── 说明
+
+    本装饰器依赖 ``request.state.user``,必须在 @auth_required 之后应用。
+    非 admin 角色返回 403,未认证返回 401。
+
+    Args:
+        func: 被装饰的异步路由处理函数。
+
+    Returns:
+        wrapper: 异步闭包函数,校验角色后调用原函数。
     """
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
@@ -63,20 +85,33 @@ def admin_required(func):
 
 
 def check_user_storage_limit(username: str, role: str, additional_bytes: int = 0):
-    """检查普通用户存储是否超限，admin 不受限制。
-    统计用户上传的原始文档总大小（不含切块缓存）。
+    """检查普通用户存储是否超限,admin 不受限制。
 
-    返回 (ok: bool, current_mb: float, max_mb: float)
+    # ── 统计范围
+
+    统计用户上传的原始文档总大小(不含切块缓存)。
+    admin 角色始终返回 ok=True。
+
+    Args:
+        username: 用户名(用于定位上传目录)。
+        role: 用户角色(``"user"`` 或 ``"admin"``)。
+        additional_bytes: 额外待写入字节数,用于预检查。
+
+    Returns:
+        tuple: (ok, current_mb, max_mb)
+            - ok: True 表示未超限或角色为 admin
+            - current_mb: 当前已用存储(取整到 2 位小数)
+            - max_mb: 配置上限(MB),0 或无限制时与 ok 无关
     """
     import os
     max_mb = conf.max_user_storage_mb
     if max_mb <= 0 or role == "admin":
-        return True, 0, max_mb  # 不限制
+        return True, 0, max_mb
     total_bytes = 0
     upload_dir = os.path.join(conf.data_dir, "uploads", username.lower())
     if os.path.isdir(upload_dir):
         for entry in os.scandir(upload_dir):
-            if entry.is_file():  # 只统计顶级文件，忽略 chunk_out 目录
+            if entry.is_file():
                 total_bytes += entry.stat().st_size
     total_bytes += additional_bytes
     current_mb = total_bytes / (1024 * 1024)

@@ -1,9 +1,13 @@
-"""向量存储 + 文档处理管线。"""
+# ── 向量存储 + 文档处理管线 ──────────────────────────────────────
+"""向量存储 + 文档处理管线。
+
+基于 OpenAI Embedding + FAISS 的本地向量存储，
+以及文档加载、分块、过滤的完整预处理流程。
+"""
 
 from __future__ import annotations
 
 import hashlib
-# ---- 向量索引核心 ----
 import json
 import os
 import threading
@@ -19,14 +23,62 @@ from base.logger import logger
 
 from .pdf_parser import MinerUPDFLoader
 from base.llm_client import OpenAIClient
-# ---- 文档处理管线 ----
 
 
-# ---- VectorStore ----
+# ── 文档容器 ──────────────────────────────────────────────────────
+
+
+@dataclass
+class Document:
+    """轻量文档容器，替代 langchain_core.documents.Document。
+
+    Attributes:
+        page_content: 文档正文内容。
+        metadata: 文档元数据字典。
+    """
+    page_content: str
+    metadata: dict = field(default_factory=dict)
+
+
+class _BaseLoader:
+    """轻量 BaseLoader 基类。"""
+
+    def lazy_load(self) -> Iterator[Document]:
+        """惰性加载文档。
+
+        Yields:
+            Document 实例。
+        """
+        raise NotImplementedError
+
+    def load(self) -> List[Document]:
+        """立即加载所有文档。
+
+        Returns:
+            Document 列表。
+        """
+        return list(self.lazy_load())
+
+
+# ── 向量存储 ──────────────────────────────────────────────────────
+
+
 class VectorStore:
-    """基于 OpenAI Embedding + FAISS 的本地向量存储"""
+    """基于 OpenAI Embedding + FAISS 的本地向量存储。
 
-# ---- __init__ ----
+    支持文档添加、检索、分区管理、持久化与热加载。
+    使用内积相似度（IndexFlatIP），向量在入库前经过 L2 归一化。
+
+    Attributes:
+        client: OpenAI 客户端实例。
+        embedding_model: 嵌入模型名称。
+        dimension: 嵌入向量维度。
+        index_dir: 索引文件存储目录。
+        dense_vectors: 稠密向量列表。
+        metadata: 元数据列表，与向量一一对应。
+        dense_index: FAISS 内积索引。
+    """
+
     def __init__(
         self,
         client: OpenAIClient,
@@ -34,6 +86,14 @@ class VectorStore:
         embedding_dim: int,
         index_dir: Optional[str] = None,
     ):
+        """初始化向量存储。
+
+        Args:
+            client: OpenAI 客户端实例。
+            embedding_model: 嵌入模型名称。
+            embedding_dim: 嵌入向量维度。
+            index_dir: 索引文件存储目录；默认使用 conf.vector_store_dir。
+        """
         self.client = client
         self.embedding_model = embedding_model
         self.dimension = embedding_dim
@@ -54,8 +114,13 @@ class VectorStore:
             f"当前文档数={len(self.metadata)}"
         )
 
-# ---- _load_from_disk ----
+    # ── 磁盘持久化 ────────────────────────────────────────────────
+
     def _load_from_disk(self):
+        """从磁盘加载向量和元数据。
+
+        维度不匹配时自动丢弃旧索引，需要重新嵌入。
+        """
         if not (os.path.exists(self._dense_file) and os.path.exists(self._meta_file)):
             logger.debug("未发现已有向量存储,将创建新的")
             return
@@ -82,8 +147,8 @@ class VectorStore:
             self.metadata = []
             self.dense_index = None
 
-# ---- _save_to_disk ----
     def _save_to_disk(self):
+        """将向量和元数据持久化到磁盘。"""
         with self._lock:
             if self.dense_vectors:
                 np.save(self._dense_file, np.array(self.dense_vectors, dtype=np.float32))
@@ -92,8 +157,8 @@ class VectorStore:
             with open(self._meta_file, "w", encoding="utf-8") as f:
                 json.dump(self.metadata, f, ensure_ascii=False, indent=2)
 
-# ---- _rebuild_index ----
     def _rebuild_index(self):
+        """从当前向量重建 FAISS 索引。"""
         if self.dense_vectors:
             arr = np.array(self.dense_vectors, dtype=np.float32)
             faiss.normalize_L2(arr)
@@ -103,8 +168,18 @@ class VectorStore:
         else:
             self.dense_index = None
 
-# ---- _embed ----
     def _embed(self, texts: List[str]) -> np.ndarray:
+        """对文本列表进行批量嵌入。
+
+        Args:
+            texts: 文本列表。
+
+        Returns:
+            归一化后的嵌入向量数组。
+
+        Raises:
+            嵌入失败时向上抛出原始异常。
+        """
         try:
             vectors = self.client.embed(texts, model=self.embedding_model)
             arr = np.array(vectors, dtype=np.float32)
@@ -114,11 +189,17 @@ class VectorStore:
             return arr
         except Exception as e:
             logger.error(f"嵌入失败: {e}")
-            raise  # 调用方 add_documents 会捕获并处理
+            raise
 
-# ---- add_documents ----
+    # ── 文档写入 ──────────────────────────────────────────────────
+
     def add_documents(self, documents: List[Document], partition: Optional[str] = None):
-# ---- _embed_text ----
+        """添加文档到向量存储：嵌入 + 写入索引 + 持久化。
+
+        Args:
+            documents: Document 实例列表。
+            partition: 分区标识（可选），用于按分区管理。
+        """
         def _embed_text(doc):
             parts = [
                 doc.metadata.get("source", ""),
@@ -159,16 +240,29 @@ class VectorStore:
             self._save_to_disk()
         logger.info(f"成功插入 {len(documents)} 条文档到本地向量存储")
 
-# ---- get_documents_by_partition ----
+    # ── 文档查询与管理 ────────────────────────────────────────────
+
     def get_documents_by_partition(self, partition: Optional[str] = None) -> List[str]:
+        """按分区查询文档来源列表。
+
+        Args:
+            partition: 分区标识；为 None 则返回所有来源。
+
+        Returns:
+            去重后的文档来源列表。
+        """
         if partition:
             sources = {m["source"] for m in self.metadata if m["partition"] == partition}
         else:
             sources = {m["source"] for m in self.metadata}
         return list(sources)
 
-# ---- delete_documents_by_partition ----
     def delete_documents_by_partition(self, partition: Optional[str] = None):
+        """按分区删除文档。
+
+        Args:
+            partition: 分区标识；为 None 则清空所有文档。
+        """
         with self._lock:
             before = len(self.metadata)
             if partition:
@@ -179,8 +273,13 @@ class VectorStore:
             removed = before - len(self.metadata)
         logger.info(f"清理分区 {partition}: 删除了 {removed} 个向量片段, 库中剩余 {len(self.metadata)} 条")
 
-# ---- delete_documents_by_sources ----
     def delete_documents_by_sources(self, sources, partition: Optional[str] = None):
+        """按文档来源删除。
+
+        Args:
+            sources: 来源文件名集合。
+            partition: 可选的分区过滤。
+        """
         with self._lock:
             before = len(self.metadata)
             keep_indices = []
@@ -194,8 +293,12 @@ class VectorStore:
             removed = before - len(self.metadata)
         logger.info(f"按来源删除文档 {sources}: 删除了 {removed} 个向量片段, 库中剩余 {len(self.metadata)} 条")
 
-# ---- _apply_keep_indices ----
     def _apply_keep_indices(self, keep_indices):
+        """应用保留索引列表，删除其余向量和元数据。
+
+        Args:
+            keep_indices: 需要保留的索引列表。
+        """
         keep_set = set(keep_indices)
         self.dense_vectors = [v for i, v in enumerate(self.dense_vectors) if i in keep_set]
         self.metadata = [m for i, m in enumerate(self.metadata) if i in keep_set]
@@ -207,8 +310,13 @@ class VectorStore:
             self.dense_index = None
         self._save_to_disk()
 
-# ---- store_documents_from_dir ----
     def store_documents_from_dir(self, directory, partition: Optional[str] = None):
+        """从目录加载并存储文档到向量库。
+
+        Args:
+            directory: 文档目录或文件路径。
+            partition: 分区标识。
+        """
         if not partition:
             logger.warning("未提供 partition,将存储至默认分区")
         documents = process_documents_from_dir(directory)
@@ -216,7 +324,8 @@ class VectorStore:
             raise RuntimeError(f"未从 {directory} 解析到任何文档（请检查 MinerU 是否可用）")
         self.add_documents(documents, partition=partition)
 
-# ---- search ----
+    # ── 检索 ──────────────────────────────────────────────────────
+
     def search(
         self,
         query: str,
@@ -224,10 +333,20 @@ class VectorStore:
         source_filter: Optional[str] = None,
         partition: Optional[str] = None,
     ) -> List[Document]:
+        """检索与查询最相关的文档片段。
+
+        Args:
+            query: 查询文本。
+            top_k: 返回结果数；默认 conf.retrieval_top_k。
+            source_filter: 来源过滤。
+            partition: 分区过滤。
+
+        Returns:
+            检索到的 Document 列表，已去重。
+        """
         with self._lock:
             return self._search_impl(query, top_k, source_filter, partition)
 
-# ---- _search_impl ----
     def _search_impl(
         self,
         query: str,
@@ -235,6 +354,17 @@ class VectorStore:
         source_filter: Optional[str] = None,
         partition: Optional[str] = None,
     ) -> List[Document]:
+        """检索实现（需在持有锁的情况下调用）。
+
+        Args:
+            query: 查询文本。
+            top_k: 返回结果数。
+            source_filter: 来源过滤。
+            partition: 分区过滤。
+
+        Returns:
+            检索到的 Document 列表，已去重。
+        """
         if not self.dense_index or not self.metadata:
             logger.warning("向量存储为空,无法执行检索")
             return []
@@ -247,7 +377,6 @@ class VectorStore:
 
         candidates = [(int(i), float(s)) for i, s in zip(ids[0], scores[0]) if i != -1]
 
-# ---- keep ----
         def keep(meta):
             if partition and meta.get("partition", "") != partition:
                 return False
@@ -285,25 +414,8 @@ class VectorStore:
                 unique.append(doc)
         return unique[: top_k]
 
-"""文档加载与分块入口(MinerU 已预切块则跳过二次切分)"""
 
-@dataclass
-# ---- Document ----
-class Document:
-    """轻量文档容器,替代 langchain_core.documents.Document"""
-    page_content: str
-    metadata: dict = field(default_factory=dict)
-
-
-# ---- _BaseLoader ----
-class _BaseLoader:
-    """轻量 BaseLoader。"""
-# ---- lazy_load ----
-    def lazy_load(self) -> Iterator[Document]:
-        raise NotImplementedError
-# ---- load ----
-    def load(self) -> List[Document]:
-        return list(self.lazy_load())
+# ── 文档加载与处理管线 ────────────────────────────────────────────
 
 
 document_loaders = {
@@ -311,8 +423,18 @@ document_loaders = {
 }
 
 
-# ---- load_sigle_document ----
 def load_sigle_document(root, file_name):
+    """加载单个文档文件。
+
+    根据文件扩展名选择对应的加载器。
+
+    Args:
+        root: 文件所在目录。
+        file_name: 文件名。
+
+    Returns:
+        Document 列表，失败返回 None。
+    """
     supported_extensions = document_loaders.keys()
     ext = file_name.split(".")[-1].lower()
     if ext in supported_extensions:
@@ -335,8 +457,15 @@ def load_sigle_document(root, file_name):
     return None
 
 
-# ---- load_documents_from_dir ----
 def load_documents_from_dir(directory):
+    """递归加载目录下所有支持的文档。
+
+    Args:
+        directory: 文档目录路径。
+
+    Returns:
+        拼接后的 Document 列表。
+    """
     documents = []
     for root, _, files in os.walk(directory):
         for file in files:
@@ -346,15 +475,30 @@ def load_documents_from_dir(directory):
     return documents
 
 
-# ---- load_documents_from_file ----
 def load_documents_from_file(file_path):
+    """加载单个文档文件。
+
+    Args:
+        file_path: 文件路径。
+
+    Returns:
+        Document 列表，失败返回空列表。
+    """
     doc = load_sigle_document(os.path.dirname(file_path), os.path.basename(file_path))
     return doc if doc else []
 
 
-# ---- process_documents_from_dir ----
 def process_documents_from_dir(directory) -> List[Document]:
-    """加载文档，每个 MinerU 原始块直接入库。"""
+    """加载文档，每个 MinerU 原始块直接入库。
+
+    对 text 类型块执行最短长度过滤和停用词过滤。
+
+    Args:
+        directory: 文档目录或文件路径。
+
+    Returns:
+        处理后的 Document 列表。
+    """
     if os.path.isdir(directory):
         documents = load_documents_from_dir(directory)
     elif os.path.isfile(directory):
@@ -385,9 +529,3 @@ def process_documents_from_dir(directory) -> List[Document]:
 
     logger.info(f"文档处理完成, 共 {len(documents)} 个块")
     return documents
-
-# ===== 向量存储核心：索引/检索/持久化 =====
-
-# ===== 文档处理管线：切分/嵌入/存储 =====
-
-# ===== 分区管理：用户分区 + 系统分区 =====

@@ -1,9 +1,15 @@
-"""工具注册中心: ToolRegistry + ToolContext + ToolDef
+"""工具注册中心：ToolRegistry + ToolContext + ToolDef
 
 设计目标:
   - 工具通过 registry.register() 注册，不再写 if/elif 链
-  - 前后端兼容: registry.schemas 替代 TOOL_SCHEMAS, registry.dispatch 替代 execute_tool
+  - 前后端兼容：registry.schemas 替代 TOOL_SCHEMAS，registry.dispatch 替代 execute_tool
+
+数据流:
+  1. handler 模块在导入时被执行，其中的 _exec_* 函数被注册到 ToolRegistry
+  2. __init__.py 调用 register_all_builtins(registry) 完成注册
+  3. LLM 通过 registry.dispatch(name, args_json) 调用工具
 """
+
 from __future__ import annotations
 
 import json
@@ -13,24 +19,43 @@ from typing import Callable, List, Optional
 from base.logger import logger
 from rag.vector_store import VectorStore
 
-# ===== ToolContext：工具调用的运行时上下文 =====
+
+# ── 数据类定义 ──
+
 
 @dataclass
 class ToolContext:
-    """传递给 tool handler 的运行时上下文。"""
+    """传递给 tool handler 的运行时上下文。
+
+    Attributes:
+        vector_store: 向量存储实例，用于知识库检索。
+        partition: 当前会话的分区标识（用户分区）。
+        data_store: 持久化数据存储实例。
+        session_id: 当前会话 ID。
+        subagent_manager: 子 Agent 管理器实例。
+        workflow_router: 工作流路由器实例。
+        llm_client: LLM 客户端实例。
+    """
     vector_store: VectorStore
     partition: Optional[str] = None
     data_store: Optional[object] = None
-    session_id: str = ""  # 当前会话 ID，供 subagent 等使用
+    session_id: str = ""
     subagent_manager: Optional[object] = None
-    workflow_router: Optional[object] = None  # WorkflowRouter 实例
-    llm_client: Optional[object] = None  # 复用主 Agent 的 LLM 客户端
+    workflow_router: Optional[object] = None
+    llm_client: Optional[object] = None
 
-# ===== ToolDef：单个工具的定义 =====
 
 @dataclass
 class ToolDef:
-    """单个工具的定义。"""
+    """单个工具的定义。
+
+    Attributes:
+        name: 工具名称（唯一标识）。
+        description: 工具功能描述。
+        parameters: JSON Schema 格式的参数定义。
+        handler: 工具执行函数，签名 (args: dict, ctx: ToolContext) -> str。
+        source: 注册来源模块名。
+    """
     name: str
     description: str
     parameters: dict
@@ -39,6 +64,11 @@ class ToolDef:
 
     @property
     def schema(self) -> dict:
+        """生成 OpenAI 兼容的工具 schema。
+
+        Returns:
+            形如 {"type": "function", "function": {"name": ..., "description": ..., "parameters": ...}} 的字典。
+        """
         return {
             "type": "function",
             "function": {
@@ -48,24 +78,28 @@ class ToolDef:
             },
         }
 
-# ===== ToolRegistry：工具注册中心 =====
+
+# ── 注册中心 ──
+
 
 class ToolRegistry:
-    """工具注册中心。"""
+    """工具注册中心。
 
-    # 并发安全的白名单（只读操作，可同时执行）
+    管理所有注册工具的生命周期，包括注册、查询、调度、并发控制、重复查询拦截和参数校验。
+    """
+
     _CONCURRENT_SAFE = {
         "search_knowledge_base", "read_chunk_context",
         "read_document_titles", "list_documents", "read_archive",
     }
 
-    # 重复外部查询拦截（nanobot 模式）
     _MAX_REPEAT_EXTERNAL_LOOKUPS = 2
 
     def __init__(self):
+        """初始化空的注册中心。"""
         self._tools: dict[str, ToolDef] = {}
-        self.call_counts: dict[str, int] = {}  # 各工具累计调用次数
-        self._external_lookup_counts: dict[str, int] = {}  # 重复查询计数（每轮重置）
+        self.call_counts: dict[str, int] = {}
+        self._external_lookup_counts: dict[str, int] = {}
 
     def register(
         self,
@@ -75,6 +109,20 @@ class ToolRegistry:
         handler: Callable[[dict, ToolContext], str],
         source: str = "",
     ) -> ToolDef:
+        """注册一个工具。
+
+        如果工具名已存在，会覆盖注册并发出警告。
+
+        Args:
+            name: 工具名称（唯一标识）。
+            description: 工具功能描述。
+            parameters: JSON Schema 格式的参数定义字典。
+            handler: 工具执行函数，签名 (args: dict, ctx: ToolContext) -> str。
+            source: 注册来源模块名（可选）。
+
+        Returns:
+            新创建的 ToolDef 实例。
+        """
         if name in self._tools:
             logger.warning(f"工具 {name!r} 被覆盖注册")
         tool = ToolDef(name=name, description=description,
@@ -84,18 +132,43 @@ class ToolRegistry:
 
     @property
     def schemas(self) -> List[dict]:
+        """获取所有已注册工具的 OpenAI 兼容 schema 列表。
+
+        Returns:
+            schema 字典列表，每个元素符合 OpenAI function calling 格式。
+        """
         return [t.schema for t in self._tools.values()]
 
     @property
     def tool_names(self) -> List[str]:
+        """获取所有已注册工具的名称列表。
+
+        Returns:
+            工具名字符串列表。
+        """
         return list(self._tools.keys())
 
     def get(self, name: str) -> Optional[ToolDef]:
+        """根据工具名称查找已注册的工具定义。
+
+        Args:
+            name: 工具名称。
+
+        Returns:
+            ToolDef 实例，未找到时返回 None。
+        """
         return self._tools.get(name)
 
     @classmethod
     def is_concurrent_safe(cls, tool_name: str) -> bool:
-        """工具是否可以与其他工具并行执行。"""
+        """判断工具是否可以与其他工具并行执行。
+
+        Args:
+            tool_name: 工具名称。
+
+        Returns:
+            如果工具是并发安全的返回 True，否则返回 False。
+        """
         return tool_name in cls._CONCURRENT_SAFE
 
     @classmethod
@@ -103,6 +176,12 @@ class ToolRegistry:
         """将工具调用分批：并发安全的一批，不安全的一个一个来。
 
         对应 nanobot 的 _partition_tool_batches 模式。
+
+        Args:
+            tool_calls: 工具调用字典列表，每个字典至少含 'name' 键。
+
+        Returns:
+            分批后的列表，每个子列表是一批可并行执行的工具调用。
         """
         concurrent = []
         sequential = []
@@ -121,12 +200,25 @@ class ToolRegistry:
         return batches
 
     def reset_external_lookup_counts(self):
-        """每轮请求开始时调用，重置重复查询计数。"""
+        """每轮请求开始时调用，重置重复查询计数。
+
+        避免跨轮次的重复调用检测误判。
+        """
         self._external_lookup_counts.clear()
 
     @staticmethod
     def _external_lookup_signature(name: str, args: dict) -> str | None:
-        """生成外部查询的稳定签名，用于重复检测。"""
+        """生成外部查询的稳定签名，用于重复检测。
+
+        目前支持 web_search 和 read_url 两种外部查询类型。
+
+        Args:
+            name: 工具名称。
+            args: 工具参数字典。
+
+        Returns:
+            签名字符串，如果该工具不是外部查询则返回 None。
+        """
         if name == "web_search":
             q = (args.get("query") or "").strip()
             return f"web_search:{q.lower()}" if q else None
@@ -136,6 +228,19 @@ class ToolRegistry:
         return None
 
     def dispatch(self, name: str, args_json: str, *, ctx: ToolContext) -> str:
+        """调度执行一个工具。
+
+        完整流程：参数反序列化 → 工具查找 → 参数校验 → 重复查询拦截 →
+        调用计数 → handler 执行 → 异常兜底。
+
+        Args:
+            name: 工具名称。
+            args_json: JSON 字符串格式的工具参数。
+            ctx: 工具运行时上下文。
+
+        Returns:
+            工具执行结果字符串，异常时返回友好错误提示。
+        """
         try:
             args = json.loads(args_json) if args_json else {}
         except json.JSONDecodeError as e:
@@ -147,13 +252,11 @@ class ToolRegistry:
             logger.warning(f"未注册的工具: {name!r}, 已注册: {sorted(self._tools.keys())}")
             return f"(未知工具: {name})"
 
-        # 参数校验
         error = self._validate_params(args, tool.parameters)
         if error:
             logger.warning(f"工具 {name!r} 参数校验失败: {error}")
             return f"(工具 {name!r} 参数错误: {error})"
 
-        # 重复外部查询检测（nanobot 模式）
         sig = self._external_lookup_signature(name, args)
         if sig:
             count = self._external_lookup_counts.get(sig, 0) + 1
@@ -165,7 +268,6 @@ class ToolRegistry:
                     f"请在已有结果中寻找答案，或使用不同的查询词重试。)"
                 )
 
-        # 累计调用次数
         self.call_counts[name] = self.call_counts.get(name, 0) + 1
 
         logger.info(f"工具调用: {name} (累计: {self.call_counts[name]})")
@@ -179,11 +281,20 @@ class ToolRegistry:
 
     @staticmethod
     def _validate_params(args: dict, schema: dict) -> str | None:
-        """轻量参数校验。返回错误消息或 None。"""
+        """轻量参数校验。
+
+        检查必填参数是否存在、类型是否匹配。
+
+        Args:
+            args: 实际传入的参数。
+            schema: JSON Schema 参数定义。
+
+        Returns:
+            错误消息字符串，校验通过时返回 None。
+        """
         props = schema.get("properties", {})
         required = schema.get("required", [])
 
-        # 检查必填参数
         for key in required:
             if key not in args or args[key] is None:
                 return f"缺少必填参数: {key}"
@@ -191,7 +302,6 @@ class ToolRegistry:
             if isinstance(val, str) and not val.strip():
                 return f"参数 {key} 不能为空"
 
-        # 检查参数类型（只校验 JSON Schema 中的 type）
         for key, val in args.items():
             if key in props:
                 expected = props[key].get("type", "")
@@ -204,11 +314,19 @@ class ToolRegistry:
 
         return None
 
-# ===== 内建工具注册入口 =====
+
+# ── 内建工具注册 ──
+
 
 def register_all_builtins(reg: ToolRegistry) -> None:
-    """注册全部内建工具。由 __init__.py 在导入所有 handler 模块后调用。"""
-    # 延迟导入 handler 函数（避免循环导入：registry → handler → __init__")
+    """注册全部内建工具。
+
+    由 __init__.py 在导入所有 handler 模块后调用。
+    集中管理所有工具的定义（名称 / 描述 / 参数 schema / handler）。
+
+    Args:
+        reg: ToolRegistry 实例，工具将注册到该实例中。
+    """
     from ._kb_handlers import (
         _exec_search_kb, _exec_read_full_document,
         _exec_list_documents, _exec_read_archive, _exec_read_chunk_context,
@@ -225,7 +343,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         _exec_read_tool_result,
     )
 
-    # --- ask_user_for_clarification（虚拟工具） ---
     reg.register(
         name="ask_user_for_clarification",
         description=(
@@ -246,7 +363,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- set_goal ---
     reg.register(
         name="set_goal",
         description=(
@@ -267,7 +383,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- complete_goal ---
     reg.register(
         name="complete_goal",
         description=("标记当前目标已完成。当用户确认目标已完成时调用。"),
@@ -276,7 +391,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- my（内省工具） ---
     reg.register(
         name="my",
         description=(
@@ -303,7 +417,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_workflow（渐进式加载） ---
     reg.register(
         name="read_workflow",
         description=(
@@ -325,7 +438,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_tool_result（读取持久化工具结果） ---
     reg.register(
         name="read_tool_result",
         description=(
@@ -342,22 +454,16 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                 },
                 "offset": {
                     "type": "integer",
-                    "description": "可选：读取起始位置（字符偏移），默认 0。用于读取后续内容。",
-                    "default": 0,
-                },
-            },
-                            "offset": {
-                    "type": "integer",
                     "description": "字符偏移位置，用于分页读取（默认 0）。末尾会提示后续 offset。",
                     "default": 0,
                 },
+            },
             "required": ["filename"],
         },
         handler=_exec_read_tool_result,
         source=__name__,
     )
 
-    # --- search_knowledge_base（首选检索工具） ---
     reg.register(
         name="search_knowledge_base",
         description=(
@@ -380,12 +486,14 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                 },
                 "search_system": {
                     "type": "boolean",
-                    "description": "是否同时搜索系统公开文档。默认为 true（搜索全部）。设为 false 则只搜索用户自己的文档。",
+                    "description": ("是否同时搜索系统公开文档。默认为 true（搜索全部）。"
+                                     "设为 false 则只搜索用户自己的文档。"),
                     "default": True,
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "返回的结果数量（默认 5，上限由配置决定）。需要粗略概览时设为 3，需要全面排查时适当增加。",
+                    "description": ("返回的结果数量（默认 5，上限由配置决定）。"
+                                     "需要粗略概览时设为 3，需要全面排查时适当增加。"),
                     "default": 5,
                 },
             },
@@ -395,7 +503,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_full_document ---
     reg.register(
         name="read_full_document",
         description=(
@@ -423,7 +530,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_url ---
     reg.register(
         name="read_url",
         description=(
@@ -443,7 +549,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- web_search ---
     reg.register(
         name="web_search",
         description=(
@@ -468,7 +573,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- list_documents ---
     reg.register(
         name="list_documents",
         description=(
@@ -484,7 +588,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                 },
                 "list_system": {
                     "type": "boolean",
-                    "description": "是否同时列出系统公开文档。默认为 true（列出全部）。设为 false 则只列用户自己的文档。",
+                    "description": ("是否同时列出系统公开文档。默认为 true（列出全部）。"
+                                     "设为 false 则只列用户自己的文档。"),
                     "default": True,
                 },
                 "sort_by": {
@@ -500,7 +605,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_archive ---
     reg.register(
         name="read_archive",
         description=(
@@ -520,7 +624,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_chunk_context ---
     reg.register(
         name="read_chunk_context",
         description=(
@@ -552,7 +655,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_document_titles ---
     reg.register(
         name="read_document_titles",
         description=(
@@ -572,7 +674,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- read_section ---
     reg.register(
         name="read_section",
         description=(
@@ -597,7 +698,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         source=__name__,
     )
 
-    # --- search_document_content ---
     reg.register(
         name="search_document_content",
         description=(
@@ -626,9 +726,3 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         handler=_exec_search_document_content,
         source=__name__,
     )
-
-# ===== 工具定义：ToolDef 封装名称/描述/参数/handler =====
-
-# ===== 注册中心：ToolRegistry 管理全部工具的注册/查询/调度 =====
-
-# ===== 工具上下文：ToolContext 携带 session 级别状态 =====

@@ -1,5 +1,4 @@
 import json
-# ---- JWT 认证接口 ----
 import jwt
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -9,19 +8,34 @@ from base.logger import logger
 
 from .deps import system
 
-# ---- JWT 认证 ----
 router = APIRouter(prefix="/api", tags=["auth"])
 
 
-# ---- 用户注册 ----
 @router.post("/register")
 async def register(request: Request):
-    """处理用户注册"""
+    """处理用户注册。
+
+    # ── 处理流程
+
+    1. 从请求体中解析 username / password
+    2. 用户名自动转小写
+    3. 调用 ``system.data_store.insert_user`` 创建账户
+    4. 重复用户名返回 400
+
+    Args:
+        request: FastAPI 请求对象,包含 JSON 体 ``{"username": str, "password": str}``。
+
+    Returns:
+        JSONResponse: ``{"message": "Registration successful"}`` (201 语义)。
+
+    Raises:
+        HTTPException 400: 缺少用户名/密码、用户名已存在或 JSON 格式无效。
+        HTTPException 500: 其他内部错误。
+    """
     try:
         data = await request.json()
         username = data.get("username")
         password = data.get("password")
-        # ---- 注册 ----
         if username:
             username = username.lower()
         if not username or not password:
@@ -40,10 +54,28 @@ async def register(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---- 用户登录 ----
 @router.post("/login")
 async def login(request: Request):
-    """处理用户登录,验证成功后下发 JWT"""
+    """处理用户登录,验证成功后下发 JWT。
+
+    # ── 处理流程
+
+    1. 从请求体中解析 username / password
+    2. 用户名自动转小写
+    3. 调用 ``system.data_store.check_user_credentials`` 校验
+    4. 成功后签发 HS256 JWT (payload 含 username, role)
+
+    Args:
+        request: FastAPI 请求对象,包含 JSON 体 ``{"username": str, "password": str}``。
+
+    Returns:
+        JSONResponse: 包含 message、user 信息和 token。
+
+    Raises:
+        HTTPException 400: 缺少用户名/密码或 JSON 格式无效。
+        HTTPException 401: 用户名或密码错误。
+        HTTPException 500: 其他内部错误。
+    """
     try:
         data = await request.json()
         username = data.get("username")
@@ -75,9 +107,15 @@ async def login(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---- create_superusers ----
 def create_superusers():
-    """启动时根据配置中的超级管理员用户名/密码创建账户(若已存在则跳过)"""
+    """启动时根据配置中的超级管理员用户名/密码创建账户(若已存在则跳过)。
+
+    # ── 数据来源
+
+    从 ``conf.superuser_usernames`` / ``conf.superuser_passwords`` 列表中逐对读取,
+    调用 ``system.data_store.insert_user`` 以 admin 角色创建。
+    已存在的账户静默跳过（insert_user 返回 False 不视为异常）。
+    """
     for username, password in zip(conf.superuser_usernames, conf.superuser_passwords):
         try:
             system.data_store.insert_user(username, password, role="admin")

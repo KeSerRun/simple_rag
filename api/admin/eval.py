@@ -1,5 +1,4 @@
-
-"""管理后台 API - RAG 检索质量评估（精确率）"""
+"""管理后台 API - RAG 检索质量评估(精确率)"""
 
 import json
 import os
@@ -13,7 +12,15 @@ from typing import List
 
 @dataclass
 class EvalResult:
-    """单条评估结果。"""
+    """单条评估结果。
+
+    Attributes:
+        query: 测试查询语句。
+        retrieved_count: 召回片段数。
+        relevant_count: 相关片段数(评分 >= 3)。
+        avg_score: 平均评分。
+        scores: 逐片段评分列表。
+    """
     query: str
     retrieved_count: int
     relevant_count: int
@@ -22,6 +29,7 @@ class EvalResult:
 
     @property
     def precision(self) -> float:
+        """计算该查询的精确率(precision = relevant / retrieved)。"""
         return self.relevant_count / self.retrieved_count if self.retrieved_count else 0.0
 
 
@@ -35,12 +43,7 @@ from fastapi.responses import JSONResponse
 from ..deps import system
 
 
-# test_precision: 测试精确率的函数（虽然本文件中没有直接用到）
-# load_test_queries: 加载测试查询列表（从文件中读取）
-# save_test_queries: 保存测试查询列表（写入文件）
 
-
-# ===== 全局变量：评估任务状态追踪 =====
 
 _eval_tasks: dict[str, dict] = {}
 _EVAL_RESULTS_FILE = os.path.join(
@@ -75,7 +78,11 @@ _DEFAULT_EVAL_QUERIES = [
 
 
 def load_test_queries() -> list[str]:
-    """从磁盘加载测试查询列表，不存在时返回默认列表。"""
+    """从磁盘加载测试查询列表,不存在时返回默认列表。
+
+    Returns:
+        list[str]: 测试查询语句列表。
+    """
     try:
         if os.path.exists(_TEST_QUERIES_FILE):
             with open(_TEST_QUERIES_FILE, "r", encoding="utf-8") as f:
@@ -83,6 +90,17 @@ def load_test_queries() -> list[str]:
     except Exception:
         pass
     return _DEFAULT_EVAL_QUERIES
+
+
+def save_test_queries(queries: list[str]):
+    """保存测试查询列表到磁盘文件。
+
+    Args:
+        queries: 测试查询语句列表。
+    """
+    os.makedirs(os.path.dirname(_TEST_QUERIES_FILE), exist_ok=True)
+    with open(_TEST_QUERIES_FILE, "w", encoding="utf-8") as f:
+        json.dump(queries, f, ensure_ascii=False, indent=2)
 
 
 def _save_results_to_disk():
@@ -105,7 +123,11 @@ def _save_results_to_disk():
 
 
 def _load_results_from_disk() -> dict | None:
-    """从磁盘加载最近一次评估结果。"""
+    """从磁盘加载最近一次评估结果。
+
+    Returns:
+        dict | None: 包含 report / results / finished_at 的字典,无数据时返回 None。
+    """
     try:
         if os.path.exists(_EVAL_RESULTS_FILE):
             with open(_EVAL_RESULTS_FILE, "r", encoding="utf-8") as f:
@@ -113,50 +135,54 @@ def _load_results_from_disk() -> dict | None:
     except Exception as e:
         logger.warning(f"评估结果加载失败: {e}")
     return None
-# 任务详情结构：{"status": "running"|"finished"|"failed", "progress": {...}, "results": [...]}
-# status: 任务状态，可选值有 running（运行中）、finished（已完成）、failed（失败）
-# progress: 进度信息，包含 total（总数）、completed（已完成数）、current（当前正在处理的查询）
-# results: 评估结果列表
-# report: 汇总报告（平均精确率等）
-
-# started_at: 任务开始时间（时间戳）
-# finished_at: 任务结束时间（时间戳）
 
 
-# ===== API 端点：启动评估 =====
+
 @router.post("/eval/run")
 @auth_required
-@admin_required  # 装饰器：要求用户必须是管理员（普通用户无权执行评估）
+@admin_required
 async def run_eval(request: Request):
-    """启动精确率评估（后台运行，不阻塞）"""
+    """启动精确率评估(后台运行,不阻塞)。
+
+    # ── 评估流程
+
+    1. 加载测试查询列表 (load_test_queries)
+    2. 后台线程逐条执行 ``search_knowledge_base`` 工具召回
+    3. 使用 LLM 对每条召回片段评分 (0-4 分)
+    4. 统计精确率,保存结果到磁盘
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        JSONResponse: ``{"task_id": str, "message": str, "total_queries": int}``,
+        立即返回,不等待评估完成。
+    """
 
 
-    task_id = "eval_" + _uuid.uuid4().hex[:8]  # 用 uuid 生成随机字符串，取前 8 位，前面加上 "eval_" 前缀
-    # 示例结果："eval_a1b2c3d4"
+    task_id = "eval_" + _uuid.uuid4().hex[:8]
 
-    # ===== 注册任务（初始化任务状态） =====
     queries = load_test_queries()
     _eval_tasks[task_id] = {
-        "status": "running",  # 初始状态设为 "running"（运行中）
+        "status": "running",
         "progress": {
-            "total": len(queries),  # 总共需要评估的查询数量
-            "completed": 0,  # 已经完成的查询数量（初始为 0）
-            "current": "",  # 当前正在处理的查询内容（初始为空字符串）
+            "total": len(queries),
+            "completed": 0,
+            "current": "",
         },
-        "results": None,  # 评估结果列表，初始为 None，评估完成后会替换为实际结果
-        "report": None,  # 汇总报告，初始为 None，评估完成后会生成
+        "results": None,
+        "report": None,
         "error": None,
         "started_at": time.time(),
-        "finished_at": None,  # 任务结束时间，初始为 None，任务完成后会记录
+        "finished_at": None,
     }
 
 
     def _worker():
-        """后台工作线程：执行评估，更新进度，保存结果"""
+        """后台工作线程:执行评估,更新进度,保存结果。"""
 
         task = _eval_tasks[task_id]
         try:
-            # ===== 创建 LLM 评判客户端 =====
             judge_client = OpenAIClient(
                 api_key=conf.openai_api_key,
                 base_url=conf.openai_base_url
@@ -168,19 +194,24 @@ async def run_eval(request: Request):
             import json
             import re as _re
 
-            # ===== 准备工具上下文 =====
             ctx = ToolContext(
                 vector_store=system.vector_store,
                 partition=None,
                 data_store=system.data_store,
             )
 
-            # ===== 开始逐个评估查询 =====
             results: List[EvalResult] = []
             import concurrent.futures as _cf
 
             def _eval_one(query: str) -> EvalResult:
-                """评估单个查询。"""
+                """评估单个查询:知识库召回 + LLM 评分。
+
+                Args:
+                    query: 测试查询语句。
+
+                Returns:
+                    EvalResult: 包含召回片段数、相关片段数、平均评分。
+                """
 
                 raw = registry.dispatch(
                     "search_knowledge_base",
@@ -188,19 +219,16 @@ async def run_eval(request: Request):
                     ctx=ctx,
                 )
 
-                # ===== 提取结果片段 =====
                 chunks = _re.findall(r"【片段 \d+.*?。", raw, _re.DOTALL)
                 if not chunks and raw.strip():
                     chunks = [raw]
 
-                # ===== 用 LLM 给每个片段打分 =====
                 scores = []
                 for text in chunks:
                     from rag.eval_rag import llm_score
                     score = llm_score(judge_client, query, text)
                     scores.append(score)
 
-                # ===== 计算统计指标 =====
                 relevant = sum(1 for s in scores if s >= 3)
                 avg = sum(scores) / len(scores) if scores else 0.0
 
@@ -212,7 +240,6 @@ async def run_eval(request: Request):
                     scores=scores,
                 )
 
-            # 并发执行（最多 N 个查询同时进行，从配置读取）
             max_workers = min(conf.eval_max_workers, len(queries))
             with _cf.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(_eval_one, q): q for q in queries}
@@ -232,68 +259,75 @@ async def run_eval(request: Request):
                         ))
                         task["progress"]["completed"] = i + 1
 
-            # ===== 所有查询评估完毕，生成汇总报告 =====
-            # 计算所有查询的精确率之和
             total_p = sum(r.precision for r in results)
-            # 精确率 = relevant_count / retrieved_count（相关片段数 / 总检索片段数）
             n = len(results)
             avg_precision = total_p / n if n > 0 else 0.0
 
-            # ===== 格式化结果数据（转为可序列化的字典列表） =====
-            task["results"] = [  # 将结果存入任务状态字典
+            task["results"] = [
                 {
                     "query": r.query,
                     "retrieved_count": r.retrieved_count,
                     "relevant_count": r.relevant_count,
-                    "avg_score": round(r.avg_score, 2),  # 平均得分（四舍五入保留两位小数）
+                    "avg_score": round(r.avg_score, 2),
                     "scores": r.scores,
-                    "precision": round(r.precision, 4),  # 该查询的精确率（四舍五入保留四位小数）
+                    "precision": round(r.precision, 4),
                 }
                 for r in results
             ]
 
-            # ===== 生成汇总报告 =====
-            task["report"] = {  # 汇总报告存入任务状态字典
-                "total_queries": n,  # 总共评估了多少个查询
-                "avg_precision": round(avg_precision, 4),  # 平均精确率（数值形式，保留四位小数）
-                "avg_precision_pct": f"{avg_precision:.1%}",  # 平均精确率（百分比形式，保留一位小数，例如"85.3%"）
+            task["report"] = {
+                "total_queries": n,
+                "avg_precision": round(avg_precision, 4),
+                "avg_precision_pct": f"{avg_precision:.1%}",
             }
 
-            # ===== 标记任务完成并持久化 =====
-            task["status"] = "finished"  # 将任务状态更新为 "finished"（已完成）
-            task["finished_at"] = time.time()  # 记录任务完成时间（当前时间戳）
+            task["status"] = "finished"
+            task["finished_at"] = time.time()
             _save_results_to_disk()
 
-            # ===== 记录完成日志 =====
             logger.info(f"评估完成: 平均精确率 {avg_precision:.1%}")
 
-        # ===== 异常处理 =====
         except Exception as e:
-            task["status"] = "failed"  # 将任务状态更新为 "failed"（失败）
-            task["error"] = str(e)  # 记录错误信息（将异常对象转为字符串）
-            task["finished_at"] = time.time()  # 记录任务结束时间（即使失败了也算结束）
+            task["status"] = "failed"
+            task["error"] = str(e)
+            task["finished_at"] = time.time()
             logger.error(f"评估失败: {e}")
 
-    # ===== 启动后台线程 =====
     threading.Thread(target=_worker, daemon=True).start()
-    # target=_worker：指定线程要执行的函数
 
-    # .start()：启动线程开始执行
 
 
     return JSONResponse(content={
         "task_id": task_id,
         "message": f"评估已启动，共 {len(queries)} 个查询，请稍后查看结果",
-        "total_queries": len(queries),  # 总共要评估的查询数量
+        "total_queries": len(queries),
     })
 
 
-# ===== API 端点：查询评估状态 =====
-@router.get("/eval/status/{task_id}")  # 注册 GET 请求的路由，URL 路径是 /eval/status/{task_id}
+@router.get("/eval/status/{task_id}")
 @auth_required
 @admin_required
 async def get_eval_status(request: Request, task_id: str):
-    """查询评估任务状态和结果"""
+    """查询评估任务状态和结果。
+
+    # ── 返回
+
+    - running: 返回进度信息
+    - finished: 返回报告和详细结果
+    - failed: 返回错误信息
+
+    若 task_id 不在内存中,尝试从磁盘加载最近一次结果。
+
+    Args:
+        request: FastAPI 请求对象。
+        task_id: 评估任务 ID。
+
+    Returns:
+        JSONResponse: 包含 status / progress / report / results 等字段。
+
+    Raises:
+        HTTPException 404: 任务不存在且无磁盘缓存。
+    """
     if task_id not in _eval_tasks:
         saved = _load_results_from_disk()
         if saved and saved.get("results"):
@@ -306,21 +340,18 @@ async def get_eval_status(request: Request, task_id: str):
                 "error": None,
             })
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
-        # 抛出 HTTP 404 错误（Not Found），提示任务不存在
 
-    task = _eval_tasks[task_id]  # 通过 task_id 从全局字典中取出对应的任务状态字典
+    task = _eval_tasks[task_id]
 
-    # ===== 组装响应数据 =====
     resp = {
         "task_id": task_id,
-        "status": task["status"],  # 任务状态（running / finished / failed）
-        "progress": task["progress"],  # 进度信息（total 总数 / completed 已完成 / current 当前查询）
-        "report": task["report"],  # 汇总报告（评估完成后才有值）
+        "status": task["status"],
+        "progress": task["progress"],
+        "report": task["report"],
         "results": task["results"] if task["status"] == "finished" else None,
         "error": task["error"],
     }
 
-    # ===== 清理旧任务（保留最近 5 个已完成的任务） =====
     _cleanup_tasks()
     return JSONResponse(content=resp)
 
@@ -328,7 +359,15 @@ async def get_eval_status(request: Request, task_id: str):
 @auth_required
 @admin_required
 async def get_last_eval_result(request: Request):
-    """返回最近一次评估结果（从磁盘加载，服务器重启后仍有数据）。"""
+    """返回最近一次评估结果(从磁盘加载,服务器重启后仍有数据)。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        JSONResponse: 有数据时返回 ``{"status": "finished", "report": dict, "results": [...]}``;
+        无数据时返回 ``{"status": "no_results"}``。
+    """
     saved = _load_results_from_disk()
     if saved and saved.get("results"):
         return JSONResponse(content={
@@ -340,53 +379,61 @@ async def get_last_eval_result(request: Request):
     return JSONResponse(content={"status": "no_results", "results": None})
 
 
-@router.get("/eval/queries")  # 注册 GET 请求的路由，URL 路径是 /eval/queries
+@router.get("/eval/queries")
 @auth_required
 @admin_required
 async def get_eval_queries(request: Request):
-    """返回当前评估用的测试查询列表"""
+    """返回当前评估用的测试查询列表。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        JSONResponse: ``{"queries": [str, ...], "total": int}``。
+    """
     queries = load_test_queries()
     return JSONResponse(content={"queries": queries, "total": len(queries)})
 
 
-# ===== API 端点：更新测试查询列表 =====
-@router.put("/eval/queries")  # 注册 PUT 请求的路由，URL 路径是 /eval/queries
+@router.put("/eval/queries")
 @auth_required
 @admin_required
 async def update_eval_queries(request: Request):
-    """更新测试查询列表（保存到外部文件）"""
+    """更新测试查询列表(保存到外部文件)。
+
+    Args:
+        request: FastAPI 请求对象,包含 JSON 体 ``{"queries": [str, ...]}``。
+
+    Returns:
+        JSONResponse: ``{"message": str, "total": int}``。
+
+    Raises:
+        HTTPException 400: queries 格式非法。
+        HTTPException 500: 保存失败。
+    """
     try:
-        body = await request.json()  # 异步读取请求体中的 JSON 数据（前端传来的数据）
+        body = await request.json()
         queries = body.get("queries", [])
         if not isinstance(queries, list) or not all(isinstance(q, str) and q.strip() for q in queries):
-            #  all(...)：列表中的每个元素都必须满足：
-            #    a. isinstance(q, str)：是字符串类型
-            #    b. q.strip()：去除首尾空格后不为空（不能是空字符串或纯空格）
             raise HTTPException(status_code=400, detail="queries 必须是非空字符串列表")
         save_test_queries(queries)
         return JSONResponse(content={"message": f"已保存 {len(queries)} 个测试查询", "total": len(queries)})
 
     except HTTPException:
-        raise  # 直接重新抛出（不做额外处理，让 FastAPI 的异常处理器来处理）
+        raise
     except Exception as e:
         logger.error(f"保存测试查询失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))  # 抛出 HTTP 500 错误（服务器内部错误）
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# ===== 辅助函数：清理旧任务 =====
 def _cleanup_tasks():
-    """清理已完成的任务，保留最近 5 个"""
-    # 筛选出所有已完成或失败的任务
+    """清理已完成的任务,保留最近 5 个。"""
     finished = {k: v for k, v in _eval_tasks.items() if v["status"] in ("finished", "failed")}
-    # 字典推导式：遍历 _eval_tasks 中的所有键值对
-    # 只保留 status 为 "finished" 或 "failed" 的任务
 
-    if len(finished) > 5:  # 判断已完成的任务数量是否超过 5 个
-        # 对已完成的任务按完成时间排序（从早到晚）
+    if len(finished) > 5:
         sorted_tasks = sorted(
-            finished.keys(),  # 取所有已完成任务的 ID
-            key=lambda k: _eval_tasks[k].get("finished_at", 0)  # 排序依据：每个任务的 finished_at 时间戳
+            finished.keys(),
+            key=lambda k: _eval_tasks[k].get("finished_at", 0)
         )
-        for tid in sorted_tasks[:-5]:  # 遍历除了最后 5 个之外的所有任务（最早的 N-5 个）
-            _eval_tasks.pop(tid, None)  # 从全局字典中删除该任务
-            # 这样就把最老的已完成任务清理掉了，只保留最近的 5 个
+        for tid in sorted_tasks[:-5]:
+            _eval_tasks.pop(tid, None)

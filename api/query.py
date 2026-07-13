@@ -15,15 +15,24 @@ router = APIRouter(prefix="/api", tags=["query"])
 
 @router.get("/styles")
 async def list_styles():
-    """返回可用的回答风格列表（由 backend/prompts/style/ 自动发现）。"""
+    """返回可用的回答风格列表(由 backend/prompts/style/ 自动发现)。
+
+    # ── 发现机制
+
+    遍历 ``system.rag_qa.context_builder.skills``,筛选 source 路径
+    中包含 ``/style/`` 的 skill,按 label 排序,``default`` 置顶。
+
+    Returns:
+        JSONResponse: ``{"styles": [{"value": str, "label": str, "description": str}, ...]}``。
+    """
     skills = system.rag_qa.context_builder.skills
-    styles = []  # 初始化一个空列表，用于存储筛选后的风格
+    styles = []
     for name, skill in skills.items():
         if "/style/" in skill.source.replace("\\", "/"):
             styles.append({
-                "value": name,              # 风格的值（用于前端提交）
-                "label": name,              # 风格的显示标签
-                "description": skill.description or "",  # 风格的描述，如果没有则为空字符串
+                "value": name,
+                "label": name,
+                "description": skill.description or "",
             })
     styles.sort(key=lambda s: (s["value"] != "default", s["label"]))
     return JSONResponse(content={"styles": styles})
@@ -31,42 +40,83 @@ async def list_styles():
 
 @router.get("/workflows")
 async def list_workflows():
-    """返回可用工作流列表（由 backend/prompts/workflow/ 自动发现）。"""
+    """返回可用工作流列表(由 backend/prompts/workflow/ 自动发现)。
+
+    # ── 发现机制
+
+    委托给 ``system.rag_qa.workflow_router.get_workflow_list()``。
+
+    Returns:
+        JSONResponse: ``{"workflows": [...]}``。
+    """
     workflows = system.rag_qa.workflow_router.get_workflow_list()
     return JSONResponse(content={"workflows": workflows})
 
 
-# ===== SSE（Server-Sent Events）流式响应包装器 =====
 def _sse_wrapper(generator):
-    """把普通字符串生成器包装成 SSE `data: ...\n\n` 流。"""
+    """把普通字符串生成器包装成 SSE 事件流格式。
+
+    # ── 输出格式
+
+    每条消息::
+
+        data: <json_items>\\n\\n
+
+    Args:
+        generator: 产生 dict 的可迭代对象。
+
+    Yields:
+        str: SSE 格式的 data 行。
+    """
     for item in generator:
         yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
 
-# ===== 处理用户问答请求的接口（核心接口） =====
 @router.post("/query")
 @auth_required
 async def query(request: Request):
-    """处理用户查询,返回答案。检索范围限定为当前用户自己的分区"""
-    try:  # try 块开始，用于捕获可能发生的异常
-        # ===== 解析前端传来的 JSON 请求体 =====
-        data = await request.json()      # 使用 await 异步获取请求体中的 JSON 数据
-        session_id = data.get("session_id")  # 从 JSON 中获取会话 ID（用于保持对话上下文）
-        question = data.get("question")      # 从 JSON 中获取用户提出的问题
-        stream = data.get("stream", False)   # 从 JSON 中获取是否使用流式响应，默认为 False
-        style = data.get("style") or None    # 从 JSON 中获取回答风格，如果前端传空字符串或 null，统一转为 None
-        workflow = data.get("workflow") or None  # 从 JSON 中获取工作流名称（Auto=None）
+    """处理用户查询,返回答案。检索范围限定为当前用户自己的分区。
+
+    # ── 请求参数
+
+    JSON 体字段:
+        session_id (str): 会话 ID。
+        question (str): 用户问题。
+        stream (bool): 是否 SSE 流式返回,默认 False。
+        style (str, optional): 回答风格名称。
+        workflow (str, optional): 工作流名称。
+
+    # ── 流式模式
+
+    当 ``stream=True`` 时,通过 ``StreamingResponse`` 返回 SSE 事件流,
+    每段用 session 级别锁保护,防止并发写入。
+
+    Args:
+        request: FastAPI 请求对象。
+
+    Returns:
+        JSONResponse: 非流式返回 ``{"answer": str}``。
+        StreamingResponse: 流式返回 ``text/event-stream``。
+
+    Raises:
+        HTTPException 400: 缺少 session_id 或 question,或 JSON 格式无效。
+        HTTPException 500: 查询处理失败。
+    """
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        question = data.get("question")
+        stream = data.get("stream", False)
+        style = data.get("style") or None
+        workflow = data.get("workflow") or None
 
         username = request.state.user["username"]
 
-        # ===== 参数校验 =====
-        if not session_id or not question:  # 如果缺少 session_id 或 question
+        if not session_id or not question:
             raise HTTPException(status_code=400, detail="Missing session_id or question")
 
-        # ===== 会话级锁：防止并发请求污染状态 =====
         lock = system.session_manager.get_lock(session_id)
 
-        # ===== 根据是否流式选择不同的响应方式 =====
         if stream:
             def _stream_with_lock():
                 with lock:
@@ -83,8 +133,7 @@ async def query(request: Request):
         answer = await asyncio.to_thread(_run_sync)
         return JSONResponse(content={"answer": answer})
 
-    # ===== 异常处理 =====
-    except json.JSONDecodeError:  # 捕获 JSON 解析错误（前端传的不是合法的 JSON）
+    except json.JSONDecodeError:
         logger.error("查询请求 JSON 格式无效")
         raise HTTPException(status_code=400, detail="Invalid JSON format")
     except HTTPException:
@@ -94,11 +143,25 @@ async def query(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ===== 中断生成接口 =====
 @router.post("/query/cancel")
 @auth_required
 async def cancel_query(request: Request):
-    """中断当前正在进行的生成。"""
+    """中断当前正在进行的生成。
+
+    # ── 实现
+
+    委托给 ``system.cancel_generation(session_id)`` 发送中断信号。
+
+    Args:
+        request: FastAPI 请求对象,包含 JSON 体 ``{"session_id": str}``。
+
+    Returns:
+        JSONResponse: ``{"message": "已发送中断信号"}``。
+
+    Raises:
+        HTTPException 400: 缺少 session_id 或 JSON 格式无效。
+        HTTPException 500: 取消失败。
+    """
     try:
         data = await request.json()
         session_id = data.get("session_id")

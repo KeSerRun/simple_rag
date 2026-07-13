@@ -8,10 +8,11 @@
 
 AgentState 封装循环中的 messages / 轮次 / 上下文参数。
 """
-import json
+
 import os
-import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, List
+from datetime import datetime as _dt
+import time as _time
 
 from base.config import conf
 from base.logger import logger, log_llm_input
@@ -23,6 +24,7 @@ from .tools.registry import ToolContext
 from .tools import registry
 from .context import SkillLoader, WorkflowRouter
 from .state import AgentState
+from .tools._infra_handlers import _get_goal_line
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,7 +40,7 @@ class ToolLoop:
         └─ AgentState 初始化          → 封装 messages、分区、迭代限制
         └─ _run_tool_loop()           → 非流式：工具循环直到 LLM 不再调用工具
            └─ 循环内：LLM → tool_calls → 并发执行 → 结果回灌 → 重复
-           └─ 达上限时：保存中断状态，用户可回复「继续」恢复
+           └─ 达上限时：返回提示文本，由用户决定如何继续
         └─ _run_tool_loop_stream()    → 流式：同上 + 逐 token yield + status 事件
     """
 
@@ -84,8 +86,6 @@ class ToolLoop:
         """
         parts = [self.skill_loader.identity or ""]
 
-        from datetime import datetime as _dt
-        import time as _time
         _tz = _time.tzname
         parts.append(f"\n当前日期: {_dt.now().strftime('%Y年%m月%d日 %A %H:%M')} (时区: {_tz[0] if _tz else 'UTC'})")
 
@@ -122,17 +122,14 @@ class ToolLoop:
         style: Optional[str] = None,
         workflow_name: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
-        on_checkpoint: Optional[Callable[[str, dict], None]] = None,
         emit_event: Optional[Callable[[dict], None]] = None,
-        data_store: Optional[object] = None,
     ) -> None:
         """生成答案的顶层入口。
 
         核心流程：
-          1. 检测是否有中断状态需要恢复（继续请求）
-          2. 构建 system message（身份 + 时间 + 风格 + 工作流）
-          3. 组装 messages（system + history + query）
-          4. 根据 stream 参数选择 _run_tool_loop 或 _run_tool_loop_stream
+          1. 构建 system message（身份 + 时间 + 风格 + 工作流）
+          2. 组装 messages（system + history + query）
+          3. 根据 stream 参数选择 _run_tool_loop 或 _run_tool_loop_stream
 
         Args:
             query: 用户当前问题。
@@ -143,9 +140,7 @@ class ToolLoop:
             style: 回答风格模板名称。
             workflow_name: 工作流名称（None 为自动识别）。
             cancel_check: 可选的中断检测函数，返回 True 时中断生成。
-            on_checkpoint: 检查点回调，用于保存中间状态。
             emit_event: 事件推送回调（用于流式输出）。
-            data_store: 数据存储实例。
 
         Returns:
             非流式模式返回答案字符串；流式模式返回生成器对象。
@@ -155,44 +150,18 @@ class ToolLoop:
         _reg.reset_external_lookup_counts()
         logger.debug(f"收到用户查询: {query} (style={style})")
 
-        interrupted = self._load_interrupted_state(session_id)
-        if interrupted and self._is_continue_request(query):
-            logger.info(f"检测到继续请求，恢复中断的工具循环: session={session_id}")
-            self._clear_interrupted_state(session_id)
-            saved_system_msg = interrupted.get("system_msg", "")
-            saved_messages = interrupted.get("messages", [])
-            restored_messages = [{"role": "system", "content": saved_system_msg}]
-            for m in saved_messages:
-                if m.get("role") != "system":
-                    restored_messages.append(m)
-            restored_messages.append({
-                "role": "user",
-                "content": "继续之前的任务，不要重新开始，基于已有工具结果继续工作。可继续调用所需工具。",
-            })
-            state = AgentState(
-                messages=restored_messages,
-                partition=partition,
-                session_id=session_id,
-                style=style,
-                max_iterations=conf.max_tool_iter,
-            )
-            return self._run_tool_loop(state, saved_system_msg,
-                on_checkpoint=on_checkpoint, data_store=data_store, save_start=len(state.messages) - 1)
-
         system_msg = self._build_system_message(
             style=style,
-            workflow_name=workflow_name,
+            workflow_name=workflow_name
         )
 
-        if data_store and session_id:
-            from .tools._infra_handlers import _get_goal_line
-            goal_line = _get_goal_line(session_id, data_store)
-            if goal_line:
-                system_msg += goal_line
-                logger.debug(f"注入活跃目标: session={session_id[:8]}")
+        goal_line = _get_goal_line(session_id, self.data_store)
+        if goal_line:
+            system_msg += goal_line
+            logger.debug(f"注入活跃目标: session={session_id[:8]}")
 
         logger.debug(f"system_msg 长度: {len(system_msg)} 字符")
-        from typing import List
+        
         messages: List[dict] = [{"role": "system", "content": system_msg}]
         if history:
             messages.extend(history)
@@ -200,31 +169,31 @@ class ToolLoop:
 
         max_iter = conf.max_tool_iter
 
+        # 初始化状态机
         state = AgentState(
             messages=messages,
             partition=partition,
             session_id=session_id,
             style=style,
+            workflow=workflow_name,
             max_iterations=max_iter,
         )
         _save_start = len(state.messages) - 1
 
         if stream:
-            return self._run_tool_loop_stream(
+            return self._run_stream(
                 state,
                 cancel_check=cancel_check,
-                on_checkpoint=on_checkpoint,
                 emit_event=emit_event,
-                data_store=data_store,
                 save_start=_save_start,
             )
 
-        return self._run_tool_loop(state, system_msg, on_checkpoint=on_checkpoint, data_store=data_store, save_start=_save_start)
+        return self._run(state, system_msg, save_start=_save_start)
 
 
     # ── 对话历史持久化 ──
 
-    def _save_turn_messages(self, session_id: str, messages: list, data_store: Optional[object] = None, start: int = 0) -> None:
+    def _save_turn_messages(self, session_id: str, messages: list, start: int = 0) -> None:
         """保存本轮完整消息序列（含工具调用和结果）到历史记录。
 
         跳过 system 消息（由后续回合重建）和 start 之前的消息（已持久化的历史），
@@ -236,23 +205,20 @@ class ToolLoop:
             data_store: 数据存储实例。
             start: 本轮起始索引，之前的消息被视为已持久化的历史。
         """
-        if not data_store or not session_id:
+        if self.data_store is None:
             return
         try:
             turn_msgs = [m for m in messages[start:] if m.get("role") != "system"]
             if not turn_msgs:
                 return
-            data_store.insert_session_turn(session_id, turn_msgs)
+            self.data_store.insert_session_turn(session_id, turn_msgs)
             logger.debug(f"已保存完整对话回合: session={session_id[:8]}, {len(turn_msgs)} 条消息")
         except Exception as e:
             logger.warning(f"保存完整对话回合失败: {e}")
 
     # ── 非流式工具循环 ──
 
-    def _run_tool_loop(self, state: AgentState, system_msg: str,
-                       on_checkpoint: Optional[Callable[[str, dict], None]] = None,
-                       data_store: Optional[object] = None,
-                       save_start: int = 0) -> str:
+    def _run(self, state: AgentState, save_start: int = 0) -> str:
         """非流式工具调用主循环。
 
         循环逻辑（LLM 驱动的工具调用循环）：
@@ -263,13 +229,9 @@ class ToolLoop:
           5. 否则：并发执行所有工具调用（ThreadPoolExecutor），结果写回 state.messages
           6. 回到步骤 1，直到达到 max_iterations
 
-        达上限处理：
-          - 保存中断状态，返回提示文本让用户选择「继续」
-
         Args:
             state: AgentState 实例，包含 messages、partition、session_id 等。
             system_msg: system message 内容。
-            on_checkpoint: 检查点回调。
             data_store: 数据存储实例。
             save_start: 本轮消息起始索引。
 
@@ -312,7 +274,7 @@ class ToolLoop:
                     if retries < 2:
                         _empty_retries = retries + 1
                         logger.warning(f"LLM 返回空内容, 自动重试 ({_empty_retries}/2)")
-                        state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
+                        state.add_user_query("请直接回答用户的问题，不要使用工具。")
                         continue
                 length_retries = _length_retries
                 if resp.get("finish_reason") == "length" and content and length_retries < 3:
@@ -321,8 +283,8 @@ class ToolLoop:
                     state.messages.append({"role": "assistant", "content": content})
                     state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
                     continue
-                state.messages.append({"role": "assistant", "content": content})
-                self._save_turn_messages(state.session_id, state.messages, data_store, start=save_start)
+                state.add_assistant_response(content)
+                self._save_turn_messages(state.session_id, state.messages, start=save_start)
                 return content
 
             logger.debug(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
@@ -372,92 +334,14 @@ class ToolLoop:
             tool_choice = "auto"
 
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}")
-        state.tool_exhausted = True
-        state.system_msg = system_msg
-        self._save_interrupted_state(state)
-        return self._TOOL_EXHAUSTED_MSG
-
-
-    _TOOL_EXHAUSTED_MSG = (
-        "[tool_exhausted] 本任务需要多轮工具调用，但已达单次上限。\n"
-        "如需继续，请回复「继续」（将重置计数，基于当前进度继续）。\n"
-        "如果已有信息足够，直接说出你的最终答案即可。"
-    )
-
-    _INTERRUPT_TAG = "_interrupted_tool_loop"
-
-    # ── 中断状态管理 ──
-
-    def _save_interrupted_state(self, state: AgentState) -> None:
-        """保存被中断的工具循环状态到 data_store。
-
-        Args:
-            state: 包含当前 messages 和 system_msg 的 AgentState 实例。
-        """
-        try:
-            if self.data_store:
-                import json
-                tasks = self.data_store.get_session_tasks(state.session_id) or {}
-                tasks[self._INTERRUPT_TAG] = {
-                    "messages": state.messages,
-                    "system_msg": state.system_msg,
-                }
-                self.data_store.save_session_tasks(state.session_id, tasks)
-        except Exception as e:
-            logger.warning(f"保存中断状态失败: {e}")
-
-    def _load_interrupted_state(self, session_id: str) -> dict | None:
-        """读取被中断的工具循环状态。
-
-        Args:
-            session_id: 会话 ID。
-
-        Returns:
-            包含 messages 和 system_msg 的中断状态字典，无中断状态时返回 None。
-        """
-        try:
-            if self.data_store:
-                tasks = self.data_store.get_session_tasks(session_id) or {}
-                return tasks.get(self._INTERRUPT_TAG)
-        except Exception:
-            pass
-        return None
-
-    def _clear_interrupted_state(self, session_id: str) -> None:
-        """清除已恢复的中断状态。
-
-        Args:
-            session_id: 会话 ID。
-        """
-        try:
-            if self.data_store:
-                tasks = self.data_store.get_session_tasks(session_id) or {}
-                tasks.pop(self._INTERRUPT_TAG, None)
-                self.data_store.save_session_tasks(session_id, tasks)
-        except Exception as e:
-            logger.warning(f"清除中断状态失败: {e}")
-
-    @staticmethod
-    def _is_continue_request(query: str) -> bool:
-        """检测用户是否要求继续工具循环。
-
-        Args:
-            query: 用户输入的字符串。
-
-        Returns:
-            如果用户输入匹配继续指令（如「继续」「continue」等），返回 True。
-        """
-        q = query.strip().lower()
-        return q in ("继续", "continue", "继续做", "接着做", "继续完成", "好，继续", "继续吧")
+        return "已达单次工具调用上限，如已有足够信息可直接给出最终答案。"
 
 
     # ── 流式工具循环 ──
 
-    def _run_tool_loop_stream(self, state: AgentState,
+    def _run_stream(self, state: AgentState,
                                cancel_check: Optional[Callable[[], bool]] = None,
-                               on_checkpoint: Optional[Callable[[str, dict], None]] = None,
                                emit_event: Optional[Callable[[dict], None]] = None,
-                               data_store: Optional[object] = None,
                                save_start: int = 0):
         """流式生成器：逐 token 产出，中间穿插 status 事件。
 
@@ -478,7 +362,6 @@ class ToolLoop:
         Args:
             state: AgentState 实例。
             cancel_check: 中断检测函数，返回 True 时终止生成。
-            on_checkpoint: 中间检查点保存回调。
             emit_event: 流式事件的发送函数。
             data_store: 数据存储实例。
             save_start: 本轮消息起始索引。
@@ -490,12 +373,6 @@ class ToolLoop:
         for it in range(state.max_iterations):
             if cancel_check and cancel_check():
                 logger.info("工具循环被中断")
-                if on_checkpoint and state.messages:
-                    on_checkpoint("tools_completed", {
-                        "iteration": it,
-                        "model": self.chat_model,
-                        "pending_calls": tool_calls if tool_calls else None,
-                    })
                 return
         
             accumulated_content = ""
@@ -537,28 +414,17 @@ class ToolLoop:
                         yield {"type": "reasoning", "text": ev["text"]}
                     elif ev["type"] == "tool_calls":
                         tool_calls = ev["calls"]
-                        if on_checkpoint:
-                            on_checkpoint("awaiting_tools", {
-                                "iteration": it,
-                                "pending_calls": tool_calls,
-                            })
                     elif ev["type"] == "finish" and ev.get("reason") == "length":
                         if accumulated_content.strip():
                             lr = _length_retries
                             if lr < 3:
                                 _length_retries = lr + 1
-                                state.messages.append({"role": "assistant", "content": accumulated_content})
-                                state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
+                                state.add_assistant_response(accumulated_content)
+                                state.add_user_query("继续，不要重复已写过的内容。")
                                 accumulated_content = ""
                                 tool_choice = "auto"
             except Exception as e:
                 logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")
-                if on_checkpoint and state.messages:
-                    on_checkpoint("tools_completed", {
-                        "iteration": it,
-                        "model": self.chat_model,
-                        "pending_calls": tool_calls if tool_calls else None,
-                    })
                 yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}
                 return
 
@@ -568,12 +434,12 @@ class ToolLoop:
                     if retries < 2:
                         _empty_retries = retries + 1
                         logger.warning(f"LLM 返回空内容, 自动重试 ({_empty_retries}/2)")
-                        state.messages.append({"role": "user", "content": "请直接回答用户的问题，不要使用工具。"})
+                        state.add_user_query("请直接回答用户的问题，不要使用工具。")
                         if emit_event: emit_event({"type": "status", "status": "retrying"})
                         yield {"type": "status", "status": "retrying"}
                         continue
-                state.messages.append({"role": "assistant", "content": accumulated_content})
-                self._save_turn_messages(state.session_id, state.messages, data_store, start=save_start)
+                state.add_assistant_response(accumulated_content)
+                self._save_turn_messages(state.session_id, state.messages, start=save_start)
                 return
 
             logger.debug(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")
@@ -652,11 +518,6 @@ class ToolLoop:
                                 tool_info["chunks"] = _cnt
                         if emit_event: emit_event({"type": "status", "status": "tool_result", **tool_info})
                         yield {"type": "status", "status": "tool_result", **tool_info}
-                        if on_checkpoint:
-                            on_checkpoint("tools_completed", {
-                                "iteration": it,
-                                "tool_name": tool_info.get("tool", ""),
-                            })
             for tc in tool_calls:
                 if tc["name"] == "ask_user_for_clarification":
                     import json
@@ -671,9 +532,8 @@ class ToolLoop:
             tool_choice = "auto"
 
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}")
-        state.system_msg = state.messages[0]["content"] if state.messages else ""
-        self._save_interrupted_state(state)
-        for ch in self._TOOL_EXHAUSTED_MSG:
+        msg = "已达单次工具调用上限，如已有足够信息可直接给出最终答案。"
+        for ch in msg:
             if emit_event:
                 emit_event({"type": "token", "text": ch})
             yield {"type": "token", "text": ch}

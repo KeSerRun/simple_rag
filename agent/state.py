@@ -19,6 +19,7 @@ class AgentState:
         session_id: 当前会话的标识符。
         partition: 向量检索的分区键。
         style: 回答风格 skill 名称。
+        workflow: 回答工作流 workflow 名称。
         system_msg: 当前回合的 system message 内容。
     """
     messages: List[dict] = field(default_factory=list)
@@ -27,6 +28,7 @@ class AgentState:
     session_id: str = "default"
     partition: Optional[str] = None
     style: Optional[str] = None
+    workflow: Optional[str] = None
     system_msg: str = ""
 
     def should_continue(self) -> bool:
@@ -48,8 +50,17 @@ class AgentState:
             return False
         return True
 
-    def add_assistant_response(self, content: str, tool_calls: List[dict]):
+    def add_user_query(self, content: str):
+        """记录用户查询。"""
+        self.messages.append({
+            "role": "user",
+            "content": content
+        })
+
+    def add_assistant_response(self, content: str, tool_calls: List[dict] = None):
         """记录 LLM 返回的 assistant 响应。"""
+        if tool_calls is None:
+            tool_calls = []
         self.messages.append({
             "role": "assistant",
             "content": content,

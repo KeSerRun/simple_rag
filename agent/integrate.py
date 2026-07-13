@@ -50,7 +50,7 @@ class IntegratedSystem:
             embedding_dim=conf.openai_embedding_dim,
         )
 
-        self.rag_qa = ToolLoop(
+        self.tool_loop = ToolLoop(
             data_store=self.data_store,
             chat_client=self.chat_client,
             embed_client=self.embed_client,
@@ -215,7 +215,7 @@ class IntegratedSystem:
         history = self.get_history(session_id)
 
         try:
-            answer = self.rag_qa.generate_answer(
+            answer = self.tool_loop.generate_answer(
                 question,
                 stream=False,
                 history=history,
@@ -223,7 +223,6 @@ class IntegratedSystem:
                 session_id=session_id,
                 style=style,
                 workflow_name=workflow,
-                data_store=self.data_store,
             )
             logger.debug(f"回答成功 len={len(answer)}")
         except Exception as e:
@@ -269,7 +268,7 @@ class IntegratedSystem:
 
         def _worker():
             try:
-                gen = self.rag_qa.generate_answer(
+                gen = self.tool_loop.generate_answer(
                     query=question,
                     stream=True,
                     history=self.get_history(session_id),
@@ -279,7 +278,6 @@ class IntegratedSystem:
                     workflow_name=workflow,
                     cancel_check=is_cancelled,
                     emit_event=session_queue.put,
-                    data_store=self.data_store,
                 )
                 for _ in gen:
                     pass

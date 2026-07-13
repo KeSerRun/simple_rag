@@ -408,7 +408,6 @@ class IntegratedSystem:
             - {"type": "reasoning", "text": "..."}
         """
         self._check_style_change(session_id, style)
-        history = self.get_history(session_id)
         logger.debug(f"会话 session={session_id}")
 
         cancel_event = threading.Event()

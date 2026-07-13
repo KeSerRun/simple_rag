@@ -9,7 +9,7 @@ from storage import JSONFileStore as DataStore
 from agent import RAGSystem
 
 from .checkpoint import CheckpointStore
-from .loop import SessionLockManager
+from .session import SessionLockManager
 
 import uuid
 import re

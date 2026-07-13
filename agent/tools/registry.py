@@ -321,12 +321,12 @@ class ToolRegistry:
 def register_all_builtins(reg: ToolRegistry) -> None:
     """注册全部内建工具。
 
-    由 __init__.py 在导入所有 handler 模块后调用。
-    集中管理所有工具的定义（名称 / 描述 / 参数 schema / handler）。
-
     Args:
-        reg: ToolRegistry 实例，工具将注册到该实例中。
+        reg: ToolRegistry 实例
     """
+    from base.config import conf
+
+    # -- 基础工具：澄清 / 目标 / 状态 --
     from ._kb_handlers import (
         _exec_search_kb, _exec_read_full_document,
         _exec_list_documents, _exec_read_archive, _exec_read_chunk_context,
@@ -346,8 +346,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="ask_user_for_clarification",
         description=(
-            "当用户请求模糊（指代不清、未指定具体文档）、且已有检索结果不足以推断时调用此工具。"
-            "调用后对话中断，将你设置的 question 抛给用户等待补充。"
+            "当用户请求模糊（指代不清、未指定具体文档）且已有检索结果不足以推断时，"
+            "调用此工具向用户提问以获取补充信息。调用后对话中断，等待用户回复。"
         ),
         parameters={
             "type": "object",
@@ -366,8 +366,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="set_goal",
         description=(
-            "设置当前会话的持续目标。目标信息会持续注入 system prompt 供后续对话参考。"
-            "当用户交代了一个多轮对话才能完成的目标时调用。"
+            "设置当前会话的持续目标。目标会持续注入 system prompt，"
+            "在后续多轮对话中自动保留上下文。适合用户交代需要多步完成的任务时调用。"
         ),
         parameters={
             "type": "object",
@@ -394,10 +394,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="my",
         description=(
-            "查看当前会话的运行时状态和配置。"
-            "调用 my(action='check') 获取完整状态概览，"
-            "或 my(action='check', key='model') 查看特定配置。"
-            "支持的关键词: model, max_iterations, context_window, max_tokens, retrieval_top_k"
+            "查看当前会话的运行时状态和配置（模型、迭代上限、上下文窗口、检索参数等）。"
+            "my(action='check') 查看完整状态，my(action='check', key='model') 查看单项。"
+            "支持的关键词: model, max_iterations, context_window, max_chars, retrieval_top_k"
         ),
         parameters={
             "type": "object",
@@ -420,9 +419,10 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_workflow",
         description=(
-            "读取工作流的完整分步指令。"
-            "system prompt 中列出了可用的工作流及其摘要。"
+            "读取工作流的完整分步指令。可用工作流及摘要已在 system prompt 中列出。"
             "如需使用某个工作流，先调用此工具获取完整指令，再按步骤执行。"
+            "当前工作流：Briefing（简报）、Comparison（对比）、DeepResearch（深度研究）、"
+            "Autoplan（自动规划）、USstocks（美股分析）。"
         ),
         parameters={
             "type": "object",
@@ -441,9 +441,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_tool_result",
         description=(
-            "读取被持久化的工具结果完整内容。支持 offset 分页读取。"
-            "当工具返回 \"[工具结果已保存至 ...]\" 引用时，"
-            "可调用此工具传入文件名读取原始完整内容。"
+            f"读取被持久化的工具结果完整内容。当工具返回超过 {conf.max_tool_result_chars} 字符时，"
+            f"结果会自动保存到文件并返回引用标记。调用此工具传入文件名即可读取原始内容，"
+            f"支持 offset 分页（每页 {conf.tool_page_chars} 字符）。"
         ),
         parameters={
             "type": "object",
@@ -467,9 +467,10 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="search_knowledge_base",
         description=(
-            "知识库检索，覆盖文本、表格、图片图表。"
-            "支持多 query 并行检索；set search_system=false 仅搜用户文档。"
-            "可使用 top_k 控制返回结果数（默认 5，最多 20）。"
+            f"知识库语义检索（嵌入模型 {conf.openai_embedding_model}），覆盖文本、表格、图片图表。"
+            f"支持多 query 并行检索（最多 5 个）。"
+            f"set search_system=false 仅搜用户文档。"
+            f"top_k 默认 5，实际返回数受系统 retrieval_top_k（{conf.retrieval_top_k}）限制。"
         ),
         parameters={
             "type": "object",
@@ -507,6 +508,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         name="read_full_document",
         description=(
             "读取某篇文档的完整全文（Markdown 格式）。支持 offset 分页（每页 5000 字符）。"
+            "文件名必须是文档清单中的完整文件名（含扩展名）。"
         ),
         parameters={
             "type": "object",
@@ -533,7 +535,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_url",
         description=(
-            "读取指定网页的完整文字内容。仅限公开可访问的网页。"
+            f"读取指定网页的完整文字内容（超时 {conf.openai_timeout} 秒）。仅限公开可访问的网页。"
+            f"如果网页内容过长，会自动截断。"
         ),
         parameters={
             "type": "object",
@@ -552,7 +555,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="web_search",
         description=(
-            "搜索互联网获取最新信息（实时新闻、数据等知识库未覆盖的内容）。"
+            f"搜索互联网获取最新信息（实时新闻、数据等知识库未覆盖的内容）。"
+            f"搜索后端：{conf.search_backend}。返回结果包含标题、摘要和来源链接。"
+            f"max_results 控制返回数量（1-10，默认 5）。"
         ),
         parameters={
             "type": "object",
@@ -576,8 +581,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="list_documents",
         description=(
-            "列出知识库中的文档清单。支持 pattern 过滤，list_system=false 仅列用户文档。"
-            "返回文档名、类型、大小、修改时间。"
+            "列出知识库中的文档清单。支持 pattern 关键词过滤（如「KD」「择时」），"
+            "list_system=false 仅列用户自己的文档。返回文档名、类型、大小、修改时间。"
+            "可先调用此工具查看可用文档，再使用 read_full_document 读取具体内容。"
         ),
         parameters={
             "type": "object",
@@ -608,7 +614,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_archive",
         description=(
-            "读取被压缩归档的历史对话记录。"
+            "读取被压缩归档的历史对话记录。当上下文窗口超限时，早期对话会被自动压缩归档，"
+            "并在当前消息中留下 #[archive_id] 标记。调用此工具传入 archive_id 可查看归档内容。"
         ),
         parameters={
             "type": "object",
@@ -627,9 +634,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_chunk_context",
         description=(
-            "读取某一片段前后的相邻文档内容。"
-            "片段内容不完整、图表标题需查看正文、同主题片段分散时使用。"
-            "chunk_id 从检索结果标头 [id=] 获取。"
+            "读取某一片段前后的相邻文档内容。当检索到的片段内容不完整、"
+            "图表标题需要查看正文、同主题片段分散时使用。"
+            "chunk_id 从检索结果标头 [id=] 获取，before/after 控制前后取多少块（默认 3，最大 10）。"
         ),
         parameters={
             "type": "object",
@@ -658,7 +665,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_document_titles",
         description=(
-            "读取某篇文档的标题目录结构。"
+            "读取某篇文档的标题目录结构。返回文档内所有级别的标题列表，"
+            "方便快速定位感兴趣的内容。再配合 read_section 或 read_full_document 读取具体内容。"
         ),
         parameters={
             "type": "object",
@@ -701,8 +709,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="search_document_content",
         description=(
-            "在所有知识库文档的全文内容中搜索关键词，返回匹配的文档名和行号。"
-            "类似于 grep 但针对知识库文档。"
+            "在所有知识库文档的全文内容中搜索关键词（大小写不敏感），"
+            "返回匹配的文档名和行号。类似于全文 grep。"
+            "可指定 source 限定仅搜索某篇文档，max_results 控制返回数量（1-50，默认 10）。"
         ),
         parameters={
             "type": "object",

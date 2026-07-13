@@ -355,12 +355,7 @@ class RAGSystem:
     # ── 上下文治理 ──
 
     def _govern_context(self, messages: List[dict]) -> List[dict]:
-        """上下文治理流水线：在每次调用 LLM 前清理消息列表。
-
-        3 步治理：
-          1. 补充缺失 tool_result（有 tool_calls 但没有结果的，中断恢复场景）
-          2. 预算控制：截断超过上限的工具结果
-          3. 历史裁剪：按字符预算从最早的消息开始丢弃
+        """在调用 LLM 前清理消息列表：截断过长工具结果 + 预算裁剪。
 
         Args:
             messages: 原始消息列表。
@@ -370,39 +365,17 @@ class RAGSystem:
         """
         governed = list(messages)
 
-        backfill_needed = {}
-        for m in governed:
-            if m.get("role") == "assistant" and "tool_calls" in m:
-                for tc in m["tool_calls"]:
-                    tc_id = tc.get("id", "") if isinstance(tc, dict) else ""
-                    if tc_id:
-                        backfill_needed[tc_id] = tc
-
-        for m in governed:
-            if m.get("role") == "tool" and m.get("tool_call_id"):
-                backfill_needed.pop(m["tool_call_id"], None)
-
-        for tc_id, tc in backfill_needed.items():
-            tc_name = tc.get("name", "") if isinstance(tc, dict) else ""
-            governed.append({
-                "role": "tool",
-                "tool_call_id": tc_id,
-                "content": f"(工具 {tc_name} 在上一轮执行后被中断，结果不可用。请根据已有信息继续。)",
-            })
-
-        logger.debug(f"_govern_context: 输入 {len(messages)} 条消息, "
-                     f"backfill={len(backfill_needed)} 条")
-
-        MAX_TOOL_CHARS = conf.max_tool_result_chars
+        # -- 1. 工具结果预算截断 --
+        limit = conf.max_tool_result_chars
         for i, m in enumerate(governed):
             if m.get("role") == "tool":
                 content = m.get("content", "") or ""
-                if len(content) > MAX_TOOL_CHARS:
-                    truncated = content[:MAX_TOOL_CHARS]
+                if len(content) > limit:
                     governed[i] = dict(m)
-                    governed[i]["content"] = truncated + "\n\n...(工具结果过长，已截断)..."
-                    logger.debug(f"工具结果预算截断: {len(content)} → {MAX_TOOL_CHARS} 字符")
+                    governed[i]["content"] = content[:limit] + "\n\n...(工具结果过长，已截断)..."
+                    logger.debug(f"工具结果预算截断: {len(content)} → {limit} 字符")
 
+        # -- 2. 历史裁剪 --
         return self._truncate_messages(governed)
 
     def _truncate_messages(self, messages: List[dict]) -> List[dict]:
@@ -696,7 +669,7 @@ class RAGSystem:
                                drain_pending: Optional[Callable[[], list[dict]]] = None,
                                emit_event: Optional[Callable[[dict], None]] = None,
                                data_store: Optional[object] = None,
-                               save_start: int = 0) -> None:
+                               save_start: int = 0):
         """流式生成器：逐 token 产出，中间穿插 status 事件。
 
         与非流式版本的核心逻辑相同，但：

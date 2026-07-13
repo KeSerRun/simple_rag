@@ -26,7 +26,7 @@ from .tools.registry import ToolRegistry, ToolContext, ToolDef
 from .tools import registry, TOOL_SCHEMAS, execute_tool
 from .workflow import WorkflowRouter
 from .checkpoint import CheckpointStore, Checkpoint, restore_messages
-from .loop import SessionLockManager
+from .session import SessionLockManager
 
 __all__ = [
     "RAGSystem", "IntegratedSystem",

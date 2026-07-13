@@ -252,7 +252,7 @@ class SkillLoader:
 
     def list_skills(self) -> dict:
         """返回当前已加载的所有 skill 的概览信息。"""
-        return {name: s.source for name, s in self._skills.items()}
+        return [{ "value": name, "label": name } for name, s in self._skills.items()]
 
     def get_skill(self, name: str) -> Optional[Skill]:
         """根据名称获取 skill。"""

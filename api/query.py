@@ -18,21 +18,21 @@ async def list_styles():
 
     # ── 发现机制
 
-    遍历 ``system.tool_loop.skill_loader.skills``,筛选 source 路径
+    遍历 ``system.tool_loop.system_context.style_router.list_skills()``,筛选 source 路径
     中包含 ``/style/`` 的 skill,按 label 排序,``default`` 置顶。
 
     Returns:
         JSONResponse: ``{"styles": [{"value": str, "label": str, "description": str}, ...]}``。
     """
-    skills = system.tool_loop.skill_loader.skills
-    styles = []
-    for name, skill in skills.items():
-        if "/style/" in skill.source.replace("\\", "/"):
-            styles.append({
-                "value": name,
-                "label": name,
-                "description": skill.description or "",
-            })
+    styles = system.tool_loop.system_context.style_router.list_skills()
+    # styles = []
+    # for name, skill in skills.items():
+    #     if "/style/" in skill.source.replace("\\", "/"):
+    #         styles.append({
+    #             "value": name,
+    #             "label": name,
+    #             "description": skill.description or "",
+    #         })
     styles.sort(key=lambda s: (s["value"] != "default", s["label"]))
     return JSONResponse(content={"styles": styles})
 
@@ -43,12 +43,12 @@ async def list_workflows():
 
     # ── 发现机制
 
-    委托给 ``system.tool_loop.workflow_router.get_workflow_list()``。
+    委托给 ``system.tool_loop.system_context.workflow_router.get_workflow_list()``。
 
     Returns:
         JSONResponse: ``{"workflows": [...]}``。
     """
-    workflows = system.tool_loop.workflow_router.get_workflow_list()
+    workflows = system.tool_loop.system_context.workflow_router.get_workflow_list()
     return JSONResponse(content={"workflows": workflows})
 
 

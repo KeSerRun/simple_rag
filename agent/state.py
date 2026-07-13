@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from base.config import conf
+from base.logger import logger
 
 MAX_TOOL_ITER = conf.max_tool_iter
 
@@ -85,3 +86,27 @@ class AgentState:
             "tool_call_id": tool_call_id,
             "content": content,
         })
+
+
+    # ── 对话历史持久化 ──
+    def _save_turn_messages(self, session_id: str, data_store=None, start: int = 0) -> None:
+        """保存本轮完整消息序列（含工具调用和结果）到历史记录。
+
+        跳过 system 消息（由后续回合重建）和 start 之前的消息（已持久化的历史），
+        只保存本轮新增的 user / assistant / tool 消息。
+
+        Args:
+            session_id: 会话 ID。
+            data_store: 数据存储实例。
+            start: 本轮起始索引，之前的消息被视为已持久化的历史。
+        """
+        if self.data_store is None:
+            return
+        try:
+            turn_msgs = [m for m in self.messages[start:] if m.get("role") != "system"]
+            if not turn_msgs:
+                return
+            data_store.insert_session_turn(session_id, turn_msgs)
+            logger.debug(f"已保存完整对话回合: session={session_id[:8]}, {len(turn_msgs)} 条消息")
+        except Exception as e:
+            logger.warning(f"保存完整对话回合失败: {e}")

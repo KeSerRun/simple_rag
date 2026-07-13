@@ -162,6 +162,7 @@ class ToolLoop:
 
         logger.debug(f"system_msg 长度: {len(system_msg)} 字符")
         
+        # 初始化 messages
         messages: List[dict] = [{"role": "system", "content": system_msg}]
         if history:
             messages.extend(history)
@@ -190,31 +191,6 @@ class ToolLoop:
 
         return self._run(state, system_msg, save_start=_save_start)
 
-
-    # ── 对话历史持久化 ──
-
-    def _save_turn_messages(self, session_id: str, messages: list, start: int = 0) -> None:
-        """保存本轮完整消息序列（含工具调用和结果）到历史记录。
-
-        跳过 system 消息（由后续回合重建）和 start 之前的消息（已持久化的历史），
-        只保存本轮新增的 user / assistant / tool 消息。
-
-        Args:
-            session_id: 会话 ID。
-            messages: 完整消息列表。
-            data_store: 数据存储实例。
-            start: 本轮起始索引，之前的消息被视为已持久化的历史。
-        """
-        if self.data_store is None:
-            return
-        try:
-            turn_msgs = [m for m in messages[start:] if m.get("role") != "system"]
-            if not turn_msgs:
-                return
-            self.data_store.insert_session_turn(session_id, turn_msgs)
-            logger.debug(f"已保存完整对话回合: session={session_id[:8]}, {len(turn_msgs)} 条消息")
-        except Exception as e:
-            logger.warning(f"保存完整对话回合失败: {e}")
 
     # ── 非流式工具循环 ──
 
@@ -280,11 +256,11 @@ class ToolLoop:
                 if resp.get("finish_reason") == "length" and content and length_retries < 3:
                     _length_retries = length_retries + 1
                     logger.warning(f"LLM 响应被截断 (length), 自动续写 ({_length_retries}/3)")
-                    state.messages.append({"role": "assistant", "content": content})
-                    state.messages.append({"role": "user", "content": "继续，不要重复已写过的内容。"})
+                    state.add_assistant_response(content)
+                    state.add_user_query("继续，不要重复已写过的内容。")
                     continue
                 state.add_assistant_response(content)
-                self._save_turn_messages(state.session_id, state.messages, start=save_start)
+                state._save_turn_messages(state.session_id, self.data_store, start=save_start)
                 return content
 
             logger.debug(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
@@ -425,6 +401,8 @@ class ToolLoop:
                                 tool_choice = "auto"
             except Exception as e:
                 logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")
+                if emit_event:
+                    emit_event({"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"})
                 yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}
                 return
 

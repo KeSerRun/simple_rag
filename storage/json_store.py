@@ -574,11 +574,11 @@ class JSONFileStore(BaseStore):
             session_id: 会话 ID。
 
         Returns:
-            任务数据字典，不存在返回 {"short": [], "long": []}。
+            任务数据字典，不存在返回 {}。
         """
         file_path = os.path.join(self._json_dir, "session_tasks", f"{session_id}.json")
         if not os.path.exists(file_path):
-            return {"short": [], "long": []}
+            return {}
         return self._read_json(file_path)
 
     def delete_session_tasks(self, session_id):

@@ -233,7 +233,6 @@ class RAGSystem:
         workflow_name: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
         on_checkpoint: Optional[Callable[[str, dict], None]] = None,
-        drain_pending: Optional[Callable[[], list[dict]]] = None,
         emit_event: Optional[Callable[[dict], None]] = None,
         data_store: Optional[object] = None,
     ) -> None:
@@ -256,7 +255,6 @@ class RAGSystem:
             workflow_name: 工作流名称（None 为自动识别）。
             cancel_check: 可选的中断检测函数，返回 True 时中断生成。
             on_checkpoint: 检查点回调，用于保存中间状态。
-            drain_pending: 待处理消息队列的消费函数。
             emit_event: 事件推送回调（用于流式输出）。
             data_store: 数据存储实例。
 
@@ -343,7 +341,6 @@ class RAGSystem:
                 state, force_retrieve,
                 cancel_check=cancel_check,
                 on_checkpoint=on_checkpoint,
-                drain_pending=drain_pending,
                 emit_event=emit_event,
                 data_store=data_store,
                 save_start=_save_start,
@@ -546,7 +543,6 @@ class RAGSystem:
                             partition=state.partition,
                             data_store=self.data_store,
                             session_id=state.session_id,
-                            subagent_manager=getattr(self, "subagent_manager", None),
                             workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
@@ -666,7 +662,6 @@ class RAGSystem:
     def _run_tool_loop_stream(self, state: AgentState, force_retrieve: bool,
                                cancel_check: Optional[Callable[[], bool]] = None,
                                on_checkpoint: Optional[Callable[[str, dict], None]] = None,
-                               drain_pending: Optional[Callable[[], list[dict]]] = None,
                                emit_event: Optional[Callable[[dict], None]] = None,
                                data_store: Optional[object] = None,
                                save_start: int = 0):
@@ -690,9 +685,8 @@ class RAGSystem:
             state: AgentState 实例。
             force_retrieve: 是否强制 LLM 必须调用检索工具。
             cancel_check: 中断检测函数，返回 True 时终止生成。
-            on_checkpoint: 检查点回调。
-            drain_pending: 中间消息消费函数。
-            emit_event: 事件推送回调。
+            on_checkpoint: 中间检查点保存回调。
+            emit_event: 流式事件的发送函数。
             data_store: 数据存储实例。
             save_start: 本轮消息起始索引。
         """
@@ -815,7 +809,6 @@ class RAGSystem:
                             partition=state.partition,
                             data_store=self.data_store,
                             session_id=state.session_id,
-                            subagent_manager=getattr(self, "subagent_manager", None),
                             workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
@@ -884,18 +877,6 @@ class RAGSystem:
                     return
 
             tool_choice = "auto"
-
-            _MAX_INJECTION_CYCLES = 5
-            _injection_round = 0
-            if drain_pending:
-                pending = drain_pending()
-                while pending and _injection_round < _MAX_INJECTION_CYCLES:
-                    _injection_round += 1
-                    for msg in pending:
-                        state.messages.append(msg)
-                        if msg.get("role") == "user":
-                            logger.debug(f"中间注入 ({_injection_round}): {msg.get('content', '')[:60]}...")
-                    pending = drain_pending()
 
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}")
         state.system_msg = state.messages[0]["content"] if state.messages else ""

@@ -102,9 +102,10 @@ export function renderMarkdown(text) {
   if (!text) return ''
   try {
     // 确保标题前有换行，避免 remarkBreaks 吃掉 heading 标记
+    // 仅匹配行首的 #，不破坏表格单元格内的 #
     const withHeadingBreaks = text
       .replace(/(\n)(#{1,6}\s)/g, '\n\n$2')
-      .replace(/(^|[^\n])(#{1,6}\s)/gm, '$1\n\n$2')
+      .replace(/^(#{1,6}\s)/gm, '\n\n$1')
     // 对图片 URL 中的空格进行 URL 编码，防止浏览器无法加载
     const encodedUrls = withHeadingBreaks.replace(
       /(!\[.*?\]\()(.*?)(\))/g,

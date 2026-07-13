@@ -202,7 +202,7 @@ class BaseStore(ABC):
             session_id: 会话 ID。
 
         Returns:
-            任务数据 dict，不存在返回 {"short": [], "long": []}。
+            任务数据 dict，不存在返回 {}。
         """
 
     @abstractmethod

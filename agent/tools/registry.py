@@ -32,15 +32,13 @@ class ToolContext:
         partition: 当前会话的分区标识（用户分区）。
         data_store: 持久化数据存储实例。
         session_id: 当前会话 ID。
-        subagent_manager: 子 Agent 管理器实例。
-        workflow_router: 工作流路由器实例。
+        workflow_router: 工作流路由实例，用于按需获取工作流内容。
         llm_client: LLM 客户端实例。
     """
     vector_store: VectorStore
     partition: Optional[str] = None
     data_store: Optional[object] = None
     session_id: str = ""
-    subagent_manager: Optional[object] = None
     workflow_router: Optional[object] = None
     llm_client: Optional[object] = None
 
@@ -396,14 +394,13 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         description=(
             "查看当前会话的运行时状态和配置（模型、迭代上限、上下文窗口、检索参数等）。"
             "my(action='check') 查看完整状态，my(action='check', key='model') 查看单项。"
-            "支持的关键词: model, max_iterations, context_window, max_chars, retrieval_top_k"
         ),
         parameters={
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "要执行的操作：check（查看状态）、subagents（查看子 Agent 列表）。",
+                    "description": "要执行的操作：check（查看状态）。",
                 },
                 "key": {
                     "type": "string",

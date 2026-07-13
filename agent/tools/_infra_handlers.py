@@ -50,7 +50,7 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
 
     Args:
         args: 工具参数字典，键:
-            action: 操作类型 — 'check'（查看状态）、'subagents'（查看子 Agent 列表）。
+            action: 操作类型 — 'check'（查看状态）。
             key: 要查看的特定配置项关键词（可选）。
         ctx: 工具运行时上下文。
 
@@ -93,15 +93,6 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
             name, val = key_map[key]
             return f"{name}: {val}"
         return f"(未知配置: {key})"
-
-    elif action == "subagents":
-        mgr = getattr(ctx, "subagent_manager", None)
-        if not mgr:
-            return "(子 Agent 管理器不可用)"
-        import time as _time
-        lines = ["=== 子 Agent 列表 ==="]
-        with mgr._lock:
-            statuses = dict(mgr._status)
 
     return "(未知 action)"
 

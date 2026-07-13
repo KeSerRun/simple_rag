@@ -222,7 +222,7 @@ class IntegratedSystem:
                 partition=partition,
                 session_id=session_id,
                 style=style,
-                workflow_name=workflow,
+                workflow=workflow,
             )
             logger.debug(f"回答成功 len={len(answer)}")
         except Exception as e:
@@ -275,7 +275,7 @@ class IntegratedSystem:
                     partition=partition,
                     session_id=session_id,
                     style=style,
-                    workflow_name=workflow,
+                    workflow=workflow,
                     cancel_check=is_cancelled,
                     emit_event=session_queue.put,
                 )

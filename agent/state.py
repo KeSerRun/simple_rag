@@ -60,23 +60,27 @@ class AgentState:
 
     def add_assistant_response(self, content: str, tool_calls: List[dict] = None):
         """记录 LLM 返回的 assistant 响应。"""
-        if tool_calls is None:
-            tool_calls = []
-        self.messages.append({
-            "role": "assistant",
-            "content": content,
-            "tool_calls": [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": tc["arguments"],
-                    },
-                }
-                for tc in tool_calls
-            ],
-        })
+        if tool_calls:
+            self.messages.append({
+                "role": "assistant",
+                "content": content,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments"],
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            })
+        else:
+            self.messages.append({
+                "role": "assistant",
+                "content": content,
+            })
         self.iteration += 1
 
     def add_tool_result(self, tool_call_id: str, content: str):
@@ -100,7 +104,7 @@ class AgentState:
             data_store: 数据存储实例。
             start: 本轮起始索引，之前的消息被视为已持久化的历史。
         """
-        if self.data_store is None:
+        if data_store is None:
             return
         try:
             turn_msgs = [m for m in self.messages[start:] if m.get("role") != "system"]

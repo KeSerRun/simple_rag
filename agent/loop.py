@@ -73,13 +73,13 @@ class ToolLoop:
     def _build_system_message(
         self,
         style: Optional[str] = None,
-        workflow_name: Optional[str] = None,
+        workflow: Optional[str] = None,
     ) -> str:
         """构造 system message: identity + 可选回答风格 + 可选工作流。
 
         Args:
             style: 回答风格模板名称。
-            workflow_name: 工作流名称，None 或 "__auto__" 时加载摘要列表。
+            workflow: 工作流名称，None 或 "__auto__" 时加载摘要列表。
 
         Returns:
             拼接后的 system message 字符串。
@@ -94,7 +94,7 @@ class ToolLoop:
             if skill and skill.template:
                 parts.append(f"\n\n{skill.template}")
 
-        wf_name = workflow_name if workflow_name and workflow_name != "__auto__" else None
+        wf_name = workflow if workflow and workflow != "__auto__" else None
         if wf_name:
             wf_content = self.workflow_router.get_workflow_content(wf_name)
             if wf_content:
@@ -120,7 +120,7 @@ class ToolLoop:
         partition: str = None,
         session_id: str = "default",
         style: Optional[str] = None,
-        workflow_name: Optional[str] = None,
+        workflow: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
         emit_event: Optional[Callable[[dict], None]] = None,
     ) -> None:
@@ -138,7 +138,7 @@ class ToolLoop:
             partition: 知识库分区（用户名）。
             session_id: 会话 ID。
             style: 回答风格模板名称。
-            workflow_name: 工作流名称（None 为自动识别）。
+            workflow: 工作流名称（None 为自动识别）。
             cancel_check: 可选的中断检测函数，返回 True 时中断生成。
             emit_event: 事件推送回调（用于流式输出）。
 
@@ -148,11 +148,11 @@ class ToolLoop:
         conf.reload_if_changed()
         from .tools import registry as _reg
         _reg.reset_external_lookup_counts()
-        logger.debug(f"收到用户查询: {query} (style={style})")
+        logger.debug(f"收到用户查询: {query} (style={style}), (workflow={workflow})")
 
         system_msg = self._build_system_message(
             style=style,
-            workflow_name=workflow_name
+            workflow=workflow
         )
 
         goal_line = _get_goal_line(session_id, self.data_store)
@@ -176,7 +176,7 @@ class ToolLoop:
             partition=partition,
             session_id=session_id,
             style=style,
-            workflow=workflow_name,
+            workflow=workflow,
             max_iterations=max_iter,
         )
         _save_start = len(state.messages) - 1
@@ -189,7 +189,7 @@ class ToolLoop:
                 save_start=_save_start,
             )
 
-        return self._run(state, system_msg, save_start=_save_start)
+        return self._run(state, save_start=_save_start)
 
 
     # ── 非流式工具循环 ──
@@ -207,8 +207,6 @@ class ToolLoop:
 
         Args:
             state: AgentState 实例，包含 messages、partition、session_id 等。
-            system_msg: system message 内容。
-            data_store: 数据存储实例。
             save_start: 本轮消息起始索引。
 
         Returns:
@@ -307,7 +305,7 @@ class ToolLoop:
                     logger.debug("提前中断工具循环：LLM 需要澄清")
                     return q
 
-            tool_choice = "auto"
+            state._save_turn_messages(state.session_id, self.data_store, start=save_start)
 
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}")
         return "已达单次工具调用上限，如已有足够信息可直接给出最终答案。"
@@ -417,7 +415,7 @@ class ToolLoop:
                         yield {"type": "status", "status": "retrying"}
                         continue
                 state.add_assistant_response(accumulated_content)
-                self._save_turn_messages(state.session_id, state.messages, start=save_start)
+                state._save_turn_messages(state.session_id, self.data_store, start=save_start)
                 return
 
             logger.debug(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")
@@ -507,7 +505,7 @@ class ToolLoop:
                     yield {"type": "token", "text": "\n\n" + q}
                     return
 
-            tool_choice = "auto"
+            state._save_turn_messages(state.session_id, self.data_store, start=save_start)
 
         logger.warning(f"tool-loop 达到上限 {state.max_iterations}")
         msg = "已达单次工具调用上限，如已有足够信息可直接给出最终答案。"

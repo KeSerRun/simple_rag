@@ -165,12 +165,12 @@ def _get_goal_line(sid: str, data_store) -> str:
         data_store: 持久化数据存储对象。
 
     Returns:
-        格式如 '\\n当前目标：xxx' 的字符串，无活跃目标时返回空字符串。
+        格式如 '\\n# 当前目标：xxx' 的字符串，无活跃目标时返回空字符串。
     """
     if sid in _GOAL_CACHE:
         g = _GOAL_CACHE[sid]
         if g.get("status") == "active" and g.get("goal"):
-            return f"\n当前目标：{g['goal']}"
+            return f"\n# 当前目标：{g['goal']}"
     if not data_store or not sid:
         return ""
     try:
@@ -179,7 +179,7 @@ def _get_goal_line(sid: str, data_store) -> str:
         g = goals.get(sid)
         if g and g.get("status") == "active" and g.get("goal"):
             _GOAL_CACHE[sid] = g
-            return f"\n当前目标：{g['goal']}"
+            return f"\n# 当前目标：{g['goal']}"
     except Exception:
         pass
     return ""

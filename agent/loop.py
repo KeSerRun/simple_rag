@@ -158,7 +158,7 @@ class ToolLoop:
         goal_line = _get_goal_line(session_id, self.data_store)
         if goal_line:
             system_msg += goal_line
-            logger.debug(f"注入活跃目标: session={session_id[:8]}")
+            logger.debug(f"注入活跃目标: session={session_id[:8]}, goal_line={goal_line}")
 
         logger.debug(f"system_msg 长度: {len(system_msg)} 字符")
         

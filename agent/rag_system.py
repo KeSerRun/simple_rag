@@ -11,7 +11,7 @@ AgentState 封装循环中的 messages / 轮次 / 上下文参数。
 import json
 import os
 import threading
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 from base.config import conf
 from base.logger import logger, log_llm_input
@@ -19,11 +19,10 @@ from base.logger import logger, log_llm_input
 from rag.vector_store import VectorStore
 from base.llm_client import OpenAIClient
 
-from .context_builder import ContextBuilder
-from .state import AgentState
 from .tools.registry import ToolContext
 from .tools import registry
-from .workflow import WorkflowRouter
+from .context import SkillLoader, WorkflowRouter
+from .state import AgentState
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,38 +47,25 @@ class RAGSystem:
         chat_model: Optional[str] = None,
         embedding_model: Optional[str] = None,
         embedding_dim: Optional[int] = None,
-        prompts_dir: Optional[str] = None,
-        prompts_dirs: Optional[List[str]] = None,
         data_store: Optional[object] = None,
     ):
         """初始化 RAGSystem 实例。
 
         创建 LLM 客户端、向量库、上下文构建器和工作流路由器。
-        支持嵌入客户端与聊天客户端共用或独立配置。
 
         Args:
             chat_model: 聊天模型名称，默认使用配置中的 chat_model。
             embedding_model: 嵌入模型名称，默认使用配置中的 openai_embedding_model。
             embedding_dim: 嵌入向量维度，默认使用配置中的 openai_embedding_dim。
-            prompts_dir: 提示词模板目录（单个），与 prompts_dirs 二选一。
-            prompts_dirs: 提示词模板目录列表，与 prompts_dir 二选一。
-            data_store: 数据存储实例，用于持久化对话和工具状态。
+            data_store: 数据存储实例。
         """
         self.chat_model = chat_model or conf.chat_model
         self.embedding_model = embedding_model or conf.openai_embedding_model
         self.embedding_dim = embedding_dim or conf.openai_embedding_dim
         self.data_store = data_store
 
-        if prompts_dirs:
-            dirs = prompts_dirs
-        elif prompts_dir:
-            dirs = [prompts_dir]
-        else:
-            dirs = [
-                os.path.join(_BACKEND_ROOT, "prompts"),
-                os.path.join(_BACKEND_ROOT, "prompts", "style"),
-            ]
-        self.context_builder = ContextBuilder(dirs)
+        self.skill_loader = SkillLoader(os.path.join(_BACKEND_ROOT, "prompts", "style"))
+        self.workflow_router = WorkflowRouter(os.path.join(_BACKEND_ROOT, "prompts", "workflow"))
 
         self.client = OpenAIClient(
             api_key=conf.openai_api_key,
@@ -137,7 +123,7 @@ class RAGSystem:
         Returns:
             拼接后的 system message 字符串。
         """
-        parts = [self.context_builder.identity or ""]
+        parts = [self.skill_loader.identity or ""]
 
         from datetime import datetime as _dt
         import time as _time
@@ -146,7 +132,7 @@ class RAGSystem:
 
 
         if style and style != "style-default":
-            skill = self.context_builder.skills.get(style)
+            skill = self.skill_loader.skills.get(style)
             if skill and skill.template:
                 parts.append(f"\n\n{skill.template}")
         return "".join(parts)

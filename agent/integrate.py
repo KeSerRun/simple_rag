@@ -8,8 +8,6 @@ from base.logger import logger, log_qa
 from storage import JSONFileStore as DataStore
 from agent import RAGSystem
 
-from .checkpoint import CheckpointStore
-from .session import SessionLockManager
 
 import uuid
 import re
@@ -32,8 +30,6 @@ class IntegratedSystem:
         self.vector_store = self.rag_qa.vector_store
         self.session_last_style: dict[str, str] = {}
         self._cancel_events: dict[str, threading.Event] = {}
-        self.checkpoints = CheckpointStore(data_store=self.data_store)
-        self.session_manager = SessionLockManager()
 
     def cancel_generation(self, session_id: str) -> None:
         """中断指定会话的正在进行的生成。
@@ -63,27 +59,13 @@ class IntegratedSystem:
         """
         raw = self.data_store.get_session_history(session_id) or []
 
-        cp = self.checkpoints.load(session_id)
-        restored_msgs = []
-        if cp and cp.phase in ("awaiting_tools", "tools_completed", "final_response"):
-            from .checkpoint import restore_messages
-            restored_msgs = restore_messages(cp)
-            if restored_msgs:
-                logger.info(f"恢复检查点: phase={cp.phase}, {len(restored_msgs)} 条消息")
-            self.checkpoints.clear(session_id)
-
         if not raw:
-            messages = []
-            for m in restored_msgs:
-                messages.append(m)
-            return messages
+            return []
         messages = []
 
         for h in raw:
             self._append_history_item(messages, h)
 
-        if restored_msgs:
-            messages.extend(restored_msgs)
 
         # ── 上下文预算检查：超限时压缩历史中的工具结果 ──
         budget = int(conf.context_window_chars * conf.context_input_ratio)
@@ -97,8 +79,6 @@ class IntegratedSystem:
             raw = self.data_store.get_session_history(session_id) or []
             for h in raw:
                 self._append_history_item(messages, h)
-            if restored_msgs:
-                messages.extend(restored_msgs)
 
         # ── 第二关：压缩后仍超预算 → 截断历史 ──
         total = sum(len(str(m.get("content", "") or "")) for m in messages)
@@ -112,8 +92,6 @@ class IntegratedSystem:
             raw = self.data_store.get_session_history(session_id) or []
             for h in raw:
                 self._append_history_item(messages, h)
-            if restored_msgs:
-                messages.extend(restored_msgs)
 
         logger.debug(f"get_history: raw={len(raw)} 条, 总字符 ~{sum(len(str(m.get('content', '') or '')) for m in messages)}, "
                      f"返回 {len(messages)} 条消息")
@@ -257,16 +235,6 @@ class IntegratedSystem:
         def is_cancelled():
             return cancel_event.is_set()
 
-        def save_cp(phase: str, payload: dict):
-            from .checkpoint import Checkpoint
-            cp = Checkpoint(
-                phase=phase,
-                iteration=payload.get("iteration", 0),
-                model=getattr(self.rag_qa, "chat_model", ""),
-                pending_calls=payload.get("pending_calls"),
-                completed_results=payload.get("completed_results"),
-            )
-            self.checkpoints.save(session_id, cp)
 
         import queue as _queue
         session_queue = _queue.Queue()
@@ -283,7 +251,6 @@ class IntegratedSystem:
                     style=style,
                     workflow_name=workflow,
                     cancel_check=is_cancelled,
-                    on_checkpoint=save_cp,
                     emit_event=session_queue.put,
                     data_store=self.data_store,
                 )

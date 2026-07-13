@@ -18,13 +18,13 @@ async def list_styles():
 
     # ── 发现机制
 
-    遍历 ``system.rag_qa.context_builder.skills``,筛选 source 路径
+    遍历 ``system.rag_qa.skill_loader.skills``,筛选 source 路径
     中包含 ``/style/`` 的 skill,按 label 排序,``default`` 置顶。
 
     Returns:
         JSONResponse: ``{"styles": [{"value": str, "label": str, "description": str}, ...]}``。
     """
-    skills = system.rag_qa.context_builder.skills
+    skills = system.rag_qa.skill_loader.skills
     styles = []
     for name, skill in skills.items():
         if "/style/" in skill.source.replace("\\", "/"):
@@ -114,21 +114,17 @@ async def query(request: Request):
         if not session_id or not question:
             raise HTTPException(status_code=400, detail="Missing session_id or question")
 
-        lock = system.session_manager.get_lock(session_id)
-
         if stream:
             def _stream_with_lock():
-                with lock:
-                    yield from _sse_wrapper(
-                        system.run_agent(session_id, question, partition=username, style=style, workflow=workflow, stream=True)
-                    )
+                yield from _sse_wrapper(
+                    system.run_agent(session_id, question, partition=username, style=style, workflow=workflow, stream=True)
+                )
             return StreamingResponse(
                 _stream_with_lock(),
                 media_type="text/event-stream",
             )
         def _run_sync():
-            with lock:
-                return system.run_agent(session_id, question, partition=username, style=style, workflow=workflow, stream=False)
+            return system.run_agent(session_id, question, partition=username, style=style, workflow=workflow, stream=False)
         answer = await asyncio.to_thread(_run_sync)
         return JSONResponse(content={"answer": answer})
 

@@ -91,7 +91,7 @@ class VectorStore:
         self._load_from_disk()
         logger.debug(
             f"向量存储就绪: embedding={embedding_model}, dim={embedding_dim}, "
-            f"当前文档数={len(self.metadata)}"
+            f"当前分块数={len(self.metadata)}"
         )
 
     # ── 磁盘持久化 ────────────────────────────────────────────────

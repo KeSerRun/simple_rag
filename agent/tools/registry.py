@@ -87,7 +87,7 @@ class ToolRegistry:
 
     _CONCURRENT_SAFE = {
         "search_knowledge_base", "read_chunk_context",
-        "read_document_titles", "list_documents", "read_archive",
+        "read_document_titles", "list_documents",
     }
 
     _MAX_REPEAT_EXTERNAL_LOOKUPS = 2
@@ -318,7 +318,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     # -- 基础工具：澄清 / 目标 / 状态 --
     from ._kb_handlers import (
         _exec_search_kb, _exec_read_full_document,
-        _exec_list_documents, _exec_read_archive, _exec_read_chunk_context,
+        _exec_list_documents, _exec_read_chunk_context,
         _exec_read_document_titles, _exec_read_section,
         _exec_search_document_content,
     )
@@ -329,7 +329,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         _exec_complete_goal,
         _exec_my,
         _exec_read_workflow,
-        _exec_read_tool_result,
     )
 
     reg.register(
@@ -427,32 +426,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     )
 
     reg.register(
-        name="read_tool_result",
-        description=(
-            f"读取被持久化的工具结果完整内容。当工具返回超过 {conf.max_tool_result_chars} 字符时，"
-            f"结果会自动保存到文件并返回引用标记。调用此工具传入文件名即可读取原始内容，"
-            f"支持 offset 分页（每页 {conf.tool_page_chars} 字符）。"
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "filename": {
-                    "type": "string",
-                    "description": "持久化结果的文件名（如 search_kb_abc123.txt），不含路径",
-                },
-                "offset": {
-                    "type": "integer",
-                    "description": "字符偏移位置，用于分页读取（默认 0）。末尾会提示后续 offset。",
-                    "default": 0,
-                },
-            },
-            "required": ["filename"],
-        },
-        handler=_exec_read_tool_result,
-        source=__name__,
-    )
-
-    reg.register(
         name="search_knowledge_base",
         description=(
             f"知识库语义检索（嵌入模型 {conf.openai_embedding_model}），覆盖文本、表格、图片图表。"
@@ -495,8 +468,8 @@ def register_all_builtins(reg: ToolRegistry) -> None:
     reg.register(
         name="read_full_document",
         description=(
-            "读取某篇文档的完整全文（Markdown 格式）。支持 offset 分页（每页 5000 字符）。"
-            "文件名必须是文档清单中的完整文件名（含扩展名）。"
+            f"读取某篇文档的完整全文（Markdown 格式）。支持 offset 分页（默认每页 {conf.tool_page_chars} 字符）。"
+            f"文件名必须是文档清单中的完整文件名（含扩展名）。"
         ),
         parameters={
             "type": "object",
@@ -513,6 +486,10 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                     "description": "字符偏移位置，用于分页读取（默认 0）。末尾会提示后续 offset。",
                     "default": 0,
                 },
+                "max_chars": {
+                    "type": "integer",
+                    "description": f"本次最多读取字符数（默认 {conf.tool_page_chars}，建议不超过 {conf.tool_page_chars * 5}）。",
+                },
             },
             "required": ["filename"],
         },
@@ -524,7 +501,7 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         name="read_url",
         description=(
             f"读取指定网页的完整文字内容（超时 {conf.openai_timeout} 秒）。仅限公开可访问的网页。"
-            f"如果网页内容过长，会自动截断。"
+            f"支持 offset 分页（默认每页 {conf.tool_page_chars} 字符）。"
         ),
         parameters={
             "type": "object",
@@ -532,6 +509,14 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                 "url": {
                     "type": "string",
                     "description": "要读取的网页完整 URL（必须以 http:// 或 https:// 开头）",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "读取起始偏移（字符数，默认 0）",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": f"本次最多读取字符数（默认 {conf.tool_page_chars}，建议不超过 {conf.tool_page_chars * 5}）。",
                 },
             },
             "required": ["url"],
@@ -596,26 +581,6 @@ def register_all_builtins(reg: ToolRegistry) -> None:
             "required": [],
         },
         handler=_exec_list_documents,
-        source=__name__,
-    )
-
-    reg.register(
-        name="read_archive",
-        description=(
-            "读取被压缩归档的历史对话记录。当上下文窗口超限时，早期对话会被自动压缩归档，"
-            "并在当前消息中留下 #[archive_id] 标记。调用此工具传入 archive_id 可查看归档内容。"
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "archive_id": {
-                    "type": "string",
-                    "description": "归档 ID，格式如 arch_xxx。从历史摘要标记 #[archive_id] 中提取。",
-                },
-            },
-            "required": ["archive_id"],
-        },
-        handler=_exec_read_archive,
         source=__name__,
     )
 

@@ -798,7 +798,7 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
         events.append({"status": "done", "text": "处理完成", "file": fn})
         return events, fn, None
 
-    with ThreadPoolExecutor(max_workers=conf.parse_workers) as pool:
+    with ThreadPoolExecutor(max_workers=conf.mineru_max_concurrency) as pool:
         futures = {pool.submit(_process_one, fn, sp, username): fn for fn, sp, *_ in saved_files}
         for future in as_completed(futures):
             events, fn, _ = future.result()

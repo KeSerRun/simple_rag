@@ -5,7 +5,6 @@
   - 查询和修改运行时状态
   - 设置 / 完成会话持续目标
   - 读取工作流的完整分步指令
-  - 读取被持久化的工具结果
 
 注册统一在 registry.py 的 register_all_builtins() 中完成。
 """
@@ -13,9 +12,7 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 
-from base.config import conf
 from .registry import ToolContext
 
 # ── 便利工具：向用户询问 ──
@@ -215,69 +212,3 @@ def _exec_read_workflow(args: dict, ctx: ToolContext) -> str:
     if not content:
         return f"(未找到工作流: {name})"
     return f"工作流：{name}\n\n{content}"
-
-
-# ── 持久化工具结果读取 ──
-
-
-def _exec_read_tool_result(args: dict, ctx: ToolContext) -> str:
-    """读取被持久化的工具结果完整内容，支持 offset 分页。
-
-    当工具返回 "[工具结果已保存至 ...]" 引用时，调用此工具传入文件名读取原始内容。
-
-    Args:
-        args: 工具参数字典，键:
-            filename: 持久化结果的文件名，不含路径（必填）。
-            offset: 字符偏移位置，用于分页读取（可选，默认 0）。
-        ctx: 工具运行时上下文。
-
-    Returns:
-        文件内容（分页截取后的文本），末尾附分页提示。
-    """
-    filename = (args.get("filename") or "").strip()
-    if not filename:
-        return "(未提供 filename 参数)"
-
-    base = Path(conf.data_dir) / "json_store" / "tool_results"
-    target = None
-
-    try:
-        t = (base / filename).resolve()
-        t.relative_to(base.resolve())
-        if t.is_file():
-            target = t
-    except (ValueError, OSError):
-        pass
-
-    if target is None:
-        for session_dir in base.iterdir():
-            if not session_dir.is_dir():
-                continue
-            try:
-                t = (session_dir / filename).resolve()
-                t.relative_to(session_dir.resolve())
-                if t.is_file():
-                    target = t
-                    break
-            except (ValueError, OSError):
-                continue
-
-    if target is None:
-        return f"(文件不存在: {filename})"
-
-    try:
-        content = target.read_text(encoding="utf-8")
-        total = len(content)
-        offset = max(int(args.get("offset", 0)), 0)
-        max_chars = conf.tool_page_chars
-        chunk = content[offset:offset + max_chars]
-        part_info = ""
-        if total > max_chars:
-            end = offset + len(chunk)
-            if end < total:
-                part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符。调用 offset={end} 继续读取)"
-            else:
-                part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符 — 已到末尾)"
-        return chunk + part_info
-    except Exception as e:
-        return f"(读取失败: {e})"

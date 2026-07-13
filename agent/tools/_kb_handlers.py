@@ -1,10 +1,9 @@
-"""KB 工具 handlers：知识库检索 / 读全文 / 列文档 / 读归档。
+"""KB 工具 handlers：知识库检索 / 读全文 / 列文档。
 
 提供知识库相关的工具 handler 实现：
   - search_knowledge_base: 多 query + 多分区 + 去重检索
   - read_full_document: 读取文档全文（MinerU 解析后的 Markdown）
   - list_documents: 列出用户 / 系统分区文档
-  - read_archive: 读取归档的历史对话
   - read_chunk_context: 读取某 chunk 前后的上下文
   - read_document_titles: 读取文档 Markdown 标题结构
   - read_section: 根据标题关键词定位并读取正文
@@ -23,8 +22,8 @@ from base.logger import logger
 from rag.vector_store import Document
 
 from .registry import ToolContext
-
 from ._format import SYSTEM_PARTITION, format_retrieved_chunks
+from .cache import get as cache_get, set as cache_set
 
 
 def _resolve_full_md(filename: str, partition: str | None = None) -> str | None:
@@ -140,9 +139,13 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
         return f"(未找到 {filename} 的全文，可能该文档不是由 MinerU 解析的)"
 
     try:
-        content = Path(resolved).read_text(encoding="utf-8")
+        cache_key = f"full_md:{filename}"
+        content = cache_get(cache_key)
+        if content is None:
+            content = Path(resolved).read_text(encoding="utf-8")
+            cache_set(cache_key, content)
         total = len(content)
-        max_chars = conf.tool_page_chars
+        max_chars = args.get("max_chars") or conf.tool_page_chars
         offset = max(int(args.get("offset", 0)), 0)
         chunk = content[offset:offset + max_chars]
         part_info = ""
@@ -152,7 +155,7 @@ def _exec_read_full_document(args: dict, ctx: ToolContext) -> str:
                 part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符。调用 offset={end} 继续阅读)"
             else:
                 part_info = f"\n\n(第 {offset}-{end} 字符，共 {total} 字符 — 已到末尾)"
-        logger.debug(f"tool read_full_document 成功: {filename} ({len(chunk)} 字符)")
+        logger.debug(f"tool read_full_document 成功: {filename} (返回 {len(chunk)}/{total} 字符)")
         return chunk + part_info
     except Exception as e:
         logger.warning(f"tool read_full_document 读取失败 ({filename}): {e}")
@@ -271,42 +274,6 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
             lines.append(f"- {icon} {d['name']}")
 
     return "当前知识库中的文档：\n" + "\n".join(lines)
-
-
-# ── 归档读取 ──
-
-
-def _exec_read_archive(args: dict, ctx: ToolContext) -> str:
-    """工具 handler：read_archive。
-
-    读取被归档的历史对话记录。
-
-    Args:
-        args: 工具参数字典，键:
-            archive_id: 归档 ID，格式如 arch_xxx（必填）。
-        ctx: 工具运行时上下文。
-
-    Returns:
-        归档对话的格式化文本。
-
-    Raises:
-        Exception: data_store.format_archive_turns 抛出异常时被捕获并返回错误提示。
-    """
-    archive_id = (args.get("archive_id") or "").strip()
-    if not archive_id:
-        return "(未提供 archive_id 参数)"
-    if not ctx.data_store:
-        return "(归档存储不可用)"
-
-    try:
-        result = ctx.data_store.format_archive_turns(archive_id)
-        if result is None:
-            return f"(归档 {archive_id} 不存在)"
-        logger.debug(f"tool read_archive 成功: {archive_id} ({len(result)} 字符)")
-        return result
-    except Exception as e:
-        logger.warning(f"tool read_archive 失败 ({archive_id}): {e}")
-        return f"(读取归档失败: {e})"
 
 
 # ── 多 query 多分区检索 ──

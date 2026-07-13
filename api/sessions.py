@@ -1,8 +1,6 @@
 """会话管理接口:创建 / 查询 / 删除"""
 
 import json
-import shutil
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -103,9 +101,7 @@ async def delete_session(request: Request, session_id: str):
     - session 记录 (data_store.delete_session)
     - 对话历史 (delete_session_history)
     - 任务记录 (delete_session_tasks)
-    - 归档记录 (delete_session_archives)
-    - 工具结果文件 (json_store/tool_results/<session_id>)
-    - 归档 JSON 文件 (json_store/archives/arch_<session_prefix>*)
+
 
     Args:
         request: FastAPI 请求对象,从中获取认证用户信息。
@@ -129,22 +125,6 @@ async def delete_session(request: Request, session_id: str):
         system.data_store.delete_session(session_id)
         system.data_store.delete_session_history(session_id)
         system.data_store.delete_session_tasks(session_id)
-        system.data_store.delete_session_archives(session_id)
-
-        tool_dir = Path(conf.data_dir) / "json_store" / "tool_results" / session_id
-        if tool_dir.exists():
-            shutil.rmtree(tool_dir)
-            logger.debug(f"已清理工具结果文件: {tool_dir}")
-
-        archive_base = Path(conf.data_dir) / "json_store" / "archives"
-        if archive_base.exists():
-            removed = 0
-            for f in archive_base.iterdir():
-                if f.suffix == ".json" and f.stem.startswith(f"arch_{session_id[:16]}"):
-                    f.unlink()
-                    removed += 1
-            if removed:
-                logger.debug(f"已清理 {removed} 个归档文件 session={session_id[:8]}")
 
         return JSONResponse(content={"message": "Session and related data deleted successfully"})
 

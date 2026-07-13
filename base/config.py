@@ -112,10 +112,8 @@ class Config:
         retrieval_top_k: 检索返回 Top-K 条数。
         candidate_top_k: 检索候选集大小。
         min_chunk_length: 最短分块字符数。
-        stop_words: 停用词列表。
-        log_path: 日志文件目录。
+        log_path: 日志文件输出目录。
         app_log_level: 应用日志级别。
-        http_log_level: HTTP 请求日志级别。
         console_log_level: 控制台日志级别。
         user_log_level: 用户操作日志级别。
         log_file_format: 文件日志格式字符串。
@@ -133,8 +131,7 @@ class Config:
         max_history_length: 最大对话历史轮数。
         context_window_chars: 上下文窗口字符数上限。
 
-        context_input_ratio: 输入占用上下文窗口的比例。
-        consolidation_ratio: 历史合并触发比例。
+        storage_backend: 持久化存储后端类型（如 'json'）。
         search_backend: 搜索后端类型（如 'duckduckgo'）。
         searxng_url: SearXNG 实例 URL。
         bocha_api_key: 博查 API 密钥。
@@ -143,7 +140,6 @@ class Config:
         max_tool_iter: Agent 最大工具迭代次数。
         max_output_chars: 模型最大输出字符数。
         max_output_tokens: 模型最大输出 token 数。
-        max_tool_result_chars: 工具结果最大字符数。
         eval_max_workers: 评估并发工作线程数。
         superuser_usernames: 超级用户用户名列表。
         superuser_passwords: 超级用户密码列表。
@@ -154,8 +150,6 @@ class Config:
         mineru_language: MinerU 解析语言（如 'ch'）。
         mineru_max_concurrency: MinerU 最大并发数。
         max_user_storage_mb: 用户存储上限（MB）。
-        persist_threshold: 持久化触发阈值。
-        preview_chars: 预览字符数。
         tool_page_chars: 工具分页字符数。
         index_file: 前端入口文件路径。
         jwt_secret_key: JWT 签名密钥（自动生成）。
@@ -249,11 +243,10 @@ class Config:
         self.chat_reasoning_effort = _strip_quotes(config.get('api', 'chat_reasoning_effort', fallback='')) or None
 
         # ── 对话历史配置 ──
-        self.max_history_length = config.getint('conversation_history', 'max_history_length', fallback=500)
-        raw = config.get('conversation_history', 'context_window_chars', fallback='32768')
+        self.max_history_length = config.getint('governance', 'max_history_length', fallback=500)
+        raw = config.get('governance', 'context_window_chars', fallback='32768')
         self.context_window_chars = int(raw.strip())
-        self.context_input_ratio = config.getfloat('conversation_history', 'context_input_ratio', fallback=0.8)
-        self.consolidation_ratio = config.getfloat('conversation_history', 'consolidation_ratio', fallback=0.5)
+        self.context_input_ratio = config.getfloat('governance', 'context_input_ratio', fallback=0.8)
 
         # ── 搜索配置 ──
         self.search_backend = _strip_quotes(config.get('search', 'backend', fallback='duckduckgo'))
@@ -277,7 +270,6 @@ class Config:
             raw_out = config.get('agent', 'max_output_tokens', fallback='8192')
         self.max_output_chars = int(raw_out.strip())
         self.max_output_tokens = self.max_output_chars
-        self.max_tool_result_chars = config.getint('agent', 'max_tool_result_chars', fallback=8000)
         self.eval_max_workers = config.getint('agent', 'eval_max_workers', fallback=3)
 
         # ── 超级用户配置 ──
@@ -302,9 +294,8 @@ class Config:
         self.max_user_storage_mb = config.getint('upload', 'max_user_storage_mb', fallback=10)
 
         # ── 治理配置 ──
-        self.persist_threshold = config.getint('governance', 'persist_threshold', fallback=2000)
-        self.preview_chars = config.getint('governance', 'preview_chars', fallback=200)
         self.tool_page_chars = config.getint('governance', 'tool_page_chars', fallback=5000)
+        self.compression_ratio = config.getfloat('governance', 'compression_ratio', fallback=0.3)
 
         self._validate()
 
@@ -346,7 +337,6 @@ class Config:
             ("retrieval_top_k", self.retrieval_top_k, 1),
             ("context_window_chars", self.context_window_chars, 1024),
             ("max_output_chars", self.max_output_chars, 128),
-            ("max_tool_result_chars", self.max_tool_result_chars, 256),
             ("max_tool_iter", self.max_tool_iter, 1),
             ("max_user_storage_mb", self.max_user_storage_mb, 1),
             ("openai_embedding_dim", self.openai_embedding_dim, 64),
@@ -360,9 +350,7 @@ class Config:
             ("uploads_dir", os.path.join(self.data_dir, "uploads")),
             ("json_store_dir", os.path.join(self.data_dir, "json_store")),
             ("history_dir", os.path.join(self.data_dir, "json_store", "history")),
-            ("archives_dir", os.path.join(self.data_dir, "json_store", "archives")),
             ("session_tasks_dir", os.path.join(self.data_dir, "json_store", "session_tasks")),
-            ("tool_results_dir", os.path.join(self.data_dir, "json_store", "tool_results")),
         ]
         for name, path in dirs:
             try:

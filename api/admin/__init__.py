@@ -74,7 +74,6 @@ def _write_config_ini(updates: dict) -> bool:
 
     1. 逐行扫描,找到对应 section 下的 option,替换等号后的值
     2. 同时更新内存中的 ``conf`` 属性
-    3. 特殊处理: stop_words 字符串→列表, consolidation_ratio 百分数→小数
 
     Args:
         updates: 配置更新字典,key 为属性名,value 为新值。
@@ -122,9 +121,8 @@ def _write_config_ini(updates: dict) -> bool:
         "bocha_api_key": ("search", "bocha_api_key"),
         "bing_api_key": ("search", "bing_api_key"),
         "search_timeout": ("search", "timeout"),
-        "max_history_length": ("conversation_history", "max_history_length"),
-        "context_window_chars": ("conversation_history", "context_window_chars"),
-        "consolidation_ratio": ("conversation_history", "consolidation_ratio"),
+        "max_history_length": ("governance", "max_history_length"),
+        "context_window_chars": ("governance", "context_window_chars"),
         "log_path": ("logger", "log_path"),
         "app_log_level": ("logger", "app_log_level"),
         "http_log_level": ("logger", "http_log_level"),
@@ -157,8 +155,6 @@ def _write_config_ini(updates: dict) -> bool:
         if hasattr(conf, key):
             if key == 'stop_words' and isinstance(val, str):
                 setattr(conf, key, [w.strip() for w in val.split(',') if w.strip()])
-            elif key == 'consolidation_ratio' and isinstance(val, (int, float)) and val > 1:
-                setattr(conf, key, val / 100.0)
             else:
                 setattr(conf, key, val)
 

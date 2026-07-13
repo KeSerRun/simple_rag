@@ -47,9 +47,8 @@ _CONFIG_SCHEMA = [
     {"key": "bing_api_key", "label": "Bing API Key", "group": "联网搜索配置", "type": "password"},
     {"key": "search_timeout", "label": "搜索超时(秒)", "group": "联网搜索配置", "type": "int", "min": 5, "max": 60},
 
-    {"key": "max_history_length", "label": "最大保留轮次", "group": "对话历史配置", "type": "int", "min": 10, "max": 2000},
-    {"key": "context_window_chars", "label": "上下文窗口(字符)", "group": "对话历史配置", "type": "int", "min": 4096, "max": 524288},
-    {"key": "consolidation_ratio", "label": "压缩触发比例", "group": "对话历史配置", "type": "float", "min": 0.1, "max": 0.9, "step": 0.05},
+    {"key": "max_history_length", "label": "最大历史轮数", "group": "上下文治理", "type": "int", "min": 10, "max": 5000},
+    {"key": "context_window_chars", "label": "上下文窗口字符数", "group": "上下文治理", "type": "int", "min": 10000, "max": 1000000},
 
 
     {"key": "app_log_level", "label": "应用日志级别", "group": "日志配置", "type": "select",

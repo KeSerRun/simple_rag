@@ -213,47 +213,4 @@ class BaseStore(ABC):
             session_id: 会话 ID。
         """
 
-    # ── 归档 ──────────────────────────────────────────────────────
 
-    @abstractmethod
-    def insert_archive(self, session_id: str, summary: str, turns: list) -> str:
-        """归档对话历史。
-
-        Args:
-            session_id: 会话 ID。
-            summary: 归档摘要。
-            turns: 对话轮次列表。
-
-        Returns:
-            生成的 archive_id。
-        """
-
-    @abstractmethod
-    def get_archive(self, archive_id: str) -> Optional[dict]:
-        """读取归档。
-
-        Args:
-            archive_id: 归档 ID。
-
-        Returns:
-            归档内容 dict，不存在返回 None。
-        """
-
-    @abstractmethod
-    def format_archive_turns(self, archive_id: str) -> str:
-        """将归档对话格式化为文本。
-
-        Args:
-            archive_id: 归档 ID。
-
-        Returns:
-            格式化后的文本字符串。
-        """
-
-    @abstractmethod
-    def delete_session_archives(self, session_id: str) -> None:
-        """删除指定会话的所有归档文件。
-
-        Args:
-            session_id: 会话 ID。
-        """

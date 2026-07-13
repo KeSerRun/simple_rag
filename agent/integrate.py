@@ -53,13 +53,7 @@ class IntegratedSystem:
     def get_history(self, session_id):
         """读取会话历史并展开为 LLM 输入格式。
 
-        history.json 中两种条目:
-          - {type: 'qa', user, assistant}       → user / assistant 两条消息
-          - {type: 'event', event_type, files}  → 单条 <operation：...> user 消息
-
-        规则:
-          - max_history_length: 硬截断窗口，超过时丢弃最早的 QA
-          - max_history_chars: 字符数超限时压缩早期对话（保留最近 2 轮）
+        超过上下文预算时自动压缩工具结果或截断历史（由 governor 模块处理）。
 
         Args:
             session_id: 会话 ID。
@@ -85,65 +79,43 @@ class IntegratedSystem:
             return messages
         messages = []
 
-        qa_entries = [h for h in raw if h.get('type') != 'event']
-        if len(qa_entries) > conf.max_history_length:
-            discard = len(qa_entries) - conf.max_history_length
-            discard_ids = {id(h) for h in qa_entries[:discard]}
-            raw = [h for h in raw if id(h) not in discard_ids]
-            logger.info(f"历史截断: 丢弃前 {discard} 轮, 保留最近 {conf.max_history_length} 轮")
-
         for h in raw:
             self._append_history_item(messages, h)
 
         if restored_msgs:
             messages.extend(restored_msgs)
 
-        qa_entries = [h for h in raw if h.get('type') != 'event']
-        _BUDGET_MARGIN = 1024
-        budget = conf.context_window_chars - conf.max_output_chars - _BUDGET_MARGIN
-        target = int(budget * conf.consolidation_ratio)
-        estimated_chars = self._estimate_chars(messages)
+        # ── 上下文预算检查：超限时压缩历史中的工具结果 ──
+        budget = int(conf.context_window_chars * conf.context_input_ratio)
+        total = sum(len(str(m.get("content", "") or "")) for m in messages)
+        if total > budget and len(raw) > 2:
+            from .governor import compress_history
+            # 因为只压缩工具结果，所以需要放大压缩比 1.5 倍
+            compress_history(self.data_store, session_id, raw,
+                             compression_ratio=min(conf.compression_ratio * 1.5, 1.0), archive=True)
+            messages.clear()
+            raw = self.data_store.get_session_history(session_id) or []
+            for h in raw:
+                self._append_history_item(messages, h)
+            if restored_msgs:
+                messages.extend(restored_msgs)
 
-        if estimated_chars > budget and len(qa_entries) > 2:
-            boundary = self._pick_consolidation_boundary(qa_entries, estimated_chars, target)
-            if boundary:
-                compressed_qa = qa_entries[:boundary]
-                summary_text = self._build_consolidated_summary(compressed_qa)
+        # ── 第二关：压缩后仍超预算 → 截断历史 ──
+        total = sum(len(str(m.get("content", "") or "")) for m in messages)
+        if total > budget and len(raw) > 2:
+            from .governor import truncate_history
+            # 这里保留压缩比，确保达标
+            target = int(budget * conf.compression_ratio)
+            truncate_history(self.data_store, session_id, raw,
+                             target, archive=False)
+            messages.clear()
+            raw = self.data_store.get_session_history(session_id) or []
+            for h in raw:
+                self._append_history_item(messages, h)
+            if restored_msgs:
+                messages.extend(restored_msgs)
 
-                archive_id = self.data_store.insert_archive(
-                    session_id=session_id,
-                    summary=summary_text,
-                    turns=[
-                        {
-                            "user": q,
-                            "assistant": a,
-                            "timestamp": h.get("timestamp", ""),
-                        }
-                        for h in compressed_qa
-                        for q, a in [self._extract_qa_from_entry(h)]
-                    ],
-                )
-
-                messages.clear()
-                if summary_text:
-                    messages.append({'role': 'user', 'content': summary_text})
-                qa_ids = {id(h) for h in compressed_qa}
-                remaining_raw = [h for h in raw if id(h) not in qa_ids]
-                for h in remaining_raw:
-                    self._append_history_item(messages, h)
-                if restored_msgs:
-                    messages.extend(restored_msgs)
-
-                after_chars = self._estimate_chars(messages)
-                logger.info(
-                    f"字符预算压缩: "
-                    f"压缩前 {len(compressed_qa)} 轮/{estimated_chars} chars, "
-                    f"压缩后 {after_chars} chars, "
-                    f"节省 {estimated_chars - after_chars} chars, "
-                    f"归档={archive_id}"
-                )
-
-        logger.debug(f"get_history: raw={len(raw)} 条, 总字符 ~{estimated_chars}, "
+        logger.debug(f"get_history: raw={len(raw)} 条, 总字符 ~{sum(len(str(m.get('content', '') or '')) for m in messages)}, "
                      f"返回 {len(messages)} 条消息")
 
         return messages
@@ -198,123 +170,6 @@ class IntegratedSystem:
             new_style = files[0] if files else 'default'
             return f"<operation：switch answer style to {new_style}>"
         return ""
-
-
-    @staticmethod
-    def _extract_qa_from_entry(h: dict) -> tuple:
-        """从 history 条目中提取用户问题与助手回答（兼容 qa/turn 两种格式）。
-
-        Args:
-            h: history 条目字典。
-
-        Returns:
-            (user_question, assistant_answer) 的元组。
-        """
-        if h.get('type') == 'turn':
-            msgs = h.get('messages', [])
-            user_q = ""
-            assistant_a = ""
-            for m in msgs:
-                if m.get('role') == 'user' and isinstance(m.get('content'), str):
-                    user_q = m['content']
-                elif m.get('role') == 'assistant' and isinstance(m.get('content'), str):
-                    assistant_a = m['content']
-            return user_q, assistant_a
-        return h.get('user', ''), h.get('assistant', '')
-
-    @staticmethod
-    def _estimate_chars(messages: list) -> int:
-        """返回消息列表的总字符数。
-
-        Args:
-            messages: 消息字典列表。
-
-        Returns:
-            所有消息 content 字段的总字符数。
-        """
-        total = 0
-        for m in messages:
-            text = str(m.get("content", "") or "")
-            if text:
-                total += len(text)
-        return total
-
-    @staticmethod
-    def _pick_consolidation_boundary(qa_entries: list, estimated: int, target: int) -> int | None:
-        """从最早的消息开始，找到满足释放需求的 user-turn 边界。
-
-        Args:
-            qa_entries: 历史 QA 条目列表。
-            estimated: 当前消息总字符数。
-            target: 目标字符数上限。
-
-        Returns:
-            边界索引（要压缩的条目数），None 表示无需压缩。
-        """
-        need_to_free = estimated - target
-        if need_to_free <= 0:
-            return None
-        try:
-            accumulated = 0
-            for i, entry in enumerate(qa_entries[:-2]):
-                q, a = IntegratedSystem._extract_qa_from_entry(entry)
-                text = (q or '') + (a or '')
-                accumulated += len(text)
-                if accumulated >= need_to_free:
-                    return i + 1
-        except Exception:
-            pass
-        return len(qa_entries) - 2
-
-    def _build_consolidated_summary(self, compressed_qa: list) -> str:
-        """用 LLM 对早期对话生成摘要。失败时回退到简单拼接。
-
-        Args:
-            compressed_qa: 需要压缩的历史 QA 条目列表。
-
-        Returns:
-            摘要文本字符串，失败时返回空字符串。
-        """
-        try:
-            turns = []
-            for h in compressed_qa:
-                q, a = self._extract_qa_from_entry(h)
-                if q or a:
-                    turns.append(f"用户: {q[:300]}" if q else "(无问题)")
-                    if a:
-                        turns.append(f"助手: {a[:300]}")
-            if not turns:
-                return ""
-            prompt = (
-                "请用中文总结以下对话中用户的核心问题和已获取的关键信息。"
-                "只输出总结本身，不要附加说明。\n\n"
-                + "\n".join(turns)
-            )
-            if not hasattr(self, '_summary_client'):
-                from base.llm_client import OpenAIClient
-                self._summary_client = OpenAIClient(
-                    api_key=conf.openai_api_key,
-                    base_url=conf.openai_base_url,
-                )
-            resp = self._summary_client.chat(
-                messages=[{"role": "user", "content": prompt}],
-                model=conf.chat_model,
-                stream=False,
-                temperature=0.3,
-                max_tokens=500,
-            )
-            summary = resp.strip() if resp else ""
-            if summary:
-                return f"[对话历史摘要]\n{summary}\n(如需查阅完整历史，可调用 read_archive 工具)"
-        except Exception as e:
-            logger.warning(f"LLM 摘要生成失败，回退到简单拼接: {e}")
-
-        qs = "；".join(
-            self._extract_qa_from_entry(h)[0][:60]
-            for h in compressed_qa if self._extract_qa_from_entry(h)[0]
-        )
-        return f"（历史摘要：用户之前的问题——{qs}。如需查阅完整历史，请调用 read_archive 工具。）"
-
 
     def _check_style_change(self, session_id: str, style: Optional[str]) -> None:
         """检测 style 切换，记录事件到历史。

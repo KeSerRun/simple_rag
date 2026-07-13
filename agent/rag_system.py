@@ -8,12 +8,9 @@
 
 AgentState 封装循环中的 messages / 轮次 / 上下文参数。
 """
-import hashlib
 import json
 import os
 import threading
-from pathlib import Path
-
 from typing import Callable, List, Optional
 
 from base.config import conf
@@ -31,74 +28,7 @@ from .workflow import WorkflowRouter
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-
-
-
-# ── 内部辅助函数 ──
-
-
-def _count_message_chars(m: dict) -> int:
-    """返回一条消息的字符数。
-
-    Args:
-        m: 消息字典，包含 "content" 键。
-
-    Returns:
-        消息内容的字符数。
-    """
-    content = m.get("content", "") or ""
-    return len(content) if isinstance(content, str) else len(str(content))
-
-
-
-_TOOL_RESULTS_DIR = Path("json_store") / "tool_results"
-
-
-def _persist_tool_result(session_id: str, tool_name: str, content: str) -> str:
-    """将过长的工具结果写入文件，返回引用字符串。
-
-    当内容长度超过 conf.persist_threshold 时，将其写入磁盘文件，
-    返回包含文件路径和预览的引用文本。保留最近 50 个文件。
-
-    Args:
-        session_id: 会话 ID，用于隔离存储目录。
-        tool_name: 工具名称，用于文件名标识。
-        content: 工具结果内容。
-
-    Returns:
-        原始内容（未超限时）或包含文件路径和预览的引用文本。
-    """
-    if len(content) <= conf.persist_threshold:
-        return content
-
-    try:
-        work_dir = Path(conf.data_dir) / _TOOL_RESULTS_DIR / (session_id or "default")
-        work_dir.mkdir(parents=True, exist_ok=True)
-
-        digest = hashlib.md5(content.encode("utf-8")).hexdigest()[:12]
-        path = work_dir / f"{tool_name}_{digest}.txt"
-
-        if not path.exists():
-            path.write_text(content, encoding="utf-8")
-            files = sorted(work_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-            for old in files[50:]:
-                old.unlink(missing_ok=True)
-
-        preview = content[:conf.preview_chars].replace("\n", " ")
-        reference = (
-            f"[工具结果已保存至 {path}]\n"
-            f"原始长度: {len(content)} 字符, 预览: {preview}..."
-        )
-        logger.debug(f"工具结果持久化: {tool_name} ({len(content)} chars → {path.name})")
-        return reference
-    except Exception as e:
-        logger.warning(f"工具结果持久化失败: {e}, 返回原始内容")
-        return content
-
-
 # ── RAG 系统核心 ──
-
-
 class RAGSystem:
     """RAG 系统核心入口，管理 LLM 客户端、向量库、工具注册表和工作流路由。
 
@@ -224,7 +154,6 @@ class RAGSystem:
 
     def generate_answer(
         self, query,
-        force_retrieve: bool = False,
         stream=False,
         history: list = None,
         partition: str = None,
@@ -246,7 +175,6 @@ class RAGSystem:
 
         Args:
             query: 用户当前问题。
-            force_retrieve: 是否强制 LLM 必须调用检索工具。
             stream: 是否启用流式输出。
             history: 历史对话列表。
             partition: 知识库分区（用户名）。
@@ -287,7 +215,7 @@ class RAGSystem:
                 style=style,
                 max_iterations=conf.max_tool_iter,
             )
-            return self._run_tool_loop(state, saved_system_msg, force_retrieve,
+            return self._run_tool_loop(state, saved_system_msg,
                 on_checkpoint=on_checkpoint, data_store=data_store, save_start=len(state.messages) - 1)
 
         system_msg = self._build_system_message(
@@ -338,7 +266,7 @@ class RAGSystem:
 
         if stream:
             return self._run_tool_loop_stream(
-                state, force_retrieve,
+                state,
                 cancel_check=cancel_check,
                 on_checkpoint=on_checkpoint,
                 emit_event=emit_event,
@@ -346,84 +274,8 @@ class RAGSystem:
                 save_start=_save_start,
             )
 
-        return self._run_tool_loop(state, system_msg, force_retrieve, on_checkpoint=on_checkpoint, data_store=data_store, save_start=_save_start)
+        return self._run_tool_loop(state, system_msg, on_checkpoint=on_checkpoint, data_store=data_store, save_start=_save_start)
 
-
-    # ── 上下文治理 ──
-
-    def _govern_context(self, messages: List[dict]) -> List[dict]:
-        """在调用 LLM 前清理消息列表：截断过长工具结果 + 预算裁剪。
-
-        Args:
-            messages: 原始消息列表。
-
-        Returns:
-            治理后的消息列表。
-        """
-        governed = list(messages)
-
-        # -- 1. 工具结果预算截断 --
-        limit = conf.max_tool_result_chars
-        for i, m in enumerate(governed):
-            if m.get("role") == "tool":
-                content = m.get("content", "") or ""
-                if len(content) > limit:
-                    governed[i] = dict(m)
-                    governed[i]["content"] = content[:limit] + "\n\n...(工具结果过长，已截断)..."
-                    logger.debug(f"工具结果预算截断: {len(content)} → {limit} 字符")
-
-        # -- 2. 历史裁剪 --
-        return self._truncate_messages(governed)
-
-    def _truncate_messages(self, messages: List[dict]) -> List[dict]:
-        """按字符预算裁剪消息。保留首尾，从最早的消息开始丢弃整轮对话。
-
-        thresholds: conf.context_window_chars 的 context_input_ratio。
-        丢弃策略：从最早的非 system 消息开始，按整轮（assistant + 后续的 tool）丢弃，
-        保留最近的对话轮次完整。
-
-        Args:
-            messages: 原始消息列表。
-
-        Returns:
-            裁剪后的消息列表。
-        """
-        budget = int(conf.context_window_chars * conf.context_input_ratio)
-        total = sum(_count_message_chars(m) for m in messages)
-        if total <= budget:
-            return messages
-        
-        logger.warning(
-            f"上下文超预算: ~{total_chars} chars > {budget} "
-            f"(context_window_chars={conf.context_window_chars}), 裁剪最早的消息..."
-        )
-        
-        system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
-        rest = messages[1:] if system_msg else messages[:]
-        last_msg = rest[-1]
-        
-        keep = rest[:-1]
-        
-        while keep:
-            total_chars = sum(_count_message_chars(m) for m in keep)
-            if system_msg:
-                total_chars += _count_message_chars(system_msg)
-            total_chars += _count_message_chars(last_msg)
-            if total_chars <= budget:
-                break
-            dropped = keep.pop(0)
-            if dropped.get("role") == "assistant":
-                while keep and keep[0].get("role") == "tool":
-                    keep.pop(0)
-        
-        result = []
-        if system_msg:
-            result.append(system_msg)
-        result.extend(keep)
-        after_chars = sum(_count_message_chars(m) for m in result)
-        if total > 0:
-            logger.debug(f"裁剪后: ~{after_chars} chars ({int((1-after_chars/total)*100)}% 压缩)")
-        return result
 
     # ── 对话历史持久化 ──
 
@@ -452,7 +304,7 @@ class RAGSystem:
 
     # ── 非流式工具循环 ──
 
-    def _run_tool_loop(self, state: AgentState, system_msg: str, force_retrieve: bool,
+    def _run_tool_loop(self, state: AgentState, system_msg: str,
                        on_checkpoint: Optional[Callable[[str, dict], None]] = None,
                        data_store: Optional[object] = None,
                        save_start: int = 0) -> str:
@@ -472,7 +324,6 @@ class RAGSystem:
         Args:
             state: AgentState 实例，包含 messages、partition、session_id 等。
             system_msg: system message 内容。
-            force_retrieve: 是否强制 LLM 必须调用检索工具。
             on_checkpoint: 检查点回调。
             data_store: 数据存储实例。
             save_start: 本轮消息起始索引。
@@ -480,13 +331,13 @@ class RAGSystem:
         Returns:
             LLM 生成的最终答案字符串，或达到上限时的提示文本。
         """
-        tool_choice = "required" if force_retrieve else "auto"
+        tool_choice = "auto"
         _empty_retries = 0
         _length_retries = 0
 
         while state.should_continue():
 
-            truncated_messages = self._govern_context(state.messages)
+            truncated_messages = state.messages
 
             log_llm_input(truncated_messages, round=state.iteration, suffix="_sent")
 
@@ -546,8 +397,6 @@ class RAGSystem:
                             workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
-                    if isinstance(res, str):
-                        res = _persist_tool_result(state.session_id, tc["name"], res)
                     logger.debug(f"工具 {tc['name']} 完成: result_len={len(res)} chars")
                     return tc["id"], res
                 except Exception as e:
@@ -659,7 +508,7 @@ class RAGSystem:
 
     # ── 流式工具循环 ──
 
-    def _run_tool_loop_stream(self, state: AgentState, force_retrieve: bool,
+    def _run_tool_loop_stream(self, state: AgentState,
                                cancel_check: Optional[Callable[[], bool]] = None,
                                on_checkpoint: Optional[Callable[[str, dict], None]] = None,
                                emit_event: Optional[Callable[[dict], None]] = None,
@@ -683,14 +532,13 @@ class RAGSystem:
 
         Args:
             state: AgentState 实例。
-            force_retrieve: 是否强制 LLM 必须调用检索工具。
             cancel_check: 中断检测函数，返回 True 时终止生成。
             on_checkpoint: 中间检查点保存回调。
             emit_event: 流式事件的发送函数。
             data_store: 数据存储实例。
             save_start: 本轮消息起始索引。
         """
-        tool_choice = "required" if force_retrieve else "auto"
+        tool_choice = "auto"
         _empty_retries = 0
         _length_retries = 0
 
@@ -711,7 +559,7 @@ class RAGSystem:
             if emit_event: emit_event({"type": "status", "status": "thinking"})
             yield {"type": "status", "status": "thinking"}
 
-            truncated_messages = self._govern_context(state.messages)
+            truncated_messages = state.messages
 
             log_llm_input(truncated_messages, round=it, suffix="_sent")
 
@@ -812,8 +660,6 @@ class RAGSystem:
                             workflow_router=getattr(self, "workflow_router", None),
                         )
                     )
-                    if isinstance(res, str):
-                        res = _persist_tool_result(state.session_id, tc["name"], res)
                     logger.debug(f"流式工具 {tc['name']} 完成: result_len={len(res)} chars")
                 except Exception as e:
                     logger.error(f"工具 {tc['name']} 异常: {e}", exc_info=True)

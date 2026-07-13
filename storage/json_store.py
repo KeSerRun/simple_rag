@@ -6,8 +6,6 @@
     data/json_store/sessions.json           - 会话表
     data/json_store/history/                - 对话历史目录
         {session_id}.json                   -   每个会话一个文件
-    data/json_store/archives/               - 归档目录
-        {archive_id}.json                   -   归档文件
 """
 
 import json
@@ -29,7 +27,7 @@ from .base import BaseStore
 class JSONFileStore(BaseStore):
     """基于 JSON 文件的持久化存储实现。
 
-    提供用户管理、会话管理、对话历史 CRUD、任务持久化与归档功能。
+    提供用户管理、会话管理、对话历史 CRUD、任务持久化。
     使用线程锁保证并发安全，采用原子写入策略避免数据损坏。
 
     Attributes:
@@ -38,7 +36,6 @@ class JSONFileStore(BaseStore):
         _users_file: 用户表文件路径。
         _sessions_file: 会话表文件路径。
         _history_dir: 对话历史目录。
-        _archive_dir: 归档目录。
         _lock: 线程锁。
     """
 
@@ -58,8 +55,6 @@ class JSONFileStore(BaseStore):
 
         self._history_dir = os.path.join(self._json_dir, 'history')
 
-        self._archive_dir = os.path.join(self._json_dir, 'archives')
-
         self._lock = threading.Lock()
 
         self._migrate_from_old()
@@ -75,8 +70,6 @@ class JSONFileStore(BaseStore):
         os.makedirs(self._json_dir, exist_ok=True)
 
         os.makedirs(self._history_dir, exist_ok=True)
-
-        os.makedirs(self._archive_dir, exist_ok=True)
 
     def _init_files(self):
         """确保 JSON 数据文件存在，不存在则创建空数组。"""
@@ -122,8 +115,6 @@ class JSONFileStore(BaseStore):
         _move(os.path.join(self.data_dir, 'sessions.json'), self._sessions_file)
 
         _move(os.path.join(self.data_dir, 'history'), self._history_dir)
-
-        _move(os.path.join(self.data_dir, 'archives'), self._archive_dir)
 
         if migrated:
             logger.info("旧文件迁移完成，后续数据将写入新路径")
@@ -590,94 +581,6 @@ class JSONFileStore(BaseStore):
         file_path = os.path.join(self._json_dir, "session_tasks", f"{session_id}.json")
         if os.path.exists(file_path):
             os.remove(file_path)
-
-    # ── 归档 ──────────────────────────────────────────────────────
-
-    def insert_archive(self, session_id, summary, turns):
-        """将历史轮次归档存储。
-
-        Args:
-            session_id: 会话 ID。
-            summary: 归档摘要。
-            turns: 对话轮次列表。
-
-        Returns:
-            生成的 archive_id。
-        """
-        import uuid as _uuid
-
-        archive_id = f"arch_{session_id[:16]}_{_uuid.uuid4().hex[:8]}"
-
-        archive_file = os.path.join(self._archive_dir, f'{archive_id}.json')
-
-        os.makedirs(os.path.dirname(archive_file), exist_ok=True)
-
-        self._write_json(archive_file, {
-            'id': archive_id,
-            'session_id': session_id,
-            'summary': summary,
-            'turns': turns,
-            'created_at': datetime.now().isoformat(),
-        })
-        logger.info(f"归档创建: {archive_id} ({len(turns)} 轮)")
-        return archive_id
-
-    def get_archive(self, archive_id):
-        """按 ID 读取归档。
-
-        Args:
-            archive_id: 归档 ID。
-
-        Returns:
-            归档内容字典，不存在返回 None。
-        """
-        archive_file = os.path.join(self._archive_dir, f'{archive_id}.json')
-
-        if not os.path.exists(archive_file):
-            logger.warning(f"归档不存在: {archive_id}")
-            return None
-
-        return self._read_json(archive_file)
-
-    def delete_session_archives(self, session_id):
-        """删除指定会话的所有归档文件。
-
-        Args:
-            session_id: 会话 ID。
-        """
-        prefix = f"arch_{session_id[:16]}_"
-        if not os.path.isdir(self._archive_dir):
-            return
-        for fname in os.listdir(self._archive_dir):
-            if fname.startswith(prefix) and fname.endswith('.json'):
-                try:
-                    os.remove(os.path.join(self._archive_dir, fname))
-                except OSError:
-                    pass
-
-    def format_archive_turns(self, archive_id):
-        """读取归档并格式化为 LLM 可读的文本。
-
-        Args:
-            archive_id: 归档 ID。
-
-        Returns:
-            格式化后的文本字符串，归档不存在返回 None。
-        """
-        data = self.get_archive(archive_id)
-
-        if not data:
-            return None
-
-        lines = [f"[归档 {archive_id}] 以下为历史对话记录："]
-
-        for t in data.get('turns', []):
-            if t.get('user'):
-                lines.append(f"用户：{t['user']}")
-            if t.get('assistant'):
-                lines.append(f"助手：{t['assistant']}")
-
-        return "\n\n".join(lines)
 
 
 if __name__ == "__main__":

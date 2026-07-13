@@ -3,6 +3,10 @@
 包括：会话历史管理、风格切换检测、流式/非流式问答、CLI 命令分发。
 """
 
+import os
+
+_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 from base.config import conf
 from base.logger import logger, log_qa
 from storage import JSONFileStore as DataStore
@@ -10,7 +14,7 @@ from agent import ToolLoop
 from rag.vector_store import VectorStore
 from base.llm_client import OpenAIClient
 from .governor import compress_history, truncate_history
-
+from .context import SystemContext
 import threading
 from typing import Optional
 
@@ -50,11 +54,14 @@ class IntegratedSystem:
             embedding_dim=conf.openai_embedding_dim,
         )
 
+        self.system_context = SystemContext(os.path.join(_BACKEND_ROOT, "prompts"))
+
         self.tool_loop = ToolLoop(
             data_store=self.data_store,
             chat_client=self.chat_client,
             embed_client=self.embed_client,
-            vector_store=self.vector_store
+            vector_store=self.vector_store,
+            system_context=self.system_context
         )
 
         self.session_last_style: dict[str, str] = {}

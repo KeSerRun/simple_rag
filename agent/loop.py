@@ -22,11 +22,11 @@ from base.llm_client import OpenAIClient
 
 from .tools.registry import ToolContext
 from .tools import registry
-from .context import SkillLoader, WorkflowRouter
+from .context import SystemContext
 from .state import AgentState
 from .tools._infra_handlers import _get_goal_line
 
-_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 
 # ── 工具循环 ──
@@ -50,6 +50,7 @@ class ToolLoop:
         embed_client: OpenAIClient,
         data_store: Optional[object] = None,
         vector_store: VectorStore = None,
+        system_context: SystemContext = None,
     ):
         """初始化 RAGSystem 实例。
 
@@ -66,8 +67,7 @@ class ToolLoop:
         self.embed_client = embed_client
         self.data_store = data_store
         self.vector_store = vector_store
-        self.skill_loader = SkillLoader(os.path.join(_BACKEND_ROOT, "prompts", "style"))
-        self.workflow_router = WorkflowRouter(os.path.join(_BACKEND_ROOT, "prompts", "workflow"))
+        self.system_context = system_context
         self.chat_model = conf.chat_model
 
     def _build_system_message(
@@ -84,26 +84,26 @@ class ToolLoop:
         Returns:
             拼接后的 system message 字符串。
         """
-        parts = [self.skill_loader.identity or ""]
+        parts = [self.system_context.identity or ""]
 
         _tz = _time.tzname
         parts.append(f"\n当前日期: {_dt.now().strftime('%Y年%m月%d日 %A %H:%M')} (时区: {_tz[0] if _tz else 'UTC'})")
 
         if style and style != "style-default":
-            skill = self.skill_loader.skills.get(style)
+            skill = self.system_context.style_router.get_skill(style)
             if skill and skill.template:
                 parts.append(f"\n\n{skill.template}")
 
         wf_name = workflow if workflow and workflow != "__auto__" else None
         if wf_name:
-            wf_content = self.workflow_router.get_workflow_content(wf_name)
+            wf_content = self.system_context.workflow_router.get_workflow_content(wf_name)
             if wf_content:
                 parts.append(f"\n\n---\n# 工作流: {wf_name}\n{wf_content}")
                 logger.info(f"工作流已加载: {wf_name}")
             else:
                 logger.warning(f"工作流 '{wf_name}' 未找到")
         else:
-            wf_summaries = self.workflow_router.get_workflow_summaries()
+            wf_summaries = self.system_context.workflow_router.get_workflow_summaries()
             if wf_summaries:
                 parts.append(
                     f"\n\n---\n# 工作流\n"

@@ -158,14 +158,12 @@ def _parse_yaml_block(text: str) -> dict:
 
 # ── 工具函数 ──
 
-
 def _load_identity(prompts_dir: Path) -> str:
     """从基线目录加载身份文件 (identity.md)。"""
     f = prompts_dir / "identity.md"
     if not f.exists():
         return ""
     return f.read_text(encoding="utf-8").strip()
-
 
 
 class SkillLoader:
@@ -180,17 +178,15 @@ class SkillLoader:
         if not skill_dir.is_dir():
             raise FileNotFoundError(f"prompts 目录不存在: {skill_dir}")
 
-        self.identity: str = _load_identity(skill_dir)
-        self.skills: dict = {}
+        self._skills: dict = {}
         self._load_skills_from(skill_dir)
 
         logger.debug(
-            f"SkillLoader 就绪: identity={'是' if self.identity else '否'}, "
-            f"skills={sorted(self.skills.keys())}"
+            f"SkillLoader 就绪: skills={sorted(self._skills.keys())}"
         )
 
     def _load_skills_from(self, prompts_dir: Path):
-        """从 prompts_dir 加载 skill 到 self.skills。"""
+        """从 prompts_dir 加载 skill 到 self._skills。"""
         skills_dir = prompts_dir / "skills"
         if skills_dir.is_dir():
             for file, fallback in self._scan_skills(skills_dir):
@@ -249,18 +245,20 @@ class SkillLoader:
         """注册一个 skill 到技能字典中。"""
         if skill is None:
             return
-        existing = self.skills.get(skill.name)
+        existing = self._skills.get(skill.name)
         if existing is not None:
             logger.warning(f"skill '{skill.name}' 被覆盖: {skill.source} 覆盖 {existing.source}")
-        self.skills[skill.name] = skill
+        self._skills[skill.name] = skill
 
     def list_skills(self) -> dict:
         """返回当前已加载的所有 skill 的概览信息。"""
-        return {name: s.source for name, s in self.skills.items()}
+        return {name: s.source for name, s in self._skills.items()}
 
+    def get_skill(self, name: str) -> Optional[Skill]:
+        """根据名称获取 skill。"""
+        return self._skills.get(name)
 
 # ── 工作流 ──
-
 
 class WorkflowRouter:
     """工作流路由器，管理 prompts/workflow/ 目录下的工作流文件。"""
@@ -268,9 +266,10 @@ class WorkflowRouter:
     def __init__(self, prompts_dir: str):
         self.workflow_dir: Path = Path(prompts_dir)
         self._workflows: dict[str, dict] = {}
-        self._load_workflows()
+        self._load_workflows_from(self.workflow_dir)
 
-    def _load_workflows(self):
+    def _load_workflows_from(self, prompts_dir: str):
+        self.workflow_dir = Path(prompts_dir)
         for fpath in sorted(self.workflow_dir.glob("*.md")):
             if fpath.name == "route.md":
                 continue
@@ -308,3 +307,11 @@ class WorkflowRouter:
              "always_load": info.get("always_load", False)}
             for name, info in self._workflows.items()
         ]
+
+class SystemContext:
+    def __init__(self, prompts_dir: str):
+        self.prompts_dir = Path(prompts_dir)
+        self.identity = _load_identity(self.prompts_dir)
+        self.style_router = SkillLoader(self.prompts_dir/"style")
+        self.workflow_router =  WorkflowRouter(self.prompts_dir/"workflow")
+

@@ -25,14 +25,6 @@ async def list_styles():
         JSONResponse: ``{"styles": [{"value": str, "label": str, "description": str}, ...]}``。
     """
     styles = system.tool_loop.system_context.style_router.list_skills()
-    # styles = []
-    # for name, skill in skills.items():
-    #     if "/style/" in skill.source.replace("\\", "/"):
-    #         styles.append({
-    #             "value": name,
-    #             "label": name,
-    #             "description": skill.description or "",
-    #         })
     styles.sort(key=lambda s: (s["value"] != "default", s["label"]))
     return JSONResponse(content={"styles": styles})
 

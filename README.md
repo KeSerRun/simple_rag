@@ -24,8 +24,8 @@
 # 使用 uv（推荐）
 uv sync
 
-# 或 pip
-pip install -r requirements.txt
+# 或 pip（从 pyproject.toml 安装）
+pip install -e .
 ```
 
 ### 2. 配置

@@ -243,13 +243,54 @@ class MinerUClient:
 
     # ── 底层 HTTP 工具 ────────────────────────────────────────────
 
+    def _request_with_retry(self, method: str, url: str, **kwargs) -> requests.Response:
+        """带指数退避重试的 HTTP 请求。
+
+        最多重试 3 次，间隔 1s → 2s → 4s，仅对可重试的异常进行重试。
+
+        Args:
+            method: "GET" 或 "POST"。
+            url: 请求 URL。
+            **kwargs: 传给 requests.Session.request 的参数。
+
+        Returns:
+            requests.Response 对象。
+
+        Raises:
+            MinerUError: 所有重试耗尽后仍失败时抛出。
+        """
+        import time as _time
+
+        last_exc = None
+        for attempt in range(4):  # 首次 + 3 次重试
+            if attempt > 0:
+                wait = 2 ** (attempt - 1)  # 1, 2, 4 秒
+                logger.info(f"MinerU API 重试 ({attempt}/3), 等待 {wait}s...")
+                _time.sleep(wait)
+            try:
+                resp = self._session.request(method, url, timeout=60, **kwargs)
+            except requests.RequestException as e:
+                last_exc = e
+                logger.warning(f"MinerU 请求异常 ({attempt}/3): {e}")
+                continue
+            if resp.status_code in (502, 503, 504, 429):
+                last_exc = MinerUError(f"服务暂不可用 status={resp.status_code}")
+                logger.warning(f"MinerU 服务暂不可用 ({attempt}/3): {resp.status_code}")
+                continue
+            # 4xx（除 429 外）不重试，直接抛
+            if resp.status_code >= 400:
+                return self._check(resp)
+            return resp
+
+        raise MinerUError(f"MinerU API 请求失败 (已重试 3 次): {last_exc}")
+
     def _post(self, url: str, payload: dict) -> dict:
-        r = self._session.post(url, json=payload, timeout=60)
-        return self._check(r)
+        resp = self._request_with_retry("POST", url, json=payload)
+        return self._check(resp)
 
     def _get(self, url: str) -> dict:
-        r = self._session.get(url, timeout=60)
-        return self._check(r)
+        resp = self._request_with_retry("GET", url)
+        return self._check(resp)
 
     @staticmethod
     def _check(resp: requests.Response) -> dict:

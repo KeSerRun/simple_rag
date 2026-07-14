@@ -2,124 +2,213 @@
 
 基于 FastAPI + LLM 的 RAG 知识问答系统，支持多工作流、工具调用、PDF 解析、向量检索、管理后台。
 
-## 项目结构
+[![Python](https://img.shields.io/badge/Python-3.11-blue)]()
+[![FastAPI](https://img.shields.io/badge/FastAPI-latest-009688)]()
+[![Vue 3](https://img.shields.io/badge/Vue_3-latest-4FC08D)]()
+[![License](https://img.shields.io/badge/License-MIT-green)]()
 
-```
-rag_simple/
-├── agent/                         # Agent 核心 — 工具循环 + 路由
-│   ├── rag_system.py              # 主循环：generate_answer → 非流式/流式工具循环
-│   ├── integrate.py               # IntegratedSystem：历史管理、上下文治理、流式桥接
-│   ├── state.py                   # AgentState：消息历史、迭代计数
-│   ├── loop.py                    # SessionLockManager：会话锁
-│   ├── workflow.py                # WorkflowRouter：工作流路由引擎
-│   ├── context_builder.py         # 身份/Skill 工厂
-│   ├── checkpoint.py              # CheckpointStore：中断状态持久化
-│   └── tools/
-│       ├── registry.py            # 工具注册中心：register / dispatch
-│       ├── _infra_handlers.py     # 基础设施工具（set_goal / complete_goal / my 等）
-│       ├── _kb_handlers.py        # 知识库检索工具
-│       ├── _web_handlers.py       # 联网搜索工具
-│       └── _format.py             # 工具结果格式化
-│
-├── api/                           # HTTP 接口（FastAPI）
-│   ├── query.py                   # /api/query 问答接口（SSE 流式 + 非流式）
-│   ├── history.py                 # /api/history 对话历史
-│   ├── sessions.py                # /api/sessions 会话管理
-│   ├── documents.py               # /api/documents 文档上传/列表
-│   ├── auth.py                    # /api/auth JWT 认证
-│   ├── deps.py                    # 鉴权依赖注入
-│   └── admin/                     # 管理后台 API
-│       ├── dashboard.py           #   仪表盘统计
-│       ├── database.py            #   向量库管理 + 系统数据上传
-│       ├── config.py              #   系统设置
-│       ├── eval.py                #   检索质量评估（精确率）
-│       ├── logs.py                #   日志查看
-│       └── users.py               #   用户管理
-│
-├── rag/                           # RAG 基础设施
-│   ├── vector_store.py            # FAISS 向量库（检索/存储/分区/文档管理）
-│   ├── pdf_parser.py              # MinerU PDF 解析 + 分块
-│   ├── text_splitter.py           # 文本分块
-│   └── eval_rag.py                # 评估工具：LLM 评分、精确率计算
-│
-├── base/                          # 全局基础设施
-│   ├── config.py                  # Config 配置解析（config.ini）
-│   ├── llm_client.py              # OpenAI 兼容客户端（chat / embedding）
-│   └── logger.py                  # 结构化日志
-│
-├── storage/                       # 数据持久化
-│   ├── json_store.py              # JSON 文件存储（会话/归档/任务 CRUD）
-│   └── base.py                    # 存储抽象基类
-│
-├── prompts/                       # 提示词模板
-│   ├── identity.md                # 身份设定
-│   └── workflow/                  # 工作流定义
-│       ├── Briefing.md
-│       ├── Comparison.md
-│       ├── DeepResearch.md
-│       ├── Autoplan.md
-│       └── USstocks.md
-│
-├── web/                           # Vue3 前端（Vite + Naive UI）
-├── dist/                          # 前端构建产物
-├── data/                          # 运行时数据（向量库、JSON 存储、评估数据）
-├── logs/                          # 日志文件
-│
-├── app.py                         # FastAPI 应用入口
-├── sdk.py                         # 对外 SDK（ask / ask_stream）
-├── config.ini                     # 配置文件
-├── pyproject.toml                 # 项目元数据 + 依赖
-└── README.md
-```
+---
 
-## 快速开始
+## 快速启动
 
-### 后端
+### 前置条件
+
+- Python 3.11+
+- Node.js 18+
+- MinerU API Key（PDF 解析）
+- LLM API Key（对话 + 嵌入）
+
+### 1. 安装后端
 
 ```bash
-pip install -r requirements.txt
-# 或使用 uv
+# 使用 uv（推荐）
 uv sync
 
-# 编辑 config.ini 填入 API Key
-# 关键配置：
-#   [api] chat_api_key / chat_base_url / chat_model
-#   [api] embedding_api_key / embedding_base_url / embedding_model
-#   [api] mineru_api_key / mineru_base_url（PDF 解析）
-
-python app.py
-# 服务默认启动于 http://0.0.0.0:11000
+# 或 pip
+pip install -r requirements.txt
 ```
 
-### 前端
+### 2. 配置
+
+```bash
+# 编辑 config.ini，填入必要配置
+# 最小配置需要：
+#   [api] chat_api_key / chat_base_url / chat_model
+#   [api] embedding_api_key / embedding_base_url / embedding_model
+#   [api] mineru_api_key（PDF 解析）
+
+# 密钥也可通过 .env 或环境变量覆盖
+```
+
+参见 [配置说明](config.ini) 各段注释。
+
+### 3. 启动服务
+
+```bash
+python app.py
+# 服务启动于 http://0.0.0.0:11000
+```
+
+### 4. 构建前端（可选，也可使用开发模式）
 
 ```bash
 cd web
 npm install
-npm run dev
-# 开发服务器默认启动于 http://localhost:5173
-# 构建生产版本：npm run build（输出到 dist/）
+npm run build        # 生产构建 → dist/
+# 或 npm run dev     # 开发模式 localhost:5173
 ```
 
-## 管理后台
+构建后的 `dist/` 会自动被 FastAPI 作为静态文件服务。
 
-服务启动后访问 `http://localhost:11000/#/admin`，使用 `config.ini` 中 `[superuser]` 配置的账号登录。
+### 5. 访问
 
-- **仪表盘**：系统概览、实时日志
-- **系统设置**：LLM / 检索 / MinerU / Agent 参数在线调整
-- **数据管理**：向量库统计、切块详情、系统数据上传（PDF → MinerU 解析 → 向量化）
-- **检索评估**：使用测试查询 + LLM 评判器评估检索精确率
-- **用户管理**：用户 CRUD
+- **主页面**：`http://localhost:11000`
+- **管理后台**：`http://localhost:11000/#/admin`
+  - 使用 `config.ini` 中 `[superuser]` 配置的账号登录
+  - 默认：`Admin123 / Admin123`
+
+---
+
+## 项目架构
+
+```
+rag_simple/
+│
+├── agent/                       # Agent 引擎
+│   ├── loop.py                  # ToolLoop: 工具调用循环核心
+│   ├── integrate.py             # IntegratedSystem: 顶层集成入口
+│   ├── state.py                 # AgentState: 运行时状态
+│   ├── context.py               # SkillLoader / WorkflowRouter / SystemContext
+│   ├── governor.py              # 上下文治理 (压缩/截断历史)
+│   │
+│   └── tools/                   # 工具系统
+│       ├── registry.py          # 注册中心 + 14 个内建工具注册
+│       ├── _kb_handlers.py      # 知识库工具 (检索/文档/全文搜索)
+│       ├── _web_handlers.py     # 联网工具 (搜索/URL 读取)
+│       ├── _infra_handlers.py   # 基础设施工具 (目标/状态/工作流)
+│       ├── _format.py           # 检索结果格式化
+│       └── cache.py             # 工具缓存
+│
+├── api/                         # HTTP 接口 (FastAPI)
+│   ├── auth.py                  # JWT 认证
+│   ├── query.py                 # 问答 (非流式 + SSE 流式)
+│   ├── history.py               # 对话历史
+│   ├── sessions.py              # 会话管理
+│   ├── documents.py             # 文档上传/列表/图片
+│   ├── deps.py                  # 鉴权依赖
+│   └── admin/                   # 管理后台
+│       ├── dashboard.py         #   仪表盘
+│       ├── config.py            #   系统设置 (热更新)
+│       ├── database.py          #   向量库管理 + 系统数据上传
+│       ├── eval.py              #   检索质量评估
+│       ├── logs.py              #   日志查看
+│       └── users.py             #   用户管理
+│
+├── rag/                         # RAG 基础设施
+│   ├── vector_store.py          # FAISS 向量存储 (检索/持久化/分区)
+│   ├── pdf_parser.py            # MinerU PDF 解析
+│   └── eval_rag.py              # 评估: LLM 评分 (0-4) + 精确率
+│
+├── base/                        # 全局基础设施
+│   ├── config.py                # 三层配置加载 (ini + .env + 环境变量)
+│   ├── llm_client.py            # OpenAI 兼容客户端
+│   └── logger.py                # 结构化日志
+│
+├── storage/                     # 数据持久化
+│   ├── json_store.py            # JSON 文件存储
+│   └── base.py                  # 存储抽象基类
+│
+├── prompts/                     # 提示词模板
+│   ├── identity.md              # 系统身份设定
+│   ├── style/                   # 回答风格 (巴菲特/马斯克/Jobs 等)
+│   └── workflow/                # 工作流 (简报/对比/深度研究等)
+│
+├── web/                         # Vue 3 前端
+├── dist/                        # 前端构建产物
+│
+├── data/                        # 运行时数据 (向量库/历史/文档)
+├── logs/                        # 日志文件
+│
+├── doc/                         # 文档
+│   ├── architecture.md          #   架构总览
+│   ├── agent.md                 #   Agent 引擎
+│   ├── api.md                   #   API 接口
+│   ├── rag.md                   #   RAG 基础设施
+│   ├── base.md                  #   基础模块
+│   ├── storage.md               #   存储层
+│   ├── prompts.md               #   提示词系统
+│   ├── tool.md                  #   工具文档
+│   └── web.md                   #   前端
+│
+├── app.py                       # FastAPI 应用入口
+├── config.ini                   # 配置文件
+└── pyproject.toml               # 项目元数据 + 依赖
+```
+
+## 核心数据流
+
+```
+用户输入
+  │
+  ├─ 历史加载 → 超限自动压缩/截断 (governor)
+  │
+  ├─ 组装 system + history + query
+  │
+  ├─ LLM 工具循环 (ToolLoop)
+  │   ├─ LLM 决定调工具 → 并发执行 → 结果回灌 → 继续
+  │   └─ LLM 决定直接回答 → 返回最终答案
+  │
+  ├─ should_continue 检查
+  │   ├─ 超迭代上限? → 保存状态, "继续"恢复
+  │   └─ 超上下文窗口? → 中断
+  │
+  └─ 保存历史 → 返回答案
+```
 
 ## 主要功能
 
-- **多工作流**：简报、对比、深度研究、自动规划等
-- **工具调用**：知识库检索、联网搜索、文档阅读、URL 解析等 16 个工具
-- **PDF 解析**：MinerU API（支持 VLM/Lite 模型）
-- **上下文治理**：超预算时自动压缩/归档历史对话
-- **中断恢复**：达限后保存状态，回复「继续」恢复
-- **管理后台**：配置热更新、向量库管理、检索质量评估
+| 功能 | 说明 |
+|------|------|
+| **多工作流** | 简报、对比、深度研究、自动规划、美股分析 |
+| **工具调用** | 14 个工具，知识库检索(RRF融合) + 联网搜索 + 文档阅读 |
+| **PDF 解析** | MinerU API (VLM/Lite)，自动提取文本/表格/图片 |
+| **多风格回答** | 支持巴菲特、马斯克、Jobs 等回答风格 |
+| **上下文治理** | 超预算自动压缩工具结果或截断旧历史 |
+| **中断恢复** | 达工具上限后保存状态，"继续"即恢复 |
+| **管理后台** | 配置热更新、向量库管理、检索质量评估、用户管理 |
+
+## 文档索引
+
+| 文档 | 内容 |
+|------|------|
+| [架构总览](doc/architecture.md) | 整体架构、分层、数据流 |
+| [Agent 引擎](doc/agent.md) | 工具循环、状态管理、工具注册 |
+| [API 模块](doc/api.md) | HTTP 接口、路由、管理后台 |
+| [RAG 基础设施](doc/rag.md) | 向量存储、PDF 解析、评估 |
+| [基础模块](doc/base.md) | 配置加载、LLM 客户端、日志 |
+| [存储层](doc/storage.md) | JSON 文件持久化 |
+| [提示词系统](doc/prompts.md) | 身份、风格、工作流 |
+| [工具文档](doc/tool.md) | 14 个工具的详细参数 |
+| [前端](doc/web.md) | Vue 3 架构、页面路由 |
 
 ## 配置说明
 
-参见 [config.ini](config.ini) 各段注释。
+详细配置项参见 [config.ini](config.ini) 各段注释。关键配置：
+
+```ini
+[api]
+chat_api_key = sk-...        # 对话模型 API Key
+chat_base_url = https://...  # 对话模型地址
+chat_model = deepseek-v4-...
+
+embedding_api_key = sk-...   # 嵌入模型 API Key
+embedding_base_url = https://...
+embedding_model = BAAI/bge-m3
+embedding_dim = 1024
+
+mineru_api_key = eyJ...      # PDF 解析 API Key
+```
+
+## 许可证
+
+MIT

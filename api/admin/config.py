@@ -33,6 +33,7 @@ _CONFIG_SCHEMA = [
 
     {"key": "retrieval_top_k", "label": "检索 Top-K", "group": "检索配置", "type": "int", "min": 1, "max": 100},
     {"key": "candidate_top_k", "label": "候选 Top-K", "group": "检索配置", "type": "int", "min": 1, "max": 50},
+    {"key": "min_chunk_length", "label": "文档块最小字符数", "group": "检索配置", "type": "int", "min": 0, "max": 1000},
     {"key": "stop_words", "label": "文本停用词", "group": "检索配置", "type": "string", "textarea": True, "placeholder": "用逗号分隔"},
 
     {"key": "max_tool_iter", "label": "最大工具迭代次数", "group": "Agent 配置", "type": "int", "min": 1, "max": 100},
@@ -49,6 +50,9 @@ _CONFIG_SCHEMA = [
 
     {"key": "max_history_length", "label": "最大历史轮数", "group": "上下文治理", "type": "int", "min": 10, "max": 5000},
     {"key": "context_window_chars", "label": "上下文窗口字符数", "group": "上下文治理", "type": "int", "min": 10000, "max": 1000000},
+    {"key": "context_input_ratio", "label": "输入占比", "group": "上下文治理", "type": "float", "min": 0.1, "max": 0.95, "step": 0.05},
+    {"key": "compression_ratio", "label": "压缩比例", "group": "上下文治理", "type": "float", "min": 0.1, "max": 1.0, "step": 0.05},
+    {"key": "tool_page_chars", "label": "工具分页字符数", "group": "上下文治理", "type": "int", "min": 1000, "max": 100000},
 
 
     {"key": "app_log_level", "label": "应用日志级别", "group": "日志配置", "type": "select",

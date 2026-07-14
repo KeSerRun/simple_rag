@@ -551,44 +551,6 @@ class JSONFileStore(BaseStore):
 
         return deleted
 
-    # ── 会话任务 ──────────────────────────────────────────────────
-
-    def save_session_tasks(self, session_id, tasks):
-        """持久化会话任务数据（短期/长期任务）。
-
-        Args:
-            session_id: 会话 ID。
-            tasks: 任务数据字典。
-        """
-        tasks_dir = os.path.join(self._json_dir, "session_tasks")
-        os.makedirs(tasks_dir, exist_ok=True)
-        file_path = os.path.join(tasks_dir, f"{session_id}.json")
-        self._write_json(file_path, tasks)
-
-    def get_session_tasks(self, session_id):
-        """读取会话任务数据。
-
-        Args:
-            session_id: 会话 ID。
-
-        Returns:
-            任务数据字典，不存在返回 {}。
-        """
-        file_path = os.path.join(self._json_dir, "session_tasks", f"{session_id}.json")
-        if not os.path.exists(file_path):
-            return {}
-        return self._read_json(file_path)
-
-    def delete_session_tasks(self, session_id):
-        """删除指定会话的任务数据。
-
-        Args:
-            session_id: 会话 ID。
-        """
-        file_path = os.path.join(self._json_dir, "session_tasks", f"{session_id}.json")
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
 
 if __name__ == "__main__":
 

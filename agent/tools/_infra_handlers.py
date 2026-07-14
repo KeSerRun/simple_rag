@@ -96,12 +96,11 @@ def _exec_my(args: dict, ctx: ToolContext) -> str:
 
 # ── 会话目标管理 ──
 
-_GOAL_KEY = "_goals"
-_GOAL_CACHE: dict[str, dict] = {}
+_GOAL_CACHE: dict[str, str] = {}  # session_id → goal 文本
 
 
 def _exec_set_goal(args: dict, ctx: ToolContext) -> str:
-    """设置会话持续目标，通过 data_store 持久化。
+    """设置会话持续目标，仅存内存缓存。
 
     当用户交代了一个多轮对话才能完成的目标时调用。
     目标信息会持续注入 system prompt 供后续对话参考。
@@ -118,21 +117,14 @@ def _exec_set_goal(args: dict, ctx: ToolContext) -> str:
     if not goal:
         return "(未提供 goal 参数)"
     sid = ctx.session_id or ""
-    entry = {"goal": goal, "status": "active"}
-    _GOAL_CACHE[sid] = entry
-    if ctx.data_store:
-        tasks = ctx.data_store.get_session_tasks(sid) or {}
-        goals = tasks.get(_GOAL_KEY, {})
-        goals[sid] = entry
-        tasks[_GOAL_KEY] = goals
-        ctx.data_store.save_session_tasks(sid, tasks)
+    _GOAL_CACHE[sid] = goal
     return f"(目标已设置：{goal})"
 
 
 def _exec_complete_goal(args: dict, ctx: ToolContext) -> str:
     """完成当前目标。
 
-    当用户确认目标已完成时调用。将活跃目标标记为 'completed' 状态。
+    当用户确认目标已完成时调用。从缓存中移除该目标。
 
     Args:
         args: 工具参数字典（本工具无需额外参数）。
@@ -142,46 +134,25 @@ def _exec_complete_goal(args: dict, ctx: ToolContext) -> str:
         操作结果提示字符串。
     """
     sid = ctx.session_id or ""
-    if sid in _GOAL_CACHE:
-        _GOAL_CACHE[sid]["status"] = "completed"
-    if ctx.data_store:
-        tasks = ctx.data_store.get_session_tasks(sid) or {}
-        goals = tasks.get(_GOAL_KEY, {})
-        if sid in goals:
-            goals[sid] = {"goal": "", "status": "completed"}
-            tasks[_GOAL_KEY] = goals
-            ctx.data_store.save_session_tasks(sid, tasks)
+    _GOAL_CACHE.pop(sid, None)
     return "(当前目标已完成)"
 
 
 def _get_goal_line(sid: str, data_store) -> str:
-    """读取当前活跃目标文本，优先走内存缓存。
+    """读取当前活跃目标文本，仅查内存缓存。
 
     用于组装 system prompt 中的目标信息行。
-    缓存未命中时回退到 data_store 查询，查到后写入缓存。
 
     Args:
         sid: 会话 ID。
-        data_store: 持久化数据存储对象。
+        data_store: 保留参数，不再使用。
 
     Returns:
         格式如 '\\n# 当前目标：xxx' 的字符串，无活跃目标时返回空字符串。
     """
-    if sid in _GOAL_CACHE:
-        g = _GOAL_CACHE[sid]
-        if g.get("status") == "active" and g.get("goal"):
-            return f"\n# 当前目标：{g['goal']}"
-    if not data_store or not sid:
-        return ""
-    try:
-        tasks = data_store.get_session_tasks(sid) or {}
-        goals = tasks.get(_GOAL_KEY, {})
-        g = goals.get(sid)
-        if g and g.get("status") == "active" and g.get("goal"):
-            _GOAL_CACHE[sid] = g
-            return f"\n# 当前目标：{g['goal']}"
-    except Exception:
-        pass
+    goal = _GOAL_CACHE.get(sid)
+    if goal:
+        return f"\n# 当前目标：{goal}"
     return ""
 
 

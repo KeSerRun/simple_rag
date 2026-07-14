@@ -183,34 +183,3 @@ class BaseStore(ABC):
             是否成功删除。
         """
 
-    # ── 会话任务 ──────────────────────────────────────────────────
-
-    @abstractmethod
-    def save_session_tasks(self, session_id: str, tasks: dict):
-        """持久化会话任务数据。
-
-        Args:
-            session_id: 会话 ID。
-            tasks: 任务数据字典。
-        """
-
-    @abstractmethod
-    def get_session_tasks(self, session_id: str) -> dict:
-        """读取会话任务数据。
-
-        Args:
-            session_id: 会话 ID。
-
-        Returns:
-            任务数据 dict，不存在返回 {}。
-        """
-
-    @abstractmethod
-    def delete_session_tasks(self, session_id: str) -> None:
-        """删除指定会话的任务数据。
-
-        Args:
-            session_id: 会话 ID。
-        """
-
-

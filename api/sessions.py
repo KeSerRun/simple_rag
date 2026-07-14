@@ -100,7 +100,6 @@ async def delete_session(request: Request, session_id: str):
 
     - session 记录 (data_store.delete_session)
     - 对话历史 (delete_session_history)
-    - 任务记录 (delete_session_tasks)
 
 
     Args:
@@ -124,7 +123,6 @@ async def delete_session(request: Request, session_id: str):
 
         system.data_store.delete_session(session_id)
         system.data_store.delete_session_history(session_id)
-        system.data_store.delete_session_tasks(session_id)
 
         return JSONResponse(content={"message": "Session and related data deleted successfully"})
 

@@ -350,7 +350,6 @@ class Config:
             ("uploads_dir", os.path.join(self.data_dir, "uploads")),
             ("json_store_dir", os.path.join(self.data_dir, "json_store")),
             ("history_dir", os.path.join(self.data_dir, "json_store", "history")),
-            ("session_tasks_dir", os.path.join(self.data_dir, "json_store", "session_tasks")),
         ]
         for name, path in dirs:
             try:

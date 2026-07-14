@@ -429,9 +429,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
         name="search_knowledge_base",
         description=(
             f"知识库语义检索（嵌入模型 {conf.openai_embedding_model}），覆盖文本、表格、图片图表。"
-            f"支持多 query 并行检索（最多 5 个）。"
+            f"支持多 query 检索（最多 10 个），自动 RRF 融合排序。多 query 可覆盖不同方面或不同数据来源。"
             f"set search_system=false 仅搜用户文档。"
-            f"top_k 默认 5，实际返回数受系统 retrieval_top_k（{conf.retrieval_top_k}）限制。"
+            f"top_k 默认 {conf.candidate_top_k}，上限 {conf.retrieval_top_k}。"
         ),
         parameters={
             "type": "object",
@@ -440,9 +440,9 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                     "type": "array",
                     "items": {"type": "string"},
                     "minItems": 1,
-                    "maxItems": 5,
+                    "maxItems": 10,
                     "description": (
-                        "检索查询列表。简单问题 1 个；多焦点问题拆 2-5 个子查询。"
+                        "检索查询列表。简单问题 1 个；多焦点问题拆 2-10 个子查询。"
                         "用名词短语而非完整问句。"
                     ),
                 },
@@ -454,9 +454,11 @@ def register_all_builtins(reg: ToolRegistry) -> None:
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": ("返回的结果数量（默认 5，上限由配置决定）。"
-                                     "需要粗略概览时设为 3，需要全面排查时适当增加。"),
-                    "default": 5,
+                    "description": (
+                        f"返回的结果数量（默认 {conf.candidate_top_k}，上限 {conf.retrieval_top_k}）。"
+                        "需要粗略概览时适当减小，需要全面排查时增加。"
+                    ),
+                    "default": conf.candidate_top_k,
                 },
             },
             "required": ["queries"],

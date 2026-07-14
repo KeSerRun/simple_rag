@@ -275,7 +275,7 @@ class ToolLoop:
                             partition=state.partition,
                             data_store=self.data_store,
                             session_id=state.session_id,
-                            workflow_router=getattr(self, "workflow_router", None),
+                            workflow_router=getattr(self.system_context, "workflow_router", None),
                         )
                     )
                     logger.debug(f"工具 {tc['name']} 完成: result_len={len(res)} chars")
@@ -445,7 +445,7 @@ class ToolLoop:
                             partition=state.partition,
                             data_store=self.data_store,
                             session_id=state.session_id,
-                            workflow_router=getattr(self, "workflow_router", None),
+                            workflow_router=getattr(self.system_context, "workflow_router", None),
                         )
                     )
                     logger.debug(f"流式工具 {tc['name']} 完成: result_len={len(res)} chars")

@@ -26,6 +26,49 @@ from ._format import SYSTEM_PARTITION, format_retrieved_chunks
 from .cache import get as cache_get, set as cache_set
 
 
+# ── RRF 重排 ──────────────────────────────────────────────────────
+
+
+_RRF_K_DEFAULT = 60
+
+def rrf_rerank(
+    ranked_results: list[tuple[int, int, Document]],
+    k: int = _RRF_K_DEFAULT,
+    top_n: int | None = None,
+) -> List[Document]:
+    """Reciprocal Rank Fusion 重排。
+
+    将多个 query 的检索结果按 RRF 算法融合：同一 chunk 在多个 query 中排名越高，
+    融合分数越高。公式 score = Σ 1/(k + rank_i)。单 query 时等效于原始排序。
+
+    Args:
+        ranked_results: 带排名的结果列表，每个元素为 (query_index, rank_1based, Document)。
+        k: RRF 平滑常数，默认 60。
+        top_n: 返回前 N 条，None 返回全部。
+
+    Returns:
+        按 RRF 分数降序排列的 Document 列表。
+    """
+    if not ranked_results:
+        return []
+
+    scores: dict[str, tuple[Document, float]] = {}
+    for qi, rank, doc in ranked_results:
+        key = doc.metadata.get("id") or doc.page_content
+        if key not in scores:
+            scores[key] = (doc, 0.0)
+        old_doc, old_score = scores[key]
+        scores[key] = (old_doc, old_score + 1.0 / (k + rank))
+
+    sorted_items = sorted(scores.values(), key=lambda x: -x[1])
+    merged = [doc for doc, _ in sorted_items]
+
+    if top_n is not None:
+        merged = merged[:top_n]
+
+    return merged
+
+
 def _resolve_full_md(filename: str, partition: str | None = None) -> str | None:
     """解析文档 full.md 路径，供多个工具共享。
 
@@ -282,10 +325,10 @@ def _exec_list_documents(args: dict, ctx: ToolContext) -> str:
 def _retrieve_and_dedup(
     vector_store, queries, partition, system_partitions: Optional[list] = None,
 ) -> List[Document]:
-    """多 query + 多分区 + 全局去重检索。
+    """多 query + 多分区 + RRF 重排检索。
 
-    单 query 走快速路径（完整 top_k），多 query 公平分配每个 query 的检索配额。
-    跨分区二次去重确保同一 chunk_id 不重复出现。
+    对每个 query 在各分区中检索，使用 rrf_rerank 融合多个 query 的结果。
+    单 query 时 RRF 等效于原始排序。
 
     Args:
         vector_store: 向量存储实例。
@@ -294,7 +337,7 @@ def _retrieve_and_dedup(
         system_partitions: 要搜索的系统分区名列表（可选）。
 
     Returns:
-        去重后的 Document 列表。
+        按 RRF 分数降序排列的 Document 列表。
     """
     if not queries:
         return []
@@ -303,53 +346,25 @@ def _retrieve_and_dedup(
     if system_partitions:
         search_partitions.extend(sp for sp in system_partitions if sp and sp not in search_partitions)
 
-    def _search_partition(p):
-        """在单个分区中执行检索，含多 query 公平分配和去重。
-
-        Args:
-            p: 分区名。
-
-        Returns:
-            该分区的 Document 列表。
-        """
-        if len(queries) == 1:
-            try:
-                return vector_store.search(
-                    query=queries[0], top_k=conf.retrieval_top_k, partition=p,
-                )
-            except Exception as e:
-                logger.error(f"检索失败 (query={queries[0]!r}, partition={p}): {e}")
-                return []
-
-        per_q = max(1, conf.retrieval_top_k // len(queries))
-        seen = set()
-        merged: List[Document] = []
-        for q in queries:
+    # 收集每个分区中每个 query 的原始结果（含排名）
+    all_ranked: list[tuple[int, int, Document]] = []
+    for p in search_partitions:
+        for qi, q in enumerate(queries):
             try:
                 results = vector_store.search(query=q, top_k=conf.retrieval_top_k, partition=p)
             except Exception as e:
                 logger.error(f"检索失败 (query={q!r}, partition={p}): {e}")
                 continue
-            for c in results[:per_q]:
-                key = c.metadata.get("id") or c.page_content
-                if key in seen:
-                    continue
-                seen.add(key)
-                merged.append(c)
-        return merged
+            for rank, doc in enumerate(results, 1):
+                all_ranked.append((qi, rank, doc))
 
-    seen = set()
-    merged: List[Document] = []
-    for p in search_partitions:
-        results = _search_partition(p)
-        for c in results:
-            key = c.metadata.get("id") or c.page_content
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(c)
+    if not all_ranked:
+        logger.debug("多分区检索未检索到相关内容, 返回 0 块")
+        return []
 
-    logger.debug(f"多分区检索完成: partitions={search_partitions}, 合并后 {len(merged)} 块")
+    merged = rrf_rerank(all_ranked)
+
+    logger.debug(f"多分区检索完成: partitions={search_partitions}, RRF 重排后 {len(merged)} 块")
     return merged
 
 

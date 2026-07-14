@@ -187,13 +187,8 @@ class SkillLoader:
 
     def _load_skills_from(self, prompts_dir: Path):
         """从 prompts_dir 加载 skill 到 self._skills。"""
-        skills_dir = prompts_dir / "skills"
-        if skills_dir.is_dir():
-            for file, fallback in self._scan_skills(skills_dir):
-                self._register(self._load_one(file, fallback_name=fallback))
-        else:
-            for file, fallback in self._scan_skills(prompts_dir):
-                self._register(self._load_one(file, fallback_name=fallback))
+        for file, fallback in self._scan_skills(prompts_dir):
+            self._register(self._load_one(file, fallback_name=fallback))
 
     def _scan_skills(self, root: Path):
         """递归扫描目录树，查找所有 skill 定义文件。"""
@@ -266,11 +261,11 @@ class WorkflowRouter:
     def __init__(self, prompts_dir: str):
         self.workflow_dir: Path = Path(prompts_dir)
         self._workflows: dict[str, dict] = {}
-        self._load_workflows_from(self.workflow_dir)
+        self._load_workflows_from()
 
-    def _load_workflows_from(self, prompts_dir: str):
-        self.workflow_dir = Path(prompts_dir)
-        for fpath in sorted(self.workflow_dir.glob("*.md")):
+    def _load_workflows_from(self, prompts_dir: str | None = None):
+        root = Path(prompts_dir) if prompts_dir else self.workflow_dir
+        for fpath in sorted(root.glob("*.md")):
             if fpath.name == "route.md":
                 continue
             try:

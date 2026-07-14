@@ -14,7 +14,7 @@
           <n-card :bordered="true" size="small">
             <n-statistic label="用户总数">
               <template #prefix>
-                <n-icon :component="PeopleOutline" style="color:#d4734e" />
+                <n-icon :component="PeopleOutline" style="color:var(--color-primary)" />
               </template>
               <span class="stat-value">{{ store.dashboardData.user_count }}</span>
             </n-statistic>
@@ -27,7 +27,7 @@
           <n-card :bordered="true" size="small">
             <n-statistic label="会话总数">
               <template #prefix>
-                <n-icon :component="ChatbubblesOutline" style="color:#d4734e" />
+                <n-icon :component="ChatbubblesOutline" style="color:var(--color-primary)" />
               </template>
               <span class="stat-value">{{ store.dashboardData.session_count }}</span>
             </n-statistic>
@@ -37,7 +37,7 @@
           <n-card :bordered="true" size="small">
             <n-statistic label="文档总数">
               <template #prefix>
-                <n-icon :component="DocumentTextOutline" style="color:#d4734e" />
+                <n-icon :component="DocumentTextOutline" style="color:var(--color-primary)" />
               </template>
               <span class="stat-value">{{ store.dashboardData.document_count }}</span>
             </n-statistic>
@@ -50,7 +50,7 @@
           <n-card :bordered="true" size="small">
             <n-statistic label="切块总数">
               <template #prefix>
-                <n-icon :component="CubeOutline" style="color:#d4734e" />
+                <n-icon :component="CubeOutline" style="color:var(--color-primary)" />
               </template>
               <span class="stat-value">{{ store.dashboardData.chunk_count }}</span>
             </n-statistic>
@@ -234,17 +234,17 @@ onMounted(() => {
 .stat-value {
   font-size: 28px;
   font-weight: 700;
-  color: #1a1714;
+  color: var(--color-text-1);
 }
 
 .path-text {
   font-size: 13px;
-  color: #4a4440;
+  color: var(--color-text-2);
 }
 
 .path-count {
   float: right;
   font-weight: 600;
-  color: #d4734e;
+  color: var(--color-primary);
 }
 </style>

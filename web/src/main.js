@@ -12,6 +12,9 @@ import 'highlight.js/styles/github-dark.css'
 // LaTeX 数学公式样式
 import 'katex/dist/katex.min.css'
 
+// 全局颜色变量
+import '@/assets/variables.css'
+
 import App from './App.vue'
 import router from './router'
 

@@ -120,8 +120,8 @@ const selectSession = (id) => {
   width: 280px;
   margin-left: 0;
   flex-shrink: 0;
-  background-color: var(--n-card-color, #ffffff);
-  border-right: 1px solid var(--n-divider-color, #d4cfc8);
+  background-color: var(--color-bg-card);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -153,7 +153,7 @@ const selectSession = (id) => {
     display: block;
     position: fixed;
     inset: 0;
-    background-color: rgba(0, 0, 0, 0.35);
+    background-color: var(--color-overlay);
     z-index: 200;
     animation: fadeIn 0.2s ease-out;
   }
@@ -172,7 +172,7 @@ const selectSession = (id) => {
 
   .session-sidebar.drawer-open {
     transform: translateX(0);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    box-shadow: 4px 0 24px var(--color-shadow-drawer);
   }
 
   /* 移动端不需要宽度过渡 */
@@ -193,7 +193,7 @@ const selectSession = (id) => {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #d4734c;
+  color: var(--color-primary-brand);
   padding: 0 4px;
 }
 
@@ -236,7 +236,7 @@ const selectSession = (id) => {
   padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
-  color: var(--n-text-color-2, #4a4440);
+  color: var(--color-text-2);
   font-size: 14px;
   transition: background-color 0.15s ease, color 0.15s ease;
   position: relative;
@@ -244,12 +244,12 @@ const selectSession = (id) => {
 }
 
 .session-item:hover {
-  background-color: rgba(120, 112, 104, 0.08);
+  background-color: var(--color-neutral-wash-hover);
 }
 
 .session-item.active {
-  background-color: rgba(212, 115, 78, 0.12);
-  color: #d4734e;
+  background-color: var(--color-primary-bg);
+  color: var(--color-primary);
   font-weight: 500;
 }
 

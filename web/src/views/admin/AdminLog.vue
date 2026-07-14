@@ -179,7 +179,7 @@ onMounted(() => {
 }
 
 .active-file {
-  background-color: #fef3ef;
+  background-color: var(--color-bg-active);
   border-radius: 6px;
 }
 
@@ -190,11 +190,11 @@ onMounted(() => {
 .log-pre {
   margin: 0;
   padding: 16px;
-  background: #0d1117;
+  background: var(--color-log-bg);
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.7;
-  color: #e6edf3;
+  color: var(--color-log-text);
   font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Consolas', monospace;
   white-space: pre-wrap;
   word-break: break-all;
@@ -206,7 +206,7 @@ onMounted(() => {
 }
 
 .log-pre code {
-  color: #e6edf3;
+  color: var(--color-log-text);
   font-family: inherit;
   background: transparent;
 }

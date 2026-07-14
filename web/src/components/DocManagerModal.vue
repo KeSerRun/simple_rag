@@ -74,7 +74,7 @@
               <n-icon
                 :size="20"
                 :component="DocumentTextOutline"
-                style="color: #d4734e; margin-left: 4px"
+                style="color: var(--color-primary); margin-left: 4px"
               />
               <span class="doc-name">{{ docName }}</span>
             </label>
@@ -163,9 +163,9 @@ const storageText = computed(() => {
 })
 
 const storageBarColor = computed(() => {
-  if (storagePercent.value >= 90) return '#e74c3c'
-  if (storagePercent.value >= 70) return '#f39c12'
-  return '#d4734e'
+  if (storagePercent.value >= 90) return 'var(--color-danger)'
+  if (storagePercent.value >= 70) return 'var(--color-warning-alt)'
+  return 'var(--color-primary)'
 })
 
 async function fetchStorageInfo() {
@@ -250,26 +250,26 @@ const handleDelete = () => {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid var(--n-divider-color, #d4cfc8);
+  border: 1px solid var(--color-border);
   cursor: pointer;
   transition: all 0.15s ease;
   background-color: transparent;
 }
 
 .doc-item:hover {
-  border-color: #d4734e;
-  background-color: rgba(212, 115, 78, 0.04);
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-bg-hover);
 }
 
 .doc-item.checked {
-  border-color: #d4734e;
-  background-color: rgba(212, 115, 78, 0.08);
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-bg-active);
 }
 
 .doc-name {
   flex: 1;
   font-size: 14px;
-  color: var(--n-text-color-1, #1a1714);
+  color: var(--color-text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

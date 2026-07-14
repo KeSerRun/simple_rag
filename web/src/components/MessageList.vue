@@ -25,7 +25,7 @@
           v-if="msg.role === 'user'"
           round
           size="small"
-          :style="{ backgroundColor: '#dbeafe', color: '#1d4ed8' }"
+          :style="{ backgroundColor: 'var(--color-user-avatar-bg)', color: 'var(--color-user-avatar-text)' }"
         >
           <n-icon :component="PersonOutline" />
         </n-avatar>
@@ -33,7 +33,7 @@
           v-else
           round
           size="small"
-          :style="{ backgroundColor: 'rgba(212, 115, 78, 0.15)', color: '#d4734e' }"
+          :style="{ backgroundColor: 'var(--color-primary-glow)', color: 'var(--color-primary)' }"
         >
           <n-icon :component="SparklesOutline" />
         </n-avatar>
@@ -65,7 +65,7 @@
         <n-avatar
           round
           size="small"
-          :style="{ backgroundColor: 'rgba(212, 115, 78, 0.15)', color: '#d4734e' }"
+          :style="{ backgroundColor: 'var(--color-primary-glow)', color: 'var(--color-primary)' }"
         >
           <n-icon :component="SparklesOutline" />
         </n-avatar>
@@ -156,8 +156,8 @@ defineExpose({ scrollToBottom })
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, rgba(212, 115, 78, 0.2), rgba(212, 115, 78, 0.05));
-  color: #d4734e;
+  background: linear-gradient(135deg, var(--color-primary-glow-20), var(--color-primary-bg-subtle));
+  color: var(--color-primary);
   margin-bottom: 8px;
 }
 
@@ -182,7 +182,7 @@ defineExpose({ scrollToBottom })
   font-family: 'Fira Code', Consolas, monospace;
   padding: 2px 6px;
   border-radius: 4px;
-  background-color: rgba(120, 112, 104, 0.1);
+  background-color: var(--color-neutral-wash-code);
   font-size: 11px;
 }
 
@@ -212,19 +212,19 @@ defineExpose({ scrollToBottom })
 }
 
 .message.user .bubble {
-  background-color: rgba(212, 115, 78, 0.12);
+  background-color: var(--color-primary-bg);
   border-bottom-right-radius: 4px;
 }
 
 .message.ai .bubble {
-  background-color: var(--n-card-color, #ffffff);
-  border: 1px solid var(--n-divider-color, #d4cfc8);
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-bottom-left-radius: 4px;
 }
 
 .user-content {
   white-space: pre-wrap;
-  color: var(--n-text-color-1, #1a1714);
+  color: var(--color-text-1);
 }
 
 .bubble.thinking {
@@ -237,7 +237,7 @@ defineExpose({ scrollToBottom })
 
 .status-text {
   font-size: 13px;
-  color: var(--n-text-color-3, #6e6760);
+  color: var(--color-text-3);
   white-space: nowrap;
 }
 
@@ -254,13 +254,13 @@ defineExpose({ scrollToBottom })
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #d4734e;
+  background-color: var(--color-primary);
   animation: thinkingBounce 1.4s infinite ease-in-out both;
 }
 
 .status-label {
   font-size: 13px;
-  color: var(--n-text-color-3, #6e6760);
+  color: var(--color-text-3);
 }
 
 .thinking-dots {
@@ -272,7 +272,7 @@ defineExpose({ scrollToBottom })
 .thinking-dots span {
   width: 6px;
   height: 6px;
-  background-color: #d4734e;
+  background-color: var(--color-primary);
   border-radius: 50%;
   display: inline-block;
   animation: thinkingBounce 1.4s infinite ease-in-out both;
@@ -302,7 +302,7 @@ defineExpose({ scrollToBottom })
 
 /* AI 内容的 markdown 样式 */
 .ai-content {
-  color: var(--n-text-color-1, #1a1714);
+  color: var(--color-text-1);
 }
 
 .ai-content :deep(h1),
@@ -351,8 +351,8 @@ defineExpose({ scrollToBottom })
 }
 
 .ai-content :deep(pre) {
-  background-color: rgba(40, 40, 40, 0.96);
-  color: #e4e4e7;
+  background-color: var(--color-code-bg);
+  color: var(--color-code-text);
   padding: 14px 16px;
   border-radius: 8px;
   overflow-x: auto;
@@ -368,18 +368,18 @@ defineExpose({ scrollToBottom })
 }
 
 .ai-content :deep(:not(pre) > code) {
-  background-color: rgba(120, 112, 104, 0.15);
-  color: #d4734e;
+  background-color: var(--color-inline-code-bg);
+  color: var(--color-inline-code-text);
   padding: 2px 6px;
   border-radius: 4px;
 }
 
 .ai-content :deep(blockquote) {
-  border-left: 3px solid #d4734e;
+  border-left: 3px solid var(--color-primary);
   padding: 4px 14px;
   margin: 12px 0;
-  color: var(--n-text-color-2, #4a4440);
-  background-color: rgba(212, 115, 78, 0.05);
+  color: var(--color-text-2);
+  background-color: var(--color-primary-bg-subtle);
   border-radius: 0 6px 6px 0;
 }
 
@@ -393,7 +393,7 @@ defineExpose({ scrollToBottom })
 
 .ai-content :deep(th),
 .ai-content :deep(td) {
-  border: 1px solid var(--n-divider-color, #d4cfc8);
+  border: 1px solid var(--color-border);
   padding: 8px 12px;
   text-align: left;
   word-break: break-word;
@@ -402,12 +402,12 @@ defineExpose({ scrollToBottom })
 }
 
 .ai-content :deep(th) {
-  background-color: rgba(120, 112, 104, 0.06);
+  background-color: var(--color-neutral-wash);
   font-weight: 600;
 }
 
 .ai-content :deep(a) {
-  color: #d4734e;
+  color: var(--color-primary);
   text-decoration: none;
 }
 
@@ -418,10 +418,10 @@ defineExpose({ scrollToBottom })
 /* 推理过程（思考链）折叠块 */
 .reasoning-block {
   margin-bottom: 12px;
-  border: 1px solid var(--n-divider-color, #e0dcd6);
+  border: 1px solid var(--color-border-light);
   border-radius: 8px;
   overflow: hidden;
-  background-color: rgba(120, 112, 104, 0.03);
+  background-color: var(--color-neutral-wash-light);
 }
 
 .reasoning-header {
@@ -431,12 +431,12 @@ defineExpose({ scrollToBottom })
   display: flex;
   align-items: center;
   font-size: 13px;
-  color: var(--n-text-color-3, #6e6760);
+  color: var(--color-text-3);
   transition: background-color 0.15s;
 }
 
 .reasoning-header:hover {
-  background-color: rgba(120, 112, 104, 0.06);
+  background-color: var(--color-neutral-wash);
 }
 
 .reasoning-toggle {
@@ -447,8 +447,8 @@ defineExpose({ scrollToBottom })
   padding: 4px 12px 12px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--n-text-color-2, #4a4440);
-  border-top: 1px solid var(--n-divider-color, #e0dcd6);
+  color: var(--color-text-2);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .reasoning-content :deep(p) {
@@ -457,7 +457,7 @@ defineExpose({ scrollToBottom })
 
 .ai-content :deep(hr) {
   border: none;
-  border-top: 1px solid var(--n-divider-color, #d4cfc8);
+  border-top: 1px solid var(--color-border);
   margin: 16px 0;
 }
 

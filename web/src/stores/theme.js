@@ -1,6 +1,6 @@
 // src/stores/theme.js
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 export const useThemeStore = defineStore('theme', () => {
     // 初始值由 persist 插件从 localStorage 恢复，这里仅作为兜底
@@ -13,8 +13,20 @@ export const useThemeStore = defineStore('theme', () => {
     }
 
     const set = (m) => {
-        if (m === 'light' || m === 'dark') mode.value = m
+        if (m === 'light' || m === 'dark') {
+            mode.value = m
+        }
     }
+
+    // 将 <html> 的 data-theme 属性与 mode 同步
+    function applyTheme(val) {
+        document.documentElement.setAttribute('data-theme', val)
+    }
+
+    // 监听 mode 变化自动同步到 DOM
+    watch(mode, (val) => {
+        applyTheme(val)
+    }, { immediate: true })
 
     return { mode, isDark, toggle, set }
 }, {

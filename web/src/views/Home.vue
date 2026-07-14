@@ -776,8 +776,8 @@ onUnmounted(() => {
   justify-content: center;
   gap: 8px;
   padding: 8px 16px;
-  border-top: 1px solid var(--n-divider-color, #d4cfc8);
-  background-color: var(--n-card-color, #ffffff);
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-bg-card);
   animation: fadeIn 0.2s ease-out;
 }
 
@@ -785,19 +785,19 @@ onUnmounted(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #d4734e;
+  background-color: var(--color-primary);
   animation: thinkingBounce 1.4s infinite ease-in-out both;
 }
 
 .upload-label {
   font-size: 13px;
-  color: var(--n-text-color-3, #6e6760);
+  color: var(--color-text-3);
   flex-shrink: 0;
 }
 
 .upload-file {
   font-size: 12px;
-  color: var(--n-text-color-2, #4a4440);
+  color: var(--color-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

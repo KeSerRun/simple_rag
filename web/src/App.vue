@@ -1,5 +1,5 @@
 <template>
-  <n-config-provider :theme-overrides="themeOverrides">
+  <n-config-provider :theme="naiveTheme" :theme-overrides="themeOverrides">
     <div class="app-shell">
       <n-loading-bar-provider>
         <n-message-provider>
@@ -13,14 +13,21 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import {
   NConfigProvider,
   NLoadingBarProvider,
   NMessageProvider,
   NDialogProvider,
+  darkTheme,
 } from 'naive-ui'
+import { useThemeStore } from '@/stores/theme'
 
-const themeOverrides = {
+const themeStore = useThemeStore()
+
+const naiveTheme = computed(() => themeStore.isDark ? darkTheme : null)
+
+const lightOverrides = {
   common: {
     primaryColor: '#d4734e',
     primaryColorHover: '#e08a65',
@@ -53,6 +60,44 @@ const themeOverrides = {
   Card: { borderRadius: '12px' },
   Button: { borderRadiusMedium: '8px' },
 }
+
+const darkOverrides = {
+  common: {
+    primaryColor: '#d4734e',
+    primaryColorHover: '#e08a65',
+    primaryColorPressed: '#c06542',
+    primaryColorSuppl: '#d4734e',
+    borderRadius: '8px',
+    fontWeightStrong: '600',
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif',
+    bodyColor: '#1c1917',
+    cardColor: '#292524',
+    modalColor: '#292524',
+    popoverColor: '#292524',
+    tableColor: '#292524',
+    dividerColor: '#57534e',
+    borderColor: '#57534e',
+    textColor1: '#fafaf9',
+    textColor2: '#a8a29e',
+    textColor3: '#78716c',
+  },
+  Input: {
+    color: '#292524',
+    border: '#57534e',
+    borderHover: '#d4734e',
+    borderFocus: '#d4734e',
+    textColor: '#fafaf9',
+    placeholderColor: '#78716c',
+    lineHeightTextarea: '1.6',
+  },
+  Card: { borderRadius: '12px' },
+  Button: { borderRadiusMedium: '8px' },
+}
+
+const themeOverrides = computed(() =>
+  themeStore.isDark ? darkOverrides : lightOverrides
+)
 </script>
 
 <style>
@@ -66,7 +111,7 @@ body,
 }
 
 html {
-  background-color: #f5f2ef;
+  background-color: var(--color-bg-body);
 }
 
 body {
@@ -75,7 +120,7 @@ body {
 
 .app-shell {
   min-height: 100vh;
-  background-color: #f5f2ef;
+  background-color: var(--color-bg-body);
 }
 
 ::-webkit-scrollbar {
@@ -83,14 +128,14 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(120, 112, 104, 0.25);
+  background-color: var(--color-scrollbar-thumb);
   border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(120, 112, 104, 0.5);
+  background-color: var(--color-scrollbar-thumb-hover);
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--color-scrollbar-track);
 }
 
 /* ===== 文字选中控制 ===== */
@@ -142,6 +187,6 @@ pre, code, li,
 
 /* 选中高亮色 */
 ::selection {
-  background-color: rgba(212, 115, 78, 0.25);
+  background-color: var(--color-primary-selection);
 }
 </style>

@@ -145,8 +145,8 @@ const handleUpload = ({ file, onFinish, onError }) => {
 <style scoped>
 .input-area {
   padding: 16px 24px 20px;
-  border-top: 1px solid var(--n-divider-color, #d4cfc8);
-  background-color: var(--n-card-color, #ffffff);
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-bg-card);
   flex-shrink: 0;
 }
 

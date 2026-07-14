@@ -75,6 +75,18 @@
           </n-breadcrumb>
         </div>
         <div class="header-right">
+          <!-- 主题切换 -->
+          <n-button
+            quaternary
+            circle
+            size="small"
+            @click="themeStore.toggle"
+            style="margin-right: 4px"
+          >
+            <template #icon>
+              <n-icon :component="themeStore.isDark ? SunnyOutline : MoonOutline" />
+            </template>
+          </n-button>
           <n-tag v-if="userStore.role === 'admin'" type="warning" size="small" :bordered="false">
             Admin
           </n-tag>
@@ -91,6 +103,7 @@
 import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useThemeStore } from '@/stores/theme'
 import {
   NIcon, NBreadcrumb, NBreadcrumbItem, NTag, NButton
 } from 'naive-ui'
@@ -104,7 +117,9 @@ import {
   ArrowBackOutline,
   LogOutOutline,
   MenuOutline,
-  CloseOutline
+  CloseOutline,
+  SunnyOutline,
+  MoonOutline,
 } from '@vicons/ionicons5'
 import logoSvg from '@/assets/logo.svg'
 import app from '@/config/app'
@@ -112,6 +127,7 @@ import app from '@/config/app'
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const themeStore = useThemeStore()
 
 const drawerOpen = ref(false)
 
@@ -143,7 +159,7 @@ function handleLogout() {
 .admin-layout {
   display: flex;
   height: 100vh;
-  background-color: #f5f2ef;
+  background-color: var(--color-bg-body);
 }
 
 /* 移动端遮罩 */
@@ -154,7 +170,7 @@ function handleLogout() {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: var(--color-overlay-dark);
   z-index: 200;
   animation: fadeIn 0.25s ease-out;
 }
@@ -163,8 +179,8 @@ function handleLogout() {
 .admin-sidebar {
   width: 220px;
   min-width: 220px;
-  background: #fff;
-  border-right: 1px solid #d4cfc8;
+  background: var(--color-bg-white);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -177,8 +193,8 @@ function handleLogout() {
   align-items: center;
   gap: 10px;
   padding: 18px 18px;
-  border-bottom: 1px solid #d4cfc8;
-  color: #d4734e;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-primary);
   font-size: 16px;
   font-weight: 600;
 }
@@ -214,7 +230,7 @@ function handleLogout() {
   gap: 10px;
   padding: 10px 14px;
   border-radius: 8px;
-  color: #4a4440;
+  color: var(--color-text-2);
   text-decoration: none;
   font-size: 14px;
   cursor: pointer;
@@ -222,34 +238,34 @@ function handleLogout() {
 }
 
 .nav-item:hover {
-  background: #f0edeb;
-  color: #d4734e;
+  background: var(--color-bg-hover);
+  color: var(--color-primary);
 }
 
 .nav-item.active {
-  background: #fef3ef;
-  color: #d4734e;
+  background: var(--color-bg-active);
+  color: var(--color-primary);
   font-weight: 500;
 }
 
 .sidebar-footer {
   padding: 12px 8px;
-  border-top: 1px solid #d4cfc8;
+  border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
 .back-link {
-  color: #6e6760;
+  color: var(--color-text-3);
 }
 
 .logout-link {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 .logout-link:hover {
-  background: #fef0ef;
+  background: var(--color-bg-danger-hover);
 }
 
 /* 主内容区 */
@@ -266,8 +282,8 @@ function handleLogout() {
   align-items: center;
   justify-content: space-between;
   padding: 14px 28px;
-  background: #fff;
-  border-bottom: 1px solid #d4cfc8;
+  background: var(--color-bg-white);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
@@ -320,7 +336,7 @@ function handleLogout() {
 
   .admin-sidebar.drawer-open {
     transform: translateX(0);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    box-shadow: 4px 0 24px var(--color-shadow-drawer);
   }
 
   .drawer-close-btn {

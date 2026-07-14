@@ -16,6 +16,18 @@
     </div>
 
     <n-space :size="4" align="center" class="header-actions" :wrap="false">
+      <!-- 主题切换 -->
+      <n-tooltip placement="bottom">
+        <template #trigger>
+          <n-button quaternary circle size="small" @click="themeStore.toggle">
+            <template #icon>
+              <n-icon :component="themeStore.isDark ? SunnyOutline : MoonOutline" />
+            </template>
+          </n-button>
+        </template>
+        {{ themeStore.isDark ? '亮色模式' : '暗色模式' }}
+      </n-tooltip>
+
       <n-button quaternary @click="$emit('open-doc-manager')" class="doc-btn" size="small">
         <template #icon>
           <n-icon :component="LibraryOutline" />
@@ -72,11 +84,15 @@ import {
   LogOutOutline,
   MenuOutline,
   SettingsOutline,
+  SunnyOutline,
+  MoonOutline,
 } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
+import { useThemeStore } from '@/stores/theme'
 
 const router = useRouter()
 const userStore = useUserStore()
+const themeStore = useThemeStore()
 
 const props = defineProps({
   title: { type: String, default: '新会话' },
@@ -93,11 +109,11 @@ function goToAdmin() {
 <style scoped>
 .chat-header {
   padding: 14px 24px;
-  border-bottom: 1px solid var(--n-divider-color, #d4cfc8);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: var(--n-card-color, #ffffff);
+  background-color: var(--color-bg-card);
   z-index: 10;
   flex-shrink: 0;
   -webkit-user-select: none !important;

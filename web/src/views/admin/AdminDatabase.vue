@@ -14,7 +14,7 @@
               <n-card :bordered="true" size="small">
                 <n-statistic label="切块总数">
                   <template #prefix>
-                    <n-icon :component="CubeOutline" style="color:#d4734e" />
+                    <n-icon :component="CubeOutline" style="color:var(--color-primary)" />
                   </template>
                   <span class="stat-value">{{ store.dbStats.total_chunks }}</span>
                 </n-statistic>
@@ -24,7 +24,7 @@
               <n-card :bordered="true" size="small">
                 <n-statistic label="向量总数">
                   <template #prefix>
-                    <n-icon :component="GitBranchOutline" style="color:#d4734e" />
+                    <n-icon :component="GitBranchOutline" style="color:var(--color-primary)" />
                   </template>
                   <span class="stat-value">{{ store.dbStats.total_vectors }}</span>
                 </n-statistic>
@@ -34,7 +34,7 @@
               <n-card :bordered="true" size="small">
                 <n-statistic label="数据分区">
                   <template #prefix>
-                    <n-icon :component="LayersOutline" style="color:#d4734e" />
+                    <n-icon :component="LayersOutline" style="color:var(--color-primary)" />
                   </template>
                   <span class="stat-value">{{ store.dbStats.partitions_count || 0 }}</span>
                 </n-statistic>
@@ -170,14 +170,14 @@
             <n-grid-item>
               <n-card :bordered="true" size="small">
                 <n-statistic label="健康">
-                  <span class="stat-value" style="color:#18a058">{{ integrityResult.healthy }}</span>
+                  <span class="stat-value" style="color:var(--color-success)">{{ integrityResult.healthy }}</span>
                 </n-statistic>
               </n-card>
             </n-grid-item>
             <n-grid-item>
               <n-card :bordered="true" size="small">
                 <n-statistic label="存在问题">
-                  <span class="stat-value" :style="{color: integrityResult.problematic > 0 ? '#d03050' : '#18a058'}">{{ integrityResult.problematic }}</span>
+                  <span class="stat-value" :style="{color: integrityResult.problematic > 0 ? 'var(--color-error)' : 'var(--color-success)'}">{{ integrityResult.problematic }}</span>
                 </n-statistic>
               </n-card>
             </n-grid-item>
@@ -193,13 +193,13 @@
           <n-card title="图片完整性" :bordered="true" size="small" style="margin-bottom: 16px">
             <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
               <n-text>共 {{ integrityResult.total_images }} 张图片</n-text>
-              <n-text style="color:#18a058">健康 {{ integrityResult.healthy_images }}</n-text>
-              <n-text v-if="integrityResult.missing_images > 0" style="color:#d03050">缺失 {{ integrityResult.missing_images }}</n-text>
+              <n-text style="color:var(--color-success)">健康 {{ integrityResult.healthy_images }}</n-text>
+              <n-text v-if="integrityResult.missing_images > 0" style="color:var(--color-error)">缺失 {{ integrityResult.missing_images }}</n-text>
             </div>
             <n-progress
               type="line"
               :percentage="integrityResult.total_images > 0 ? Math.round(integrityResult.healthy_images / integrityResult.total_images * 100) : 0"
-              :color="integrityResult.missing_images > 0 ? '#d03050' : '#18a058'"
+              :color="integrityResult.missing_images > 0 ? 'var(--color-error)' : 'var(--color-success)'"
               :height="20"
               :border-radius="4"
             />
@@ -740,7 +740,7 @@ const integrityColumns = [
     key: 'severity',
     width: 100,
     render(row) {
-      const map = { critical: { label: '严重', color: '#d03050' }, warning: { label: '警告', color: '#f0a020' }, healthy: { label: '正常', color: '#18a058' } }
+      const map = { critical: { label: '严重', color: 'var(--color-error)' }, warning: { label: '警告', color: 'var(--color-warning)' }, healthy: { label: '正常', color: 'var(--color-success)' } }
       const s = map[row.severity] || { label: row.severity, color: 'grey' }
       return h(NTag, { color: { text: '#fff', border: s.color, color: s.color }, size: 'small', bordered: false }, { default: () => s.label })
     },
@@ -751,7 +751,7 @@ const integrityColumns = [
     ellipsis: { tooltip: true },
     render(row) {
       return h('div', { style: 'font-size:12px;line-height:1.6' },
-        row.issues.map(i => h('div', { style: 'color:' + (i.includes('缺失') && !i.includes('不精确') ? '#d03050' : '#f0a020') }, i))
+        row.issues.map(i => h('div', { style: 'color:' + (i.includes('缺失') && !i.includes('不精确') ? 'var(--color-error)' : 'var(--color-warning)') }, i))
       )
     },
   },
@@ -784,6 +784,6 @@ async function runIntegrityCheck() {
 .stat-value {
   font-size: 28px;
   font-weight: 700;
-  color: #1a1714;
+  color: var(--color-text-1);
 }
 </style>

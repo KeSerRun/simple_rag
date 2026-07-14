@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at top, rgba(212, 115, 78, 0.08), transparent 60%),
+  background: radial-gradient(ellipse at top, var(--color-primary-bg-active), transparent 60%),
     transparent;
   padding: 24px;
   box-sizing: border-box;
@@ -14,7 +14,7 @@
 .auth-card {
   width: 100%;
   max-width: 420px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 8px 32px var(--color-shadow-card), 0 2px 8px var(--color-shadow-card-secondary);
 }
 
 .auth-header {
@@ -27,7 +27,7 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 16px;
-  color: #d4734e;
+  color: var(--color-primary);
 }
 
 .brand-logo {
@@ -54,7 +54,7 @@
 }
 
 .auth-link {
-  color: #d4734e;
+  color: var(--color-primary);
   text-decoration: none;
   font-weight: 500;
 }

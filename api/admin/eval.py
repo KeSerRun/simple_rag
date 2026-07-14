@@ -203,6 +203,14 @@ async def run_eval(request: Request):
             results: List[EvalResult] = []
             import concurrent.futures as _cf
 
+            running_lock = threading.Lock()
+            running_queries: set[str] = set()
+
+            def _update_current():
+                """将当前正在执行的所有查询更新到进度中。"""
+                with running_lock:
+                    task["progress"]["current"] = ", ".join(sorted(running_queries))
+
             def _eval_one(query: str) -> EvalResult:
                 """评估单个查询:知识库召回 + LLM 评分。
 
@@ -213,39 +221,47 @@ async def run_eval(request: Request):
                     EvalResult: 包含召回片段数、相关片段数、平均评分。
                 """
 
-                raw = registry.dispatch(
-                    "search_knowledge_base",
-                    json.dumps({"queries": [query], "search_system": True}),
-                    ctx=ctx,
-                )
+                with running_lock:
+                    running_queries.add(query)
+                _update_current()
 
-                chunks = _re.findall(r"【片段 \d+.*?。", raw, _re.DOTALL)
-                if not chunks and raw.strip():
-                    chunks = [raw]
+                try:
+                    raw = registry.dispatch(
+                        "search_knowledge_base",
+                        json.dumps({"queries": [query], "search_system": True}),
+                        ctx=ctx,
+                    )
 
-                scores = []
-                for text in chunks:
-                    from rag.eval_rag import llm_score
-                    score = llm_score(judge_client, query, text)
-                    scores.append(score)
+                    chunks = _re.findall(r"【片段 \d+.*?。", raw, _re.DOTALL)
+                    if not chunks and raw.strip():
+                        chunks = [raw]
 
-                relevant = sum(1 for s in scores if s >= 3)
-                avg = sum(scores) / len(scores) if scores else 0.0
+                    scores = []
+                    for text in chunks:
+                        from rag.eval_rag import llm_score
+                        score = llm_score(judge_client, query, text)
+                        scores.append(score)
 
-                return EvalResult(
-                    query=query,
-                    retrieved_count=len(scores),
-                    relevant_count=relevant,
-                    avg_score=avg,
-                    scores=scores,
-                )
+                    relevant = sum(1 for s in scores if s >= 3)
+                    avg = sum(scores) / len(scores) if scores else 0.0
+
+                    return EvalResult(
+                        query=query,
+                        retrieved_count=len(scores),
+                        relevant_count=relevant,
+                        avg_score=avg,
+                        scores=scores,
+                    )
+                finally:
+                    with running_lock:
+                        running_queries.discard(query)
+                    _update_current()
 
             max_workers = min(conf.eval_max_workers, len(queries))
             with _cf.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(_eval_one, q): q for q in queries}
                 for i, future in enumerate(_cf.as_completed(futures)):
                     query = futures[future]
-                    task["progress"]["current"] = query
                     try:
                         result = future.result()
                         results.append(result)

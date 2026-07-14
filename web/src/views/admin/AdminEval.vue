@@ -68,7 +68,9 @@
             :height="24"
           />
           <n-text>
-            当前查询：<n-tag>{{ currentQuery }}</n-tag>
+            当前查询：
+            <n-tag v-for="(q, idx) in currentQueries" :key="idx" style="margin: 1px">{{ q }}</n-tag>
+            <n-text v-if="currentQueries.length === 0" depth="3">等待中...</n-text>
           </n-text>
           <n-text depth="3">
             已完成 {{ completedCount }} / {{ totalCount }} 个查询
@@ -192,6 +194,7 @@ const progressPercent = computed(() => {
 const totalCount = computed(() => store.evalStatus?.progress?.total || 0)
 const completedCount = computed(() => store.evalStatus?.progress?.completed || 0)
 const currentQuery = computed(() => store.evalStatus?.progress?.current || '')
+const currentQueries = computed(() => currentQuery.value ? currentQuery.value.split(', ').filter(Boolean) : [])
 
 const avgPrecisionText = computed(() => {
   if (!store.evalReport) return ''

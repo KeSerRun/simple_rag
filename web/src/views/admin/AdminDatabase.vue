@@ -237,6 +237,7 @@
           <n-space :size="12" style="margin-bottom: 8px">
             <n-button :disabled="store.isUploading" @click="triggerFilePicker">选择文件</n-button>
             <n-button :disabled="store.isUploading" @click="triggerFolderPicker">选择文件夹</n-button>
+            <n-button secondary @click="checkUploadStatus">刷新状态</n-button>
             <input
               ref="fileInputRef"
               type="file"
@@ -280,9 +281,6 @@
             <n-text v-if="store.uploadStatus.message" :type="store.uploadStatus.type" depth="3">
               {{ store.uploadStatus.message }}
             </n-text>
-            <n-button v-if="store.isUploading" size="small" secondary @click="checkUploadStatus">
-              刷新状态
-            </n-button>
           </n-space>
         </n-card>
 

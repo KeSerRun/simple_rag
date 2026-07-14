@@ -527,7 +527,7 @@ class JSONFileStore(BaseStore):
         return True
 
     def delete_session_history(self, session_id):
-        """删除整个会话历史。
+        """删除整个会话历史（含归档文件）。
 
         Args:
             session_id: 会话 ID。
@@ -536,13 +536,20 @@ class JSONFileStore(BaseStore):
             是否成功删除。
         """
         history_file = os.path.join(self._history_dir, f'{session_id}.json')
+        archive_file = os.path.join(self._history_dir, f'arch_{session_id}.json')
 
+        deleted = False
         if os.path.exists(history_file):
             os.remove(history_file)
             logger.debug(f"session_id={session_id}, 成功删除对话历史")
-            return True
+            deleted = True
 
-        return False
+        if os.path.exists(archive_file):
+            os.remove(archive_file)
+            logger.debug(f"session_id={session_id}, 成功删除归档历史 arch_{session_id}.json")
+            deleted = True
+
+        return deleted
 
     # ── 会话任务 ──────────────────────────────────────────────────
 

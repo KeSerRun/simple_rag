@@ -107,9 +107,9 @@ class IntegratedSystem:
         budget = int(conf.context_window_chars * conf.context_input_ratio)
         total = sum(len(str(m.get("content", "") or "")) for m in messages)
         if total > budget and len(raw) > 2:
-            # 因为只压缩工具结果，所以需要放大压缩比 1.5 倍
+            # 因为只压缩工具结果，所以需要压缩比 0.5 倍
             compress_history(self.data_store, session_id, raw,
-                             compression_ratio=min(conf.compression_ratio * 1.5, 1.0), archive=True)
+                             compression_ratio=min(conf.compression_ratio * 0.5, 1.0), archive=True)
             messages.clear()
             raw = self.data_store.get_session_history(session_id) or []
             for h in raw:

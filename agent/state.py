@@ -99,18 +99,29 @@ class AgentState:
         跳过 system 消息（由后续回合重建）和 start 之前的消息（已持久化的历史），
         只保存本轮新增的 user / assistant / tool 消息。
 
+        注意：同一轮对话中可能被多次调用（每次工具迭代后保存一次），
+        内部通过 _last_saved_idx 追踪已持久化的位置，避免重复保存。
+
         Args:
             session_id: 会话 ID。
             data_store: 数据存储实例。
             start: 本轮起始索引，之前的消息被视为已持久化的历史。
+                   仅在首次保存时使用，后续调用使用内部追踪的 _last_saved_idx。
         """
         if data_store is None:
             return
         try:
-            turn_msgs = [m for m in self.messages[start:] if m.get("role") != "system"]
+            # 首次保存使用传入的 start，之后使用内部追踪的已保存位置
+            save_from = getattr(self, '_last_saved_idx', start)
+            # 确保 save_from 不小于 start（防止 start 被外部更新后倒退）
+            save_from = max(save_from, start)
+            turn_msgs = [m for m in self.messages[save_from:] if m.get("role") != "system"]
             if not turn_msgs:
                 return
             data_store.insert_session_turn(session_id, turn_msgs)
-            logger.debug(f"已保存完整对话回合: session={session_id[:8]}, {len(turn_msgs)} 条消息")
+            # 记录已保存到的位置，下次只保存新增的消息
+            self._last_saved_idx = len(self.messages)
+            logger.debug(f"已保存完整对话回合: session={session_id[:8]}, "
+                         f"{len(turn_msgs)} 条消息, idx={self._last_saved_idx}")
         except Exception as e:
             logger.warning(f"保存完整对话回合失败: {e}")

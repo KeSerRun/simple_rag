@@ -185,6 +185,148 @@ rag_simple/
 | **中断恢复** | 达工具上限后保存状态，"继续"即恢复 |
 | **管理后台** | 配置热更新、向量库管理、检索质量评估、用户管理 |
 
+---
+
+## 桌面客户端
+
+本应用可打包为原生 Windows 桌面客户端（基于 PyWebView + PyInstaller），用户双击即可使用，无需手动启动浏览器。
+
+### 架构
+
+```
+┌────────────────────────────────┐
+│  桌面窗口 (系统 WebView2)        │  ← Win10+ 自带，无需额外安装
+│  ┌──────────────────────────┐  │
+│  │  http://127.0.0.1:11000   │  │
+│  └──────────────────────────┘  │
+├────────────────────────────────┤
+│  desktop.py                     │  ← 启动入口
+│  ├─ 后台线程启动 uvicorn         │
+│  └─ GUI 循环 (pywebview)        │
+├────────────────────────────────┤
+│  config.ini / data/             │  ← 外置，用户可编辑
+└────────────────────────────────┘
+```
+
+### 依赖
+
+```bash
+# Python 端
+uv pip install pywebview pyinstaller
+
+# 前端（如需重新构建）
+cd web
+npm install
+npm run build
+```
+
+### 开发模式运行
+
+```bash
+python desktop.py
+```
+
+直接弹出桌面窗口，无需打开浏览器。关闭窗口后后端自动退出。
+
+### 打包为可分发 EXE
+
+```powershell
+.\scripts\build_desktop.ps1
+```
+
+脚本自动完成：
+1. 检查 Python / uv 环境
+2. `npm run build` 构建前端
+3. PyInstaller 打包为 `build/rag-simple/rag-simple.exe`
+
+也可跳过前端构建步骤（如 dist/ 已是最新）：
+
+```powershell
+.\scripts\build_desktop.ps1 -NoBuild
+```
+
+### 交付物结构
+
+打包完成后，`build/rag-simple/` 目录即为可分发产物：
+
+```
+rag-simple/
+├── rag-simple.exe        ← 双击启动
+├── _internal/            ← Python 依赖库（PyInstaller 自动生成）
+├── config.ini            ← 外置配置（用户可编辑）
+├── .env.example          ← 环境变量参考
+├── index.html            ← 前端页面
+├── assets/               ← 前端静态资源
+├── prompts/              ← 提示词模板
+├── data/                 ← 运行时数据（首次启动自动创建）
+└── logs/                 ← 日志（首次启动自动创建）
+```
+
+将整个目录复制到目标 Windows 电脑，放置好 `config.ini`，双击 `rag-simple.exe` 即可使用。
+
+> **注意：** 目标电脑需为 **Windows 10 及以上**（系统自带 WebView2 运行时）。
+> 首次启动可能稍慢（加载向量库与 LLM 客户端），请耐心等待。
+
+### 打包为安装程序
+
+可将 `build/rag-simple/` 进一步封装为 Windows 安装程序（`.exe`），用户安装后自动创建快捷方式、可卸载。
+
+#### 1. 安装 Inno Setup
+
+下载 [Inno Setup](https://jrsoftware.org/isdl.php)（免费，中文支持），使用默认选项安装即可。
+
+#### 2. 编译安装包
+
+```powershell
+# 如果 iscc 已在 PATH 中
+iscc scripts\installer.iss
+
+# 否则用完整路径（版本号可能不同）
+& "C:\Program Files\Inno Setup 7\ISCC.exe" scripts\installer.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts\installer.iss
+```
+
+或在 Inno Setup IDE 中打开 `scripts/installer.iss` → **Compile**（或按 Ctrl+F9）。
+
+输出：`build/installer/RAG-Simple-Setup-0.2.0.exe`
+
+#### 3. 安装流程
+
+用户双击安装包后：
+
+```
+选择安装路径 → 选择快捷方式 → 填写 API 密钥 → 安装 → 完成
+```
+
+安装过程中会显示 API 密钥配置页，支持字段：
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| 对话模型 API Key | — | **必填**，LLM 对话用 |
+| 对话模型地址 | `https://opencode.ai/zen/go/v1` | — |
+| 对话模型名称 | `deepseek-v4-flash` | — |
+| 嵌入模型 API Key | — | 可选，向量化用 |
+| 嵌入模型地址 | `https://api.siliconflow.cn/v1` | — |
+| PDF 解析 API Key | — | 可选，MinerU 文档解析用 |
+| PDF 解析 Base URL | `https://mineru.net/api/v4` | — |
+
+填写的值会自动写入 `config.ini`，留空的字段保持包内默认值不变。
+
+#### 4. 安装位置
+
+```
+%ProgramFiles%\RAG Simple\
+├── rag-simple.exe
+├── config.ini
+├── index.html / assets/    ← 前端
+├── prompts/                ← 提示词模板
+└── _internal/              ← 依赖库
+```
+
+开始菜单生成「RAG Simple」和「卸载 RAG Simple」两个快捷项。控制面板 → 程序和功能中可卸载。卸载前自动关闭运行中的进程。
+
+---
+
 ## 文档索引
 
 | 文档 | 内容 |

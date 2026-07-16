@@ -31,21 +31,14 @@ dependencies = [
     "numpy>=2.0",
     # 文档加载与 OCR (仅 PDF 兜底路径使用 PyMuPDF + RapidOCR)
     "PyMuPDF>=1.24",
-    "Pillow>=10.0",
-    "opencv-python>=4.10",
-    "rapidocr-onnxruntime>=1.4",
-    "tqdm>=4.66",
     # MinerU PDF 结构化解析
     "requests>=2.31",
-    "beautifulsoup4>=4.12",
     # 工具
-    "rich>=13.7",
     "httpx>=0.28",
     "readability-lxml>=0.8",
     "duckduckgo-search>=8.1.1",
     "ddgs>=9.14.4",
-    # Token 估算
-    "tiktoken>=0.9",
+    "pywebview>=6.2.1",
 ]
 
 [tool.setuptools.packages.find]

@@ -123,14 +123,7 @@ try {
     Copy-Item (Join-Path $ProjectRoot "dist/index.html") (Join-Path $OutDir "index.html") -Force
     Copy-Item (Join-Path $ProjectRoot "dist/assets") (Join-Path $OutDir "assets") -Recurse -Force
     Copy-Item (Join-Path $ProjectRoot "dist/favicon.*") (Join-Path $OutDir "") -Force
-    # _internal/dist 放一份前端文件副本，app.py 的 os.path.dirname(__file__) 相对路径找资源用
-    $internalDist = Join-Path $OutDir "_internal/dist"
-    if (Test-Path $internalDist) { Remove-Item $internalDist -Recurse -Force }
-    New-Item -ItemType Directory -Path $internalDist -Force | Out-Null
-    Copy-Item (Join-Path $OutDir "index.html") (Join-Path $internalDist "index.html") -Force
-    Copy-Item (Join-Path $OutDir "assets") (Join-Path $internalDist "assets") -Recurse -Force
-    Copy-Item (Join-Path $OutDir "favicon.*") (Join-Path $internalDist "") -Force
-    # _internal/ 里的模块通过 __file__ 找同级目录文件
+    # _internal/ 里的模块首次导入时通过 __file__ 找同级目录文件
     Copy-Item (Join-Path $ProjectRoot "config.ini") (Join-Path $OutDir "_internal/config.ini") -Force
     Copy-Item (Join-Path $ProjectRoot "prompts") (Join-Path $OutDir "_internal/prompts") -Recurse -Force
     $exePath = Join-Path $OutDir "rag-simple.exe"

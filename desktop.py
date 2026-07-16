@@ -120,9 +120,23 @@ def _fix_bundle_paths():
         import base.config as c
         base_dir = os.path.dirname(sys.executable)
         c._project_root = base_dir
-        c.conf.__init__(os.path.join(base_dir, "config.ini"))
+
+        # 重新加载配置，捕获校验异常（如 MinerU Key 格式不对）
+        try:
+            c.conf.__init__(os.path.join(base_dir, "config.ini"))
+        except ValueError as e:
+            print(f"[desktop] 配置警告: {e}", file=sys.stderr)
+
         # index_file 默认是 dist/index.html，但前端文件直接放 exe 同级了
         c.conf.index_file = os.path.join(base_dir, "index.html")
+
+        # 提前导入 app，修正 dist_path（避免 app.py 用 __file__ 找到 _internal/dist）
+        try:
+            import app as _app_mod
+            _app_mod.dist_path = base_dir
+            _app_mod.assets_path = os.path.join(base_dir, "assets")
+        except ValueError as e:
+            print(f"[desktop] 配置警告: {e}", file=sys.stderr)
 
 
 def main():

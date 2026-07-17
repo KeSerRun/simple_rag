@@ -19,10 +19,7 @@ a = Analysis(
     pathex=[ROOT],
     binaries=[],
     datas=[
-        # 前端构建产物（Vite 构建后的 dist/）
-        (os.path.join(ROOT, "dist"), "dist"),
-        # 提示词模板
-        (os.path.join(ROOT, "prompts"), "prompts"),
+        # 前端构建产物和提示词由 build_desktop.ps1 手动复制到 exe 同级
     ],
     hiddenimports=[
         # ── FastAPI / uvicorn（动态加载较多） ──
@@ -50,7 +47,6 @@ a = Analysis(
         "starlette.requests",
         "starlette.datastructures",
         "pydantic",
-        "pydantic_settings",
         "anyio",
         "sniffio",
         "multipart",
@@ -91,9 +87,6 @@ a = Analysis(
         # ── LLM 客户端 ──
         "openai",
         "openai.resources",
-        "tiktoken",
-        "tiktoken_ext",
-        "tiktoken_ext.openai_public",
         # ── HTTP 客户端 ──
         "httpx",
         "httpcore",
@@ -104,21 +97,10 @@ a = Analysis(
         # ── 向量库 ──
         "faiss",
         "numpy",
-        # ── PDF / OCR ──
-        "fitz",
-        "PIL",
-        "PIL.Image",
-        "PIL.ImageDraw",
-        "PIL.ImageFont",
-        "cv2",
-        "rapidocr_onnxruntime",
-        "rapidocr_onnxruntime.text_recognize",
         # ── 搜索 ──
         "duckduckgo_search",
         "ddgs",
         "requests",
-        "beautifulsoup4",
-        "bs4",
         "lxml",
         "lxml.html",
         "lxml.html.clean",
@@ -126,14 +108,8 @@ a = Analysis(
         "readability",
         "readability.readability",
         # ── 工具 & 日志 ──
-        "rich",
-        "rich.markdown",
-        "rich.console",
-        "rich.table",
         "tqdm",
-        "yaml",
         "jwt",
-        "PyJWT",
         # ── PyWebView ──
         "webview",
         "webview.platforms",
@@ -157,6 +133,11 @@ a = Analysis(
         "unittest.mock",
         "distutils",
         "setuptools._distutils",
+        "setuptools",
+        "PyInstaller",
+        "pyinstaller_hooks_contrib",
+        "_distutils_hack",
+        "pip",
         "pdb",
         "pyprof2calltree",
         "cProfile",

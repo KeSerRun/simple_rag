@@ -44,10 +44,9 @@ if False:
 
 
 def get_base_dir() -> str:
-    """获取项目根目录（开发模式用 __file__，打包后用 exe 目录）。"""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    """获取项目根目录——委托给 base.config._project_root。"""
+    from base.config import _project_root
+    return _project_root
 
 
 def ensure_workdir():
@@ -115,28 +114,8 @@ def open_window():
 
 
 def _fix_bundle_paths():
-    """PyInstaller 打包后，将项目根目录修正为 exe 同级目录。"""
-    if getattr(sys, "frozen", False):
-        import base.config as c
-        base_dir = os.path.dirname(sys.executable)
-        c._project_root = base_dir
-
-        # 重新加载配置，捕获校验异常（如 MinerU Key 格式不对）
-        try:
-            c.conf.__init__(os.path.join(base_dir, "config.ini"))
-        except ValueError as e:
-            print(f"[desktop] 配置警告: {e}", file=sys.stderr)
-
-        # index_file 默认是 dist/index.html，但前端文件直接放 exe 同级了
-        c.conf.index_file = os.path.join(base_dir, "index.html")
-
-        # 提前导入 app，修正 dist_path（避免 app.py 用 __file__ 找到 _internal/dist）
-        try:
-            import app as _app_mod
-            _app_mod.dist_path = base_dir
-            _app_mod.assets_path = os.path.join(base_dir, "assets")
-        except ValueError as e:
-            print(f"[desktop] 配置警告: {e}", file=sys.stderr)
+    """PyInstaller 打包后配置初始化——已由 base.config 模块级代码自动完成。"""
+    pass  # 保留作为打包后初始化 hook
 
 
 def main():

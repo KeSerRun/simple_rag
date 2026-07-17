@@ -12,8 +12,12 @@ import sys
 
 # ── 项目路径初始化 ────────────────────────────────────────────────
 
-_config_dir = os.path.dirname(os.path.abspath(__file__))
-_project_root = os.path.dirname(_config_dir)
+if getattr(sys, "frozen", False):
+    # PyInstaller 打包后：根目录就是 exe 所在目录
+    _project_root = os.path.dirname(sys.executable)
+else:
+    _config_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.dirname(_config_dir)
 _config_file = os.path.join(_project_root, 'config.ini')
 sys.path.append(_project_root)
 
@@ -301,6 +305,8 @@ class Config:
 
     def _init_runtime(self):
         """运行时一次性初始化（JWT 密钥生成等，不随热重载重复执行）。"""
+        self.dist_dir = normalize_path("dist")
+        self.assets_dir = normalize_path("dist/assets")
         self.index_file = normalize_path("dist/index.html")
 
         _jwt = os.environ.get('JWT_SECRET_KEY') or _load_dotenv().get('JWT_SECRET_KEY')

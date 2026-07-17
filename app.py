@@ -115,11 +115,9 @@ app.include_router(history.router)
 app.include_router(query.router)
 app.include_router(documents.router)
 
-index_path = os.path.normpath(os.path.join(os.path.dirname(__file__), conf.index_file))
-
-dist_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "dist"))
-
-assets_path = os.path.join(dist_path, "assets")
+dist_path = conf.dist_dir
+assets_path = conf.assets_dir
+index_path = conf.index_file
 
 html_content = None
 

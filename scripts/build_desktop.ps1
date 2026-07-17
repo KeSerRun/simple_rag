@@ -115,17 +115,12 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed (exit code: $LASTEXITCODE)"
     }
-    # 复制配置/提示词到 exe 同目录
+    # 复制配置到 exe 同目录
     Copy-Item (Join-Path $ProjectRoot "config.ini") (Join-Path $OutDir "config.ini") -Force
     Copy-Item (Join-Path $ProjectRoot ".env.example") (Join-Path $OutDir ".env.example") -Force
+    # 手动复制前端和提示词到 exe 同级（PyInstaller datas 会放进 _internal/）
+    Copy-Item (Join-Path $ProjectRoot "dist") (Join-Path $OutDir "dist") -Recurse -Force
     Copy-Item (Join-Path $ProjectRoot "prompts") (Join-Path $OutDir "prompts") -Recurse -Force
-    # 前端构建产物：直接放 exe 同级（不套 dist/ 层级）
-    Copy-Item (Join-Path $ProjectRoot "dist/index.html") (Join-Path $OutDir "index.html") -Force
-    Copy-Item (Join-Path $ProjectRoot "dist/assets") (Join-Path $OutDir "assets") -Recurse -Force
-    Copy-Item (Join-Path $ProjectRoot "dist/favicon.*") (Join-Path $OutDir "") -Force
-    # _internal/ 里的模块首次导入时通过 __file__ 找同级目录文件
-    Copy-Item (Join-Path $ProjectRoot "config.ini") (Join-Path $OutDir "_internal/config.ini") -Force
-    Copy-Item (Join-Path $ProjectRoot "prompts") (Join-Path $OutDir "_internal/prompts") -Recurse -Force
     $exePath = Join-Path $OutDir "rag-simple.exe"
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Green

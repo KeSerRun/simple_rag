@@ -5,7 +5,7 @@
 
 import os
 
-_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from base.config import _project_root as _BACKEND_ROOT
 
 from base.config import conf
 from base.logger import logger, log_qa

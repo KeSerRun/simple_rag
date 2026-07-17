@@ -9,8 +9,8 @@
 
     <template v-else-if="store.dashboardData">
       <!-- 统计卡片 -->
-      <n-grid cols="4" :x-gap="16" :y-gap="16" class="stat-grid">
-        <n-grid-item>
+      <n-grid :cols="isDesktop ? 3 : 4" :x-gap="16" :y-gap="16" class="stat-grid">
+        <n-grid-item v-if="!isDesktop">
           <n-card :bordered="true" size="small">
             <n-statistic label="用户总数">
               <template #prefix>
@@ -157,6 +157,8 @@ import {
 } from '@vicons/ionicons5'
 
 const store = useAdminStore()
+
+const isDesktop = window.__DESKTOP__ === true
 
 const errorCount = computed(() => store.dashboardData?.request_stats?.total_errors || 0)
 const uptimeText = computed(() => {

@@ -779,7 +779,9 @@ def _upload_sse_generator(username: str, session_id: str, files_data: list):
             f.write(content)
         saved_files.append((filename, save_path, len(content), _ct))
 
-    yield _sse({"status": "info", "text": f"开始并行处理 {len(saved_files)} 个文件..."})
+    count = len(saved_files)
+    text = f"正在处理 {count} 个文件..." if count > 1 else "正在处理文件..."
+    yield _sse({"status": "info", "text": text})
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 

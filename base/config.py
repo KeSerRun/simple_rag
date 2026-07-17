@@ -308,6 +308,7 @@ class Config:
         self.dist_dir = normalize_path("dist")
         self.assets_dir = normalize_path("dist/assets")
         self.index_file = normalize_path("dist/index.html")
+        self.desktop_mode = False  # 由 desktop.py 设为 True
 
         _jwt = os.environ.get('JWT_SECRET_KEY') or _load_dotenv().get('JWT_SECRET_KEY')
         if not _jwt:

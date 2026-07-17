@@ -130,6 +130,10 @@ def main():
     ensure_workdir()
     _fix_bundle_paths()
 
+    # 桌面端标记：前端据此隐藏登录/用户管理等
+    from base.config import conf
+    conf.desktop_mode = True
+
     # 检查是否在本项目目录下
     if not os.path.isfile("config.ini"):
         print("[desktop] 错误: 未找到 config.ini，请确保在项目根目录运行。")

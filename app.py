@@ -125,6 +125,12 @@ if os.path.exists(index_path):
     logger.debug(f"找到 index.html: {index_path}")
     with open(index_path, "r", encoding="utf-8") as f:
         html_content = f.read()
+    # 桌面端注入标记，供前端判断是否隐藏登录/用户管理
+    if conf.desktop_mode:
+        html_content = html_content.replace(
+            '</head>',
+            '<script>window.__DESKTOP__=true</script></head>'
+        )
 else:
     logger.warning(
         f"未找到前端构建产物 {index_path},/index 与静态资源将不可用。"

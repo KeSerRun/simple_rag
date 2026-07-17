@@ -44,7 +44,7 @@
         </n-tag>
       </n-button>
 
-      <n-tooltip placement="bottom">
+      <n-tooltip v-if="!isDesktop" placement="bottom">
         <template #trigger>
           <n-button quaternary circle size="small" @click="$emit('logout')">
             <template #icon>
@@ -93,6 +93,7 @@ import { useThemeStore } from '@/stores/theme'
 const router = useRouter()
 const userStore = useUserStore()
 const themeStore = useThemeStore()
+const isDesktop = window.__DESKTOP__ === true
 
 const props = defineProps({
   title: { type: String, default: '新会话' },

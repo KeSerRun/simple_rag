@@ -122,3 +122,27 @@ def create_superusers():
             logger.debug(f"Superuser '{username}' created successfully.")
         except Exception as e:
             logger.error(f"Error creating superuser '{username}': {str(e)}")
+
+
+@router.post("/auto-login")
+async def auto_login(request: Request):
+    """桌面端自动登录——仅限 localhost，返回 admin 角色 JWT。
+
+    前端 Login.vue 挂载时自动调用此接口：
+    - 成功（localhost 桌面端）→ 直接进入系统，跳过登录页
+    - 失败（远程访问部署的服务器）→ 显示常规登录表单
+    """
+    if request.client.host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(status_code=403, detail="Not available from remote")
+
+    token = jwt.encode(
+        {"username": "admin", "role": "admin"},
+        conf.jwt_secret_key,
+        algorithm="HS256",
+    )
+    logger.debug("Desktop auto-login succeeded")
+    return JSONResponse(content={
+        "message": "Auto login successful",
+        "user": {"username": "admin", "role": "admin"},
+        "token": token,
+    })

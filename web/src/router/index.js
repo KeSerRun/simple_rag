@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import axios from '@/http/interceptor'
 import Login from '@/views/Login.vue'
 import Register from '@/views/Register.vue'
 import Home from '@/views/Home.vue'
@@ -43,12 +44,24 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
     const userStore = useUserStore()
 
     if (to.meta.requiresAuth) {
         if (!userStore.isLoggedIn) {
-            return '/login'
+            // 尝试自动登录（桌面端直接进，远程无影响）
+            try {
+                const res = await axios.post('/api/auto-login')
+                if (res.status === 200) {
+                    const { token, user } = res.data
+                    userStore.token = token
+                    userStore.username = user.username
+                    userStore.role = user.role
+                }
+            } catch { /* 静默失败，走下面正常登录 */ }
+            if (!userStore.isLoggedIn) {
+                return '/login'
+            }
         }
         // admin 路由需要 admin 角色
         if (to.meta.requiresAdmin && userStore.role !== 'admin') {

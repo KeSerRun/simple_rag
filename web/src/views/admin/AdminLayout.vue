@@ -47,7 +47,7 @@
           <n-icon :size="18" :component="ArrowBackOutline" />
           <span>返回主界面</span>
         </router-link>
-        <a class="nav-item logout-link" @click="handleLogout">
+        <a v-if="!isDesktop" class="nav-item logout-link" @click="handleLogout">
           <n-icon :size="18" :component="LogOutOutline" />
           <span>退出登录</span>
         </a>
@@ -131,10 +131,13 @@ const themeStore = useThemeStore()
 
 const drawerOpen = ref(false)
 
+// 桌面端隐藏"用户管理"（__DESKTOP__ 由 app.py 根据 conf.desktop_mode 注入）
+const isDesktop = window.__DESKTOP__ === true
+
 const menuItems = [
   { path: '/admin/dashboard', label: '仪表盘', icon: SpeedometerOutline },
   { path: '/admin/settings', label: '系统设置', icon: SettingsOutline },
-  { path: '/admin/users', label: '用户管理', icon: PeopleOutline },
+  ...(!isDesktop ? [{ path: '/admin/users', label: '用户管理', icon: PeopleOutline }] : []),
   { path: '/admin/logs', label: '日志查看', icon: DocumentTextOutline },
   { path: '/admin/database', label: '数据管理', icon: ServerOutline },
   { path: '/admin/eval', label: '检索评估', icon: AnalyticsOutline },

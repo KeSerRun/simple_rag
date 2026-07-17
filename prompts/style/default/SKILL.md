@@ -1,5 +1,6 @@
 ---
 name: default
+label: 默认
 description: |
   默认风格（不加额外约束）
 ---

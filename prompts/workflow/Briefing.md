@@ -1,5 +1,6 @@
 ---
 name: Briefing
+label: 简报生成
 description: 新闻简报工作流 —— 快速搜索 → 要点提炼 → 结构化简报
 ---
 

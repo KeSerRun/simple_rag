@@ -1,5 +1,6 @@
 ---
 name: DeepResearch
+label: 深度研究
 description: 深度调研工作流 —— 多角度搜索 → 深入阅读 → 交叉验证 → 结构化报告
 ---
 

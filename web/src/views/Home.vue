@@ -385,30 +385,15 @@ const agentStatus = ref({ visible: false, text: '' })
 // 工作流
 const workflowList = ref([])
 const selectedWorkflow = ref('__auto__')
-const workflowLabelMap = {
-  'Autoplan': '自动规划',
-  'Briefing': '简报生成',
-  'Comparison': '对比分析',
-  'DeepResearch': '深度研究',
-  'USstocks': '美股分析',
-}
 const workflowOptions = computed(() => {
   const opts = [{ label: '自动', value: '__auto__' }]
   for (const wf of workflowList.value) {
-    opts.push({ label: workflowLabelMap[wf.name] || wf.name, value: wf.name })
+    opts.push({ label: wf.label || wf.name, value: wf.name })
   }
   return opts
 })
 
 // 回答风格
-const styleLabelMap = {
-  'default': '默认',
-  'buffett': '巴菲特',
-  'elon-musk': '马斯克',
-  'steve-jobs': '乔布斯',
-  'trump': '特朗普',
-  'zhangxuefeng': '张雪峰',
-}
 const styleOptions = ref([])
 const styleLoading = ref(true)
 
@@ -717,8 +702,9 @@ onMounted(() => {
   axios.get('/api/styles').then(r => {
     if (r.status === 200 && r.data.styles) {
       styleOptions.value = r.data.styles.map(s => ({
-        ...s,
-        label: styleLabelMap[s.value] || s.label,
+        value: s.value,
+        label: s.label || s.value,
+        description: s.description || '',
       }))
     }
   }).catch(() => {

@@ -1,5 +1,6 @@
 ---
 name: buffett
+label: 巴菲特
 description: |
   沃伦·巴菲特视角，长期主义、护城河、安全边际、复利效应
 ---

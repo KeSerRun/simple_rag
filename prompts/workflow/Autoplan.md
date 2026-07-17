@@ -1,5 +1,6 @@
 ---
 name: Autoplan
+label: 自动规划
 description: 规划工作流 —— 需要分解任务、制定计划、按序执行的复杂任务
 ---
 

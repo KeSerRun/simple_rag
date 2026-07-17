@@ -1,5 +1,6 @@
 ---
 name: USstocks
+label: 美股分析
 description: 美股分析工作流 —— 严格分步执行，不得跳过或改变顺序
 ---
 

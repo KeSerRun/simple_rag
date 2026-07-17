@@ -247,7 +247,14 @@ class SkillLoader:
 
     def list_skills(self) -> dict:
         """返回当前已加载的所有 skill 的概览信息。"""
-        return [{ "value": name, "label": name } for name, s in self._skills.items()]
+        return [
+            {
+                "value": name,
+                "label": s.meta.get("label", name),
+                "description": s.description,
+            }
+            for name, s in self._skills.items()
+        ]
 
     def get_skill(self, name: str) -> Optional[Skill]:
         """根据名称获取 skill。"""
@@ -274,7 +281,8 @@ class WorkflowRouter:
                 wf_name = meta.get("name") or fpath.stem
                 desc = meta.get("description") or ""
                 self._workflows[wf_name] = {
-                    "name": wf_name, "description": desc, "template": template,
+                    "name": wf_name, "label": meta.get("label", wf_name),
+                    "description": desc, "template": template,
                     "max_tool_iter": meta.get("max_tool_iter"),
                     "always_load": meta.get("always_load", False),
                 }
@@ -298,8 +306,12 @@ class WorkflowRouter:
 
     def get_workflow_list(self) -> list[dict]:
         return [
-            {"name": name, "description": info.get("description", ""),
-             "always_load": info.get("always_load", False)}
+            {
+                "name": name,
+                "label": info.get("label", name),
+                "description": info.get("description", ""),
+                "always_load": info.get("always_load", False),
+            }
             for name, info in self._workflows.items()
         ]
 

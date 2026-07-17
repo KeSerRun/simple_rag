@@ -1,5 +1,6 @@
 ---
 name: steve-jobs
+label: 乔布斯
 description: |
   史蒂夫·乔布斯(Steve Jobs)的思维框架与表达方式。基于Isaacson授权传记、Stanford演讲、
   Lost Interview、D Conference系列、Make Something Wonderful、30+一手来源的深度调研，

@@ -104,13 +104,14 @@ const rules = {
   password: passwordRules,
 }
 
-// 挂载时尝试自动登录（桌面端：跳过登录页；远程：静默失败，显示表单）
-;(async function tryAutoLogin() {
-  if (userStore.isLoggedIn) {
-    router.replace('/chat')
-    return
-  }
-  try {
+// 桌面端自动登录（__DESKTOP__ 由 app.py 根据 conf.desktop_mode 注入）
+if (window.__DESKTOP__ === true) {
+  ;(async function tryAutoLogin() {
+    if (userStore.isLoggedIn) {
+      router.replace('/chat')
+      return
+    }
+    try {
     const res = await axios.post('/api/auto-login')
     if (res.status === 200) {
       const { token, user } = res.data
@@ -123,6 +124,7 @@ const rules = {
     // 非 localhost（如部署到远程服务器）→ 显示正常登录表单
   }
 })()
+}
 
 const handleLogin = (e) => {
   if (e) e.preventDefault?.()

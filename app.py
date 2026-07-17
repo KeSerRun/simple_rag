@@ -12,7 +12,8 @@ import time
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+import jwt
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -155,18 +156,32 @@ async def health_check():
 
 
 @app.get("/images/{img_name:path}")
-async def serve_root_image(img_name: str):
+async def serve_root_image(request: Request, img_name: str, token: str = Query(None)):
     """搜索并返回图片。处理 LLM 输出的 /images/hash.jpg 格式。
 
     Args:
+        request: FastAPI 请求对象。
         img_name: 图片文件名（可包含子路径）。
+        token: 可选 JWT token 查询参数。
 
     Returns:
         图片文件的 FileResponse。
 
     Raises:
+        HTTPException 401: token 无效。
         HTTPException 404: 图片未找到。
     """
+    auth_token = token
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        auth_token = auth_header.split(" ", 1)[1]
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="missing token")
+    try:
+        jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="invalid token")
+
     img_name = img_name.rstrip("/")
     if img_name.startswith("images/"):
         img_name = img_name[7:]

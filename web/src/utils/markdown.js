@@ -98,7 +98,7 @@ const processor = unified()
   .use(rehypeHighlight)
   .use(rehypeStringify)
 
-export function renderMarkdown(text) {
+export function renderMarkdown(text, token) {
   if (!text) return ''
   try {
     // 确保标题前有换行，避免 remarkBreaks 吃掉 heading 标记
@@ -116,7 +116,19 @@ export function renderMarkdown(text) {
     )
     const normalized = sanitizeOrphanAsterisks(encodedUrls)
     const result = processor.processSync(normalized)
-    return String(result)
+    let html = String(result)
+    // 注入 token 到 <img> 标签（<img> 无法设 Authorization 头）
+    if (token) {
+      html = html.replace(
+        /(<img\s[^>]*src=")([^"]+)(")/g,
+        (match, prefix, src, suffix) => {
+          if (src.includes('token=')) return match
+          const sep = src.includes('?') ? '&' : '?'
+          return prefix + src + sep + 'token=' + encodeURIComponent(token) + suffix
+        }
+      )
+    }
+    return html
   } catch (e) {
     console.error('[renderMarkdown] 渲染失败:', e)
     try {

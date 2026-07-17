@@ -48,8 +48,8 @@ router.beforeEach(async (to) => {
     const userStore = useUserStore()
 
     if (to.meta.requiresAuth) {
-        if (!userStore.isLoggedIn) {
-            // 尝试自动登录（桌面端直接进，远程无影响）
+        if (!userStore.isLoggedIn && window.__DESKTOP__ === true) {
+            // 桌面端自动登录
             try {
                 const res = await axios.post('/api/auto-login')
                 if (res.status === 200) {
@@ -58,10 +58,10 @@ router.beforeEach(async (to) => {
                     userStore.username = user.username
                     userStore.role = user.role
                 }
-            } catch { /* 静默失败，走下面正常登录 */ }
-            if (!userStore.isLoggedIn) {
-                return '/login'
-            }
+            } catch { /* 静默失败 */ }
+        }
+        if (!userStore.isLoggedIn) {
+            return '/login'
         }
         // admin 路由需要 admin 角色
         if (to.meta.requiresAdmin && userStore.role !== 'admin') {

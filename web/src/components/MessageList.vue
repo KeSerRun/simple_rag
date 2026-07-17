@@ -47,10 +47,10 @@
             <summary class="reasoning-header">
               <span class="reasoning-toggle">🤔 思考过程</span>
             </summary>
-            <div class="reasoning-content" v-html="renderMarkdown(msg.reasoning)"></div>
+            <div class="reasoning-content" v-html="renderMarkdown(msg.reasoning, userStore.token)"></div>
           </details>
           <!-- 主回答 -->
-          <div class="ai-content" v-html="renderMarkdown(msg.content)"></div>
+          <div class="ai-content" v-html="renderMarkdown(msg.content, userStore.token)"></div>
         </div>
         <!-- 中断提示 -->
         <div v-if="msg.isCancelled" class="cancelled-hint">
@@ -92,6 +92,7 @@ import { renderMarkdown } from '@/utils/markdown'
 // Using renderMarkdown directly in template (no wrapper needed)
 import { NAvatar, NIcon, NH2, NText } from 'naive-ui'
 import { PersonOutline, SparklesOutline } from '@vicons/ionicons5'
+import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
   messages: { type: Array, required: true },
@@ -101,6 +102,8 @@ const props = defineProps({
 })
 
 const messagesContainer = ref(null)
+
+const userStore = useUserStore()
 
 const sessionIdDisplay = computed(() =>
   props.currentSessionId ? `${props.currentSessionId.substring(0, 8)}...` : ''

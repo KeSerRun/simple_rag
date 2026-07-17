@@ -599,13 +599,15 @@ async def serve_mineru_image(
     if auth_header and auth_header.startswith("Bearer "):
         auth_token = auth_header.split(" ", 1)[1]
 
-    if auth_token:
-        try:
-            payload = jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="missing token")
 
-            request.state.user = payload
-        except jwt.PyJWTError:
-            raise HTTPException(status_code=401, detail="invalid token")
+    try:
+        payload = jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
+
+        request.state.user = payload
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="invalid token")
 
     base_dir = Path(conf.data_dir) / "uploads" / "*" / "chunk_out" / doc_stem
 
@@ -692,12 +694,14 @@ async def serve_mineru_image_global(
     if auth_header and auth_header.startswith("Bearer "):
         auth_token = auth_header.split(" ", 1)[1]
 
-    if auth_token:
-        try:
-            payload = jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
-            request.state.user = payload
-        except jwt.PyJWTError:
-            raise HTTPException(status_code=401, detail="invalid token")
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="missing token")
+
+    try:
+        payload = jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
+        request.state.user = payload
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="invalid token")
 
     img_name = img_name.rstrip("/")
 

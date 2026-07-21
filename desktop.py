@@ -25,7 +25,7 @@ import urllib.error
 # ═══════════════════════════════════════════════════════════════
 if False:
     # 仅用于 PyInstaller 依赖追踪，实际运行时永不执行
-    import app as _                      # noqa: F401
+    import app as _                     # noqa: F401
     import api.auth as _                # noqa: F401
     import api.documents as _           # noqa: F401
     import api.history as _             # noqa: F401

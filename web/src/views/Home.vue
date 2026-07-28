@@ -715,16 +715,20 @@ const handleLogout = () => {
 onMounted(() => {
   fetchUserSessions()
   fetchDocuments()
-  // 健康检查（静默执行，仅异常时记录）
-  axios.get('/api/health/check').then(r => {
-    healthStatus.value = r.data
-    if (r.data.status !== 'healthy') {
-      const names = Object.entries(r.data.checks)
-        .filter(([,c]) => c.status !== 'healthy')
-        .map(([n]) => n)
-      console.warn('服务异常:', names.join(', '))
-    }
-  }).catch(() => {})
+  // 健康检查（仅桌面端显示状态图标）
+  if (window.__DESKTOP__) {
+    axios.get('/api/health/check').then(r => {
+      healthStatus.value = r.data
+      if (r.data.status !== 'healthy') {
+        const names = Object.entries(r.data.checks)
+          .filter(([,c]) => c.status !== 'healthy')
+          .map(([n]) => n)
+        console.warn('[health] 服务异常:', names.join(', '))
+      }
+    }).catch(e => {
+      console.warn('[health] 检查失败:', e.message)
+    })
+  }
   // 加载风格
   axios.get('/api/styles').then(r => {
     if (r.status === 200 && r.data.styles) {

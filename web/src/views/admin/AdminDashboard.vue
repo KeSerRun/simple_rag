@@ -244,6 +244,7 @@ function loadData() {
 
 onMounted(() => {
   loadData()
+  store.fetchHealth()  // 独立并行加载，不阻塞仪表盘
 })
 </script>
 

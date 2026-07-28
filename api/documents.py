@@ -554,11 +554,18 @@ async def get_storage_info(request: Request):
 
 
 @router.get("/documents/file/{filename:path}")
-
-@auth_required
-async def download_document(request: Request, filename: str):
+async def download_document(
+    request: Request,
+    filename: str,
+    token: str = Query(None, description="JWT token（桌面端无法携带 Header 时用）"),
+):
 
     """返回当前用户上传过的原文件,浏览器可直接打开(PDF inline)或下载。
+
+    # ── 认证
+
+    同时支持 ``Authorization: Bearer <token>`` 头和 ``?token=`` 查询参数，
+    供桌面端 PyWebView ``<a>`` 标签直接加载使用。
 
     # ── 安全
 
@@ -567,17 +574,30 @@ async def download_document(request: Request, filename: str):
     Args:
         request: FastAPI 请求对象。
         filename: 文件名(可含子路径)。
+        token: 可选 JWT token 查询参数。
 
     Returns:
         FileResponse: 文件响应,Content-Disposition 为 inline。
 
     Raises:
         HTTPException 400: 文件名字符不合法。
+        HTTPException 401: token 无效。
         HTTPException 403: 路径穿越。
         HTTPException 404: 文件不存在。
     """
 
-    username = request.state.user["username"]
+    # ── 兼容 token 查询参数 ──────────────────────────────────
+    auth_token = token
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        auth_token = auth_header.split(" ", 1)[1]
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="missing token")
+    try:
+        payload = jwt.decode(auth_token.encode("utf-8"), conf.jwt_secret_key, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="invalid token")
+    username = payload.get("username", "")
 
     upload_root = Path(_user_upload_dir(username)).resolve()
 

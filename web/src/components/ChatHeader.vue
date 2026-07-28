@@ -55,17 +55,6 @@
         退出登录
       </n-tooltip>
 
-      <n-tooltip v-if="userStore.role === 'admin'" placement="bottom">
-        <template #trigger>
-          <n-button quaternary circle size="small" @click="goToAdmin">
-            <template #icon>
-              <n-icon :component="SettingsOutline" />
-            </template>
-          </n-button>
-        </template>
-        管理后台
-      </n-tooltip>
-
       <!-- 健康状态指示 -->
       <n-tooltip v-if="healthStatus" placement="bottom" :width="healthAlert ? 260 : 150">
         <template #trigger>
@@ -87,6 +76,17 @@
             所有服务正常
           </template>
         </div>
+      </n-tooltip>
+
+      <n-tooltip v-if="userStore.role === 'admin'" placement="bottom">
+        <template #trigger>
+          <n-button quaternary circle size="small" @click="goToAdmin">
+            <template #icon>
+              <n-icon :component="SettingsOutline" />
+            </template>
+          </n-button>
+        </template>
+        管理后台
       </n-tooltip>
     </n-space>
   </header>

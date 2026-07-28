@@ -168,26 +168,39 @@ const closeDocManager = () => {
   isDocModalOpen.value = false
 }
 
-// 双击文档: 通过 axios 带 JWT 拿 blob, 浏览器新标签打开 (PDF 直接预览, 其它走下载)
+// 双击文档: 浏览器用 blob + 新标签，桌面端用直接 URL + token
 const openDocument = async (docName) => {
   try {
-    const response = await axios.get(
-      `/api/documents/file/${encodeURIComponent(docName)}`,
-      { responseType: 'blob' }
-    )
-    const url = URL.createObjectURL(response.data)
-    const win = window.open(url, '_blank')
-    if (!win) {
-      // 弹窗被拦截时回退为下载
+    if (window.__DESKTOP__) {
+      // 桌面端: window.open 无法打开 blob URL，改用直接 URL + token
+      const token = userStore.token
+      const url = `/api/documents/file/${encodeURIComponent(docName)}?token=${encodeURIComponent(token)}`
       const a = document.createElement('a')
       a.href = url
-      a.download = docName
+      a.target = '_blank'
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
+    } else {
+      // 浏览器: blob URL + 新标签（原生 PDF 预览）
+      const response = await axios.get(
+        `/api/documents/file/${encodeURIComponent(docName)}`,
+        { responseType: 'blob' }
+      )
+      const url = URL.createObjectURL(response.data)
+      const win = window.open(url, '_blank')
+      if (!win) {
+        // 弹窗被拦截时回退为下载
+        const a = document.createElement('a')
+        a.href = url
+        a.download = docName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }
+      // 留一点时间让新窗口加载完再释放
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
     }
-    // 留一点时间让新窗口加载完再释放
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
   } catch (error) {
     const detail = error.response?.status === 404 ? '原文件已不存在' : '打开失败'
     message.error(detail)

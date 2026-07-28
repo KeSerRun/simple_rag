@@ -127,6 +127,9 @@ def _write_config_ini(updates: dict) -> bool:
         "app_log_level": ("logger", "app_log_level"),
         "http_log_level": ("logger", "http_log_level"),
         "console_log_level": ("logger", "console_log_level"),
+        "user_log_level": ("logger", "user_log_level"),
+        "log_max_mb": ("logger", "log_max_mb"),
+        "log_backup_count": ("logger", "log_backup_count"),
         "max_user_storage_mb": ("upload", "max_user_storage_mb"),
     }
 

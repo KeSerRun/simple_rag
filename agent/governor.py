@@ -18,7 +18,7 @@ def _do_archive(data_store: object, session_id: str, label: str):
         return
     try:
         shutil.copy2(src, dst)
-        logger.info(f"历史已归档({label}): arch_{session_id}.json")
+        logger.debug(f"历史已归档({label}): arch_{session_id}.json")
     except OSError as e:
         logger.warning(f"历史归档失败({label}): {e}")
 
@@ -54,7 +54,7 @@ def compress_history(
         for m in e.get("messages", [])
     )
 
-    logger.info(
+    logger.debug(
         f"压缩历史: session={session_id}, "
         f"{turn_count} 轮, {total_chars} chars, "
         f"ratio={compression_ratio}"
@@ -86,7 +86,7 @@ def compress_history(
 
     history_dir = os.path.join(data_store._json_dir, "history")
     data_store._write_json(os.path.join(history_dir, f"{session_id}.json"), history)
-    logger.info(
+    logger.debug(
         f"历史压缩完成: 压缩 {compressed_count} 条工具结果, "
         f"节省 {saved_chars} chars"
     )
@@ -154,7 +154,7 @@ def truncate_history(
 
     history_dir = os.path.join(data_store._json_dir, "history")
     data_store._write_json(os.path.join(history_dir, f"{session_id}.json"), keep)
-    logger.info(
+    logger.debug(
         f"历史截断完成: 丢弃 {dropped} 条, "
         f"剩余 {len(keep)} 条"
     )

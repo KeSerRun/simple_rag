@@ -301,6 +301,10 @@ class Config:
         self.tool_page_chars = config.getint('governance', 'tool_page_chars', fallback=5000)
         self.compression_ratio = config.getfloat('governance', 'compression_ratio', fallback=0.3)
 
+        # ── 日志滚动配置 ──
+        self.log_max_mb = config.getint('logger', 'log_max_mb', fallback=10)
+        self.log_backup_count = config.getint('logger', 'log_backup_count', fallback=3)
+
         self._validate()
 
     def _init_runtime(self):

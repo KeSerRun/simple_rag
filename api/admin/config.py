@@ -63,6 +63,10 @@ _CONFIG_SCHEMA = [
      "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
     {"key": "user_log_level", "label": "用户操作日志级别", "group": "日志配置", "type": "select",
      "options": [{"label": "DEBUG", "value": "DEBUG"}, {"label": "INFO", "value": "INFO"}, {"label": "WARNING", "value": "WARNING"}, {"label": "ERROR", "value": "ERROR"}]},
+    {"key": "log_backup_count", "label": "日志备份数", "group": "日志配置", "type": "int", "min": 0, "max": 20,
+     "hint": "滚动窗口保留的备份文件数，如 3 表示每个日志保留 app.log + app.log.1~3"},
+    {"key": "log_max_mb", "label": "单日志文件上限(MB)", "group": "日志配置", "type": "int", "min": 1, "max": 100,
+     "hint": "单个日志文件达到此大小后自动轮转"},
 
 
     {"key": "max_user_storage_mb", "label": "用户存储上限(MB)", "group": "上传限制", "type": "int", "min": 0, "max": 10000},

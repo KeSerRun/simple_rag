@@ -68,12 +68,13 @@ _HEALTH_URL = f"{BACKEND_URL}/api/health"
 def start_backend():
     """在后台线程中启动 uvicorn 服务器。"""
     import uvicorn
+    from base.logger import get_uvicorn_log_config
 
     uvicorn.run(
         "app:app",
         host="127.0.0.1",
         port=BACKEND_PORT,
-        log_level="warning",
+        log_config=get_uvicorn_log_config(),
         access_log=False,
     )
 
@@ -155,6 +156,12 @@ def _fix_bundle_paths():
 
 
 def main():
+    # 先加载日志系统（在 redirect stdout 之前，否则日志不工作）
+    ensure_workdir()
+    _fix_bundle_paths()
+
+    from base.logger import logger as log
+
     # GUI 模式（console=False）下 stdout/stderr 为空，重定向到 logs 目录
     if getattr(sys, "frozen", False) and not sys.stdout:
         log_dir = os.path.join(get_base_dir(), "logs")
@@ -163,16 +170,13 @@ def main():
         sys.stdout = open(log_path, "a", encoding="utf-8")
         sys.stderr = sys.stdout
 
-    ensure_workdir()
-    _fix_bundle_paths()
-
     # 桌面端标记：前端据此隐藏登录/用户管理等
     from base.config import conf
     conf.desktop_mode = True
 
     # 检查是否在本项目目录下
     if not os.path.isfile("config.ini"):
-        print("[desktop] 错误: 未找到 config.ini，请确保在项目根目录运行。")
+        log.error("未找到 config.ini，请确保在项目根目录运行。")
         sys.exit(1)
 
     # 创建超级用户（与 app.py 行为一致）
@@ -187,19 +191,23 @@ def main():
     t = threading.Thread(target=start_backend, daemon=True)
     t.start()
 
-    print(f"[desktop] 后端启动中... (端口 {BACKEND_PORT})")
+    log.info("后端启动中... (端口 %s)", BACKEND_PORT)
     ready = wait_for_server()
     if not ready:
-        print("[desktop] 错误: 后端启动超时，请检查 config.ini 配置。")
+        log.error("后端启动超时，请检查 config.ini 配置。")
         sys.exit(1)
 
-    print("[desktop] 后端就绪，正在检查外部服务状态...")
+    log.info("后端就绪，正在检查外部服务状态...")
     check_dependencies()
 
-    print("[desktop] 正在打开桌面窗口...")
+    # uvicorn 启动后再注入颜色，确保其 StreamHandler 已创建
+    from base.logger import configure_third_party_logging
+    configure_third_party_logging()
+
+    log.info("正在打开桌面窗口...")
     open_window()
 
-    print("[desktop] 窗口已关闭，程序退出。")
+    log.info("窗口已关闭，程序退出。")
     sys.exit(0)
 
 

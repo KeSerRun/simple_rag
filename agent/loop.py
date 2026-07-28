@@ -28,7 +28,6 @@ from .tools._infra_handlers import _get_goal_line
 
 
 
-
 # ── 工具循环 ──
 class ToolLoop:
     """RAG 系统核心入口，管理 LLM 客户端、向量库、工具注册表和工作流路由。
@@ -99,7 +98,7 @@ class ToolLoop:
             wf_content = self.system_context.workflow_router.get_workflow_content(wf_name)
             if wf_content:
                 parts.append(f"\n\n---\n# 工作流: {wf_name}\n{wf_content}")
-                logger.info(f"工作流已加载: {wf_name}")
+                logger.debug(f"工作流已加载: {wf_name}")
             else:
                 logger.warning(f"工作流 '{wf_name}' 未找到")
         else:
@@ -129,7 +128,7 @@ class ToolLoop:
         核心流程：
           1. 构建 system message（身份 + 时间 + 风格 + 工作流）
           2. 组装 messages（system + history + query）
-          3. 根据 stream 参数选择 _run_tool_loop 或 _run_tool_loop_stream
+          3. 根据 stream 参数选择 _run 或 _run_stream
 
         Args:
             query: 用户当前问题。
@@ -192,6 +191,100 @@ class ToolLoop:
         return self._run(state, save_start=_save_start)
 
 
+    # ── 共享工具执行 ──
+
+    def _build_tool_context(self, state: AgentState) -> ToolContext:
+        """从 AgentState 构建工具运行时上下文。
+
+        Args:
+            state: 当前 AgentState 实例。
+
+        Returns:
+            ToolContext 实例。
+        """
+        return ToolContext(
+            vector_store=self.vector_store,
+            partition=state.partition,
+            data_store=self.data_store,
+            session_id=state.session_id,
+            workflow_router=getattr(self.system_context, "workflow_router", None),
+        )
+
+    @staticmethod
+    def _execute_single_tool(tc: dict, ctx: ToolContext) -> tuple:
+        """执行单个工具调用，带错误兜底。
+
+        Args:
+            tc: 工具调用字典，含 name、arguments、id。
+            ctx: 工具运行时上下文。
+
+        Returns:
+            (tc_id, result) 二元组。
+        """
+        try:
+            res = registry.dispatch(tc["name"], tc["arguments"], ctx=ctx)
+            logger.debug(f"工具 {tc['name']} 完成: result_len={len(res)} chars")
+            return tc["id"], res
+        except Exception as e:
+            logger.error(f"工具 {tc['name']} 执行发生严重异常: {e}", exc_info=True)
+            return tc["id"], (
+                f"(系统提示: 执行工具 {tc['name']} 时发生了严重错误: {e}，"
+                f"请尝试使用其他工具或根据现有信息回答)"
+            )
+
+    @staticmethod
+    def _execute_tool_batch(tool_calls: list, ctx: ToolContext) -> dict:
+        """并发执行一批工具调用。
+
+        使用 ThreadPoolExecutor 并发调度，自动按并发安全性分批。
+
+        Args:
+            tool_calls: 工具调用字典列表，每项含 name、arguments、id。
+            ctx: 工具运行时上下文。
+
+        Returns:
+            {tc_id: result} 映射字典。
+        """
+        import concurrent.futures
+        from .tools.registry import ToolRegistry
+
+        results: dict = {}
+        batches = ToolRegistry.partition_tool_batches(tool_calls)
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(tool_calls)
+        ) as executor:
+            for batch in batches:
+                futures = [
+                    executor.submit(ToolLoop._execute_single_tool, tc, ctx)
+                    for tc in batch
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    tc_id, result = future.result()
+                    results[tc_id] = result
+
+        return results
+
+    @staticmethod
+    def _check_clarification(tool_calls: list) -> Optional[str]:
+        """检查工具调用列表中是否包含 ask_user_for_clarification。
+
+        Args:
+            tool_calls: 工具调用字典列表。
+
+        Returns:
+            澄清问题文本，无澄清请求时返回 None。
+        """
+        import json
+        for tc in tool_calls:
+            if tc["name"] == "ask_user_for_clarification":
+                try:
+                    return json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")
+                except Exception:
+                    return "我需要您提供更多背景信息。"
+        return None
+
+
     # ── 非流式工具循环 ──
 
     def _run(self, state: AgentState, save_start: int = 0) -> str:
@@ -218,17 +311,15 @@ class ToolLoop:
 
         while state.should_continue():
 
-            truncated_messages = state.messages
+            log_llm_input(state.messages, round=state.iteration, suffix="_sent")
 
-            log_llm_input(truncated_messages, round=state.iteration, suffix="_sent")
-
-            total_chars = sum(len(str(m.get("content", "") or "")) for m in truncated_messages)
-            logger.debug(f"非流式 LLM 调用: msg_count={len(truncated_messages)}, "
+            total_chars = sum(len(str(m.get("content", "") or "")) for m in state.messages)
+            logger.debug(f"非流式 LLM 调用: msg_count={len(state.messages)}, "
                          f"total_chars={total_chars}, iteration={state.iteration}")
-            logger.info(f"→ LLM 输入上下文字符数: {total_chars} chars ({len(truncated_messages)} 条消息)")
+            logger.debug(f"→ LLM 输入上下文字符数: {total_chars} chars ({len(state.messages)} 条消息)")
             try:
                 resp = self.chat_client.chat_with_tools(
-                    messages=truncated_messages,
+                    messages=state.messages,
                     model=self.chat_model,
                     tools=registry.schemas,
                     tool_choice=tool_choice,
@@ -243,16 +334,16 @@ class ToolLoop:
 
             if not resp["tool_calls"]:
                 content = (resp.get("content") or "").strip()
+                # 空内容重试
                 if not content:
-                    retries = _empty_retries
-                    if retries < 2:
-                        _empty_retries = retries + 1
+                    if _empty_retries < 2:
+                        _empty_retries += 1
                         logger.warning(f"LLM 返回空内容, 自动重试 ({_empty_retries}/2)")
                         state.add_user_query("请直接回答用户的问题，不要使用工具。")
                         continue
-                length_retries = _length_retries
-                if resp.get("finish_reason") == "length" and content and length_retries < 3:
-                    _length_retries = length_retries + 1
+                # 截断续写重试
+                if resp.get("finish_reason") == "length" and content and _length_retries < 3:
+                    _length_retries += 1
                     logger.warning(f"LLM 响应被截断 (length), 自动续写 ({_length_retries}/3)")
                     state.add_assistant_response(content)
                     state.add_user_query("继续，不要重复已写过的内容。")
@@ -264,46 +355,17 @@ class ToolLoop:
             logger.debug(f"tool-loop {state.iteration} LLM 请求 {len(resp['tool_calls'])} 个工具调用")
             state.add_assistant_response(resp["content"], resp["tool_calls"])
 
-            import concurrent.futures
+            # ── 共享工具执行 ──
+            ctx = self._build_tool_context(state)
+            results = self._execute_tool_batch(resp["tool_calls"], ctx)
+            for tc_id, result in results.items():
+                state.add_tool_result(tc_id, result)
 
-            def _dispatch_task(tc):
-                try:
-                    res = registry.dispatch(
-                        tc["name"], tc["arguments"],
-                        ctx=ToolContext(
-                            vector_store=self.vector_store,
-                            partition=state.partition,
-                            data_store=self.data_store,
-                            session_id=state.session_id,
-                            workflow_router=getattr(self.system_context, "workflow_router", None),
-                        )
-                    )
-                    logger.debug(f"工具 {tc['name']} 完成: result_len={len(res)} chars")
-                    return tc["id"], res
-                except Exception as e:
-                    logger.error(f"工具 {tc['name']} 执行发生严重异常: {e}", exc_info=True)
-                    return tc["id"], f"(系统提示: 执行工具 {tc['name']} 时发生了严重错误: {e}，请尝试使用其他工具或根据现有信息回答)"
-
-            from .tools.registry import ToolRegistry
-            batches = ToolRegistry.partition_tool_batches(resp["tool_calls"])
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=len(resp["tool_calls"])
-            ) as executor:
-                for batch in batches:
-                    futures = [executor.submit(_dispatch_task, tc) for tc in batch]
-                    for future in concurrent.futures.as_completed(futures):
-                        tc_id, result = future.result()
-                        state.add_tool_result(tc_id, result)
-
-            for tc in resp["tool_calls"]:
-                if tc["name"] == "ask_user_for_clarification":
-                    import json
-                    try:
-                        q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")
-                    except Exception:
-                        q = "我需要您提供更多背景信息。"
-                    logger.debug("提前中断工具循环：LLM 需要澄清")
-                    return q
+            # ── 澄清检查 ──
+            q = self._check_clarification(resp["tool_calls"])
+            if q is not None:
+                logger.debug("提前中断工具循环：LLM 需要澄清")
+                return q
 
             state._save_turn_messages(state.session_id, self.data_store, start=save_start)
 
@@ -337,36 +399,33 @@ class ToolLoop:
             state: AgentState 实例。
             cancel_check: 中断检测函数，返回 True 时终止生成。
             emit_event: 流式事件的发送函数。
-            data_store: 数据存储实例。
             save_start: 本轮消息起始索引。
         """
         tool_choice = "auto"
         _empty_retries = 0
         _length_retries = 0
 
-        for it in range(state.max_iterations):
+        while state.should_continue():
             if cancel_check and cancel_check():
                 logger.info("工具循环被中断")
                 return
-        
+
             accumulated_content = ""
-            from typing import List
             tool_calls: List[dict] = []
 
-            if emit_event: emit_event({"type": "status", "status": "thinking"})
+            if emit_event:
+                emit_event({"type": "status", "status": "thinking"})
             yield {"type": "status", "status": "thinking"}
 
-            truncated_messages = state.messages
+            log_llm_input(state.messages, round=state.iteration, suffix="_sent")
 
-            log_llm_input(truncated_messages, round=it, suffix="_sent")
-
-            total_chars = sum(len(str(m.get("content", "") or "")) for m in truncated_messages)
-            logger.debug(f"流式 LLM 调用: msg_count={len(truncated_messages)}, "
+            total_chars = sum(len(str(m.get("content", "") or "")) for m in state.messages)
+            logger.debug(f"流式 LLM 调用: msg_count={len(state.messages)}, "
                          f"total_chars={total_chars}, iteration={state.iteration}")
-            logger.info(f"→ LLM 输入上下文字符数: {total_chars} chars ({len(truncated_messages)} 条消息)")
+            logger.debug(f"→ LLM 输入上下文字符数: {total_chars} chars ({len(state.messages)} 条消息)")
             try:
                 events = self.chat_client.chat_with_tools(
-                    messages=truncated_messages,
+                    messages=state.messages,
                     model=self.chat_model,
                     tools=registry.schemas,
                     tool_choice=tool_choice,
@@ -381,129 +440,109 @@ class ToolLoop:
                         return
                     if ev["type"] == "content":
                         accumulated_content += ev["text"]
-                        if emit_event: emit_event({"type": "token", "text": ev["text"]})
+                        if emit_event:
+                            emit_event({"type": "token", "text": ev["text"]})
                         yield {"type": "token", "text": ev["text"]}
                     elif ev["type"] == "reasoning":
-                        if emit_event: emit_event({"type": "reasoning", "text": ev["text"]})
+                        if emit_event:
+                            emit_event({"type": "reasoning", "text": ev["text"]})
                         yield {"type": "reasoning", "text": ev["text"]}
                     elif ev["type"] == "tool_calls":
                         tool_calls = ev["calls"]
                     elif ev["type"] == "finish" and ev.get("reason") == "length":
-                        if accumulated_content.strip():
-                            lr = _length_retries
-                            if lr < 3:
-                                _length_retries = lr + 1
-                                state.add_assistant_response(accumulated_content)
-                                state.add_user_query("继续，不要重复已写过的内容。")
-                                accumulated_content = ""
-                                tool_choice = "auto"
+                        # 截断续写重试
+                        if accumulated_content.strip() and _length_retries < 3:
+                            _length_retries += 1
+                            logger.warning(f"LLM 响应被截断 (length), 自动续写 ({_length_retries}/3)")
+                            state.add_assistant_response(accumulated_content)
+                            state.add_user_query("继续，不要重复已写过的内容。")
+                            accumulated_content = ""
+                            tool_choice = "auto"
+                            break  # 跳出事件循环，重新发起 LLM 调用
             except Exception as e:
-                logger.error(f"LLM tool 流式调用失败 (round {it}): {e}")
+                logger.error(f"LLM tool 流式调用失败 (round {state.iteration}): {e}")
                 if emit_event:
                     emit_event({"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"})
                 yield {"type": "token", "text": "\n\n抱歉，模型处理请求时发生了错误。"}
                 return
 
+            # 长度重试：accumulated_content 已被重置，继续下一轮
+            if not accumulated_content and _length_retries > 0 and not tool_calls:
+                # 检查是否刚从 length 重试中跳出
+                continue
+
             if not tool_calls:
                 if not accumulated_content.strip():
-                    retries = _empty_retries
-                    if retries < 2:
-                        _empty_retries = retries + 1
+                    if _empty_retries < 2:
+                        _empty_retries += 1
                         logger.warning(f"LLM 返回空内容, 自动重试 ({_empty_retries}/2)")
                         state.add_user_query("请直接回答用户的问题，不要使用工具。")
-                        if emit_event: emit_event({"type": "status", "status": "retrying"})
+                        if emit_event:
+                            emit_event({"type": "status", "status": "retrying"})
                         yield {"type": "status", "status": "retrying"}
                         continue
                 state.add_assistant_response(accumulated_content)
                 state._save_turn_messages(state.session_id, self.data_store, start=save_start)
                 return
 
-            logger.debug(f"tool-loop {it} LLM 请求 {len(tool_calls)} 个工具调用")
+            logger.debug(f"tool-loop {state.iteration} LLM 请求 {len(tool_calls)} 个工具调用")
             state.add_assistant_response(accumulated_content, tool_calls)
 
-            import concurrent.futures
+            # ── 工具调用事件（calling_tool） ──
+            import json as _json
 
-            def _dispatch_task_stream(tc):
-                import json as _json
-                tool_info = {"tool": tc["name"]}
+            def _parse_tool_display(tc: dict) -> dict:
+                """从工具调用参数提取前端展示信息。"""
+                info = {"tool": tc["name"]}
                 try:
-                    _args = _json.loads(tc.get("arguments") or "{}")
-                    if "queries" in _args:
-                        tool_info["query"] = _args["queries"]
-                    if "filename" in _args:
-                        tool_info["filename"] = _args["filename"]
-                    if "query" in _args:
-                        tool_info["query"] = [_args["query"]]
+                    args = _json.loads(tc.get("arguments") or "{}")
+                    if "queries" in args:
+                        info["query"] = args["queries"]
+                    elif "query" in args:
+                        info["query"] = [args["query"]]
+                    if "filename" in args:
+                        info["filename"] = args["filename"]
                 except Exception:
                     pass
-
-                try:
-                    res = registry.dispatch(
-                        tc["name"], tc["arguments"],
-                        ctx=ToolContext(
-                            vector_store=self.vector_store,
-                            partition=state.partition,
-                            data_store=self.data_store,
-                            session_id=state.session_id,
-                            workflow_router=getattr(self.system_context, "workflow_router", None),
-                        )
-                    )
-                    logger.debug(f"流式工具 {tc['name']} 完成: result_len={len(res)} chars")
-                except Exception as e:
-                    logger.error(f"工具 {tc['name']} 异常: {e}", exc_info=True)
-                    res = f"(系统提示: 执行工具 {tc['name']} 发生错误: {e}，请尝试其他策略)"
-
-                return tc["id"], tool_info, res
+                return info
 
             _tool_total = len(tool_calls)
-            for _tool_idx, tc in enumerate(tool_calls, start=1):
-                 import json as _json
-                 tmp_info = {"tool": tc["name"], "total": _tool_total}
-                 try:
-                     _args = _json.loads(tc.get("arguments") or "{}")
-                     if "queries" in _args:
-                         tmp_info["query"] = _args["queries"]
-                     if "filename" in _args:
-                         tmp_info["filename"] = _args["filename"]
-                     if "query" in _args:
-                         tmp_info["query"] = [_args["query"]]
-                 except Exception:
-                     pass
-                 if emit_event: emit_event({"type": "status", "status": "calling_tool", **tmp_info})
-                 yield {"type": "status", "status": "calling_tool", **tmp_info}
-
-            from .tools.registry import ToolRegistry
-            batches = ToolRegistry.partition_tool_batches(tool_calls)
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=len(tool_calls)
-            ) as executor:
-                for batch in batches:
-                    futures = [executor.submit(_dispatch_task_stream, tc) for tc in batch]
-                    for future in concurrent.futures.as_completed(futures):
-                        tc_id, tool_info, result = future.result()
-                        state.add_tool_result(tc_id, result)
-
-                        import re as _re
-                        if tool_info.get("tool") == "search_knowledge_base":
-                            _cnt = len(_re.findall(r"【片段 \d+", result))
-                            if _cnt:
-                                tool_info["chunks"] = _cnt
-                        elif tool_info.get("tool") == "web_search":
-                            _cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))
-                            if _cnt:
-                                tool_info["chunks"] = _cnt
-                        if emit_event: emit_event({"type": "status", "status": "tool_result", **tool_info})
-                        yield {"type": "status", "status": "tool_result", **tool_info}
             for tc in tool_calls:
-                if tc["name"] == "ask_user_for_clarification":
-                    import json
-                    try:
-                        q = json.loads(tc.get("arguments", "{}")).get("question", "我需要更多信息。")
-                    except Exception:
-                        q = "我需要您提供更多背景信息。"
-                    logger.debug("流式提前中断工具循环：LLM 需要澄清")
-                    yield {"type": "token", "text": "\n\n" + q}
-                    return
+                display = _parse_tool_display(tc)
+                display["total"] = _tool_total
+                if emit_event:
+                    emit_event({"type": "status", "status": "calling_tool", **display})
+                yield {"type": "status", "status": "calling_tool", **display}
+
+            # ── 共享工具执行 ──
+            ctx = self._build_tool_context(state)
+            results = self._execute_tool_batch(tool_calls, ctx)
+
+            # ── 工具结果事件（tool_result） ──
+            import re as _re
+            for tc in tool_calls:
+                result = results.get(tc["id"], "")
+                state.add_tool_result(tc["id"], result)
+
+                display = _parse_tool_display(tc)
+                if display.get("tool") == "search_knowledge_base":
+                    cnt = len(_re.findall(r"【片段 \d+", result))
+                    if cnt:
+                        display["chunks"] = cnt
+                elif display.get("tool") == "web_search":
+                    cnt = len(_re.findall(r"\[搜索结果 \d+\]", result))
+                    if cnt:
+                        display["chunks"] = cnt
+                if emit_event:
+                    emit_event({"type": "status", "status": "tool_result", **display})
+                yield {"type": "status", "status": "tool_result", **display}
+
+            # ── 澄清检查 ──
+            q = self._check_clarification(tool_calls)
+            if q is not None:
+                logger.debug("流式提前中断工具循环：LLM 需要澄清")
+                yield {"type": "token", "text": "\n\n" + q}
+                return
 
             state._save_turn_messages(state.session_id, self.data_store, start=save_start)
 
@@ -513,5 +552,3 @@ class ToolLoop:
             if emit_event:
                 emit_event({"type": "token", "text": ch})
             yield {"type": "token", "text": ch}
-        return
-

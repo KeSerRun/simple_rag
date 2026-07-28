@@ -191,13 +191,13 @@ class VectorStore:
         embed_texts = [_embed_text(doc) for doc in documents]
         if not embed_texts:
             return
-        logger.info(f"开始嵌入 {len(embed_texts)} 条文档分块,模型={self.embedding_model}")
+        logger.debug(f"开始嵌入 {len(embed_texts)} 条文档分块,模型={self.embedding_model}")
         try:
             embeddings = self._embed(embed_texts)
         except Exception as e:
             logger.error(f"文档嵌入失败,跳过入库: {e}")
             return
-        logger.info(f"嵌入完成,开始写入本地向量库")
+        logger.debug(f"嵌入完成,开始写入本地向量库")
         with self._lock:
             for i, doc in enumerate(documents):
                 text_hash = hashlib.md5(doc.page_content.encode("utf-8")).hexdigest()
@@ -218,7 +218,7 @@ class VectorStore:
                 self.dense_index = faiss.IndexFlatIP(self.dimension)
             self.dense_index.add(embeddings)
             self._save_to_disk()
-        logger.info(f"成功插入 {len(documents)} 条文档到本地向量存储")
+        logger.debug(f"成功插入 {len(documents)} 条文档到本地向量存储")
 
     # ── 文档查询与管理 ────────────────────────────────────────────
 
@@ -251,7 +251,7 @@ class VectorStore:
                 keep_indices = []
             self._apply_keep_indices(keep_indices)
             removed = before - len(self.metadata)
-        logger.info(f"清理分区 {partition}: 删除了 {removed} 个向量片段, 库中剩余 {len(self.metadata)} 条")
+        logger.debug(f"清理分区 {partition}: 删除了 {removed} 个向量片段, 库中剩余 {len(self.metadata)} 条")
 
     def delete_documents_by_sources(self, sources, partition: Optional[str] = None):
         """按文档来源删除。
@@ -271,7 +271,7 @@ class VectorStore:
                     keep_indices.append(i)
             self._apply_keep_indices(keep_indices)
             removed = before - len(self.metadata)
-        logger.info(f"按来源删除文档 {sources}: 删除了 {removed} 个向量片段, 库中剩余 {len(self.metadata)} 条")
+        logger.debug(f"按来源删除文档 {sources}: 删除了 {removed} 个向量片段, 库中剩余 {len(self.metadata)} 条")
 
     def _apply_keep_indices(self, keep_indices):
         """应用保留索引列表，删除其余向量和元数据。
@@ -428,7 +428,7 @@ def load_sigle_document(root, file_name):
                 d.metadata["source"] = file_name
                 d.metadata["extension"] = ext
                 d.metadata["timestamp"] = datetime.now().isoformat()
-            logger.info(f"成功加载文档: {file_path}")
+            logger.debug(f"成功加载文档: {file_path}")
             return doc
         except Exception as e:
             logger.error(f"加载文档失败: {file_path}, 错误: {e}")
@@ -486,7 +486,7 @@ def process_documents_from_dir(directory) -> List[Document]:
     else:
         logger.error(f"无效的路径: {directory}")
         return []
-    logger.info(f"加载的文档数量: {len(documents)}")
+    logger.debug(f"加载的文档数量: {len(documents)}")
 
     min_len = conf.min_chunk_length
     before = len(documents)

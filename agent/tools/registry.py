@@ -259,7 +259,7 @@ class ToolRegistry:
 
         self.call_counts[name] = self.call_counts.get(name, 0) + 1
 
-        logger.info(f"工具调用: {name} (累计: {self.call_counts[name]})")
+        logger.debug(f"工具调用: {name} (累计: {self.call_counts[name]})")
 
         try:
             result = tool.handler(args, ctx)

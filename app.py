@@ -10,6 +10,7 @@ import mimetypes
 import os
 import time
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import jwt
@@ -19,7 +20,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from base.config import conf
-from base.logger import logger, log_http
+from base.logger import logger, log_http, configure_third_party_logging
 
 from api import admin, auth, documents, health_check, history, query, sessions
 from api.auth import create_superusers
@@ -74,7 +75,15 @@ admin.request_stats = request_stats
 
 # ── 应用初始化 ────────────────────────────────────────────────────
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """应用生命周期管理：启动时注入彩色日志到 uvicorn。"""
+    configure_third_party_logging()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -232,4 +241,5 @@ if __name__ == "__main__":
     from base.logger import logger
     logger.info(f"主页地址: http://127.0.0.1:11000")
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=11000)
+    from base.logger import get_uvicorn_log_config
+    uvicorn.run(app, host="0.0.0.0", port=11000, log_config=get_uvicorn_log_config())

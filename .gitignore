@@ -121,3 +121,4 @@ data/
 dist/
 .claude/
 *.lock
+IDEA.md

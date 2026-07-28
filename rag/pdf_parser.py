@@ -68,7 +68,7 @@ class MinerUClient:
         self._base = conf.mineru_base_url.rstrip("/")
         self._session = requests.Session()
         self._session.headers.update({"Authorization": f"Bearer {self.token}"})
-        logger.info(f"MinerU 客户端就绪: token={self.token[:12]}...")
+        logger.debug(f"MinerU 客户端就绪: token={self.token[:12]}...")
 
     # ── 完整解析流程 ──────────────────────────────────────────────
 
@@ -89,23 +89,23 @@ class MinerUClient:
         work_dir = Path(work_dir or pdf_path.parent / "chunk_out" / pdf_path.stem)
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"[1/4] 申请上传 URL: {pdf_path.name}")
+        logger.debug(f"[1/4] 申请上传 URL: {pdf_path.name}")
         batch_id, put_url = self._request_upload_url(pdf_path.name, model_version, language)
-        logger.info(f"      batch_id={batch_id}")
+        logger.debug(f"      batch_id={batch_id}")
 
-        logger.info(f"[2/4] 上传 PDF ({pdf_path.stat().st_size / 1024:.1f} KB)")
+        logger.debug(f"[2/4] 上传 PDF ({pdf_path.stat().st_size / 1024:.1f} KB)")
         self._upload_file(put_url, pdf_path)
 
-        logger.info(f"[3/4] 等待解析完成")
+        logger.debug(f"[3/4] 等待解析完成")
         results = self._poll_batch(batch_id)
         item = results[0]
         if item.get("state") != "done":
             raise MinerUError(f"解析失败: {item.get('err_msg') or item}")
 
         zip_url = item["full_zip_url"]
-        logger.info(f"[4/4] 下载并解压: {zip_url}")
+        logger.debug(f"[4/4] 下载并解压: {zip_url}")
         out = self._download_zip(zip_url, work_dir)
-        logger.info(f"      -> {out}")
+        logger.debug(f"      -> {out}")
         return out
 
     # ── 内部 HTTP 流程 ────────────────────────────────────────────
@@ -188,10 +188,10 @@ class MinerUClient:
                         it.get("state", "unknown")
                     for it in results
                 }
-                logger.info(f"轮询状态: {states}")
+                logger.debug(f"轮询状态: {states}")
             else:
                 elapsed = time.time() - start
-                logger.info(f"extract_result 为空 (已等待 {elapsed:.0f}s), 继续等待...")
+                logger.debug(f"extract_result 为空 (已等待 {elapsed:.0f}s), 继续等待...")
 
             done_count = sum(
                 1 for it in results
@@ -220,7 +220,7 @@ class MinerUClient:
                     f"{done_count}/{len(results)} 完成"
                     if results else "等待 API 返回结果"
                 )
-                logger.info(f"[3/4] 仍在等待 (已等待 {elapsed:.0f}s, {status})...")
+                logger.debug(f"[3/4] 仍在等待 (已等待 {elapsed:.0f}s, {status})...")
 
             time.sleep(interval)
 
@@ -265,7 +265,7 @@ class MinerUClient:
         for attempt in range(4):  # 首次 + 3 次重试
             if attempt > 0:
                 wait = 2 ** (attempt - 1)  # 1, 2, 4 秒
-                logger.info(f"MinerU API 重试 ({attempt}/3), 等待 {wait}s...")
+                logger.debug(f"MinerU API 重试 ({attempt}/3), 等待 {wait}s...")
                 _time.sleep(wait)
             try:
                 resp = self._session.request(method, url, timeout=60, **kwargs)
@@ -400,7 +400,7 @@ def chunk_content_list(content_list: list, doc_meta: dict) -> list[dict]:
                 "table_body": body_text if typ == "table" else "",
             })
 
-    logger.info(f"MinerU content_list: {len(content_list)} items -> {len(chunks)} chunks")
+    logger.debug(f"MinerU content_list: {len(content_list)} items -> {len(chunks)} chunks")
     return chunks
 
 
@@ -535,7 +535,7 @@ class MinerUPDFLoader:
         chunks = chunk_content_list(content, doc_meta)
         if not chunks:
             raise RuntimeError(f"MinerU 切块结果为空: {path.name}")
-        logger.info(f"MinerU 解析完成: {path.name} -> {len(chunks)} 个 chunks")
+        logger.debug(f"MinerU 解析完成: {path.name} -> {len(chunks)} 个 chunks")
         for ch in chunks:
             content_text = ch.get("content", "")
             if not content_text:

@@ -107,7 +107,7 @@ class JSONFileStore(BaseStore):
                         os.remove(dst)
                 os.rename(src, dst)
 
-                logger.info(f"迁移 {src} → {dst}")
+                logger.debug(f"迁移 {src} → {dst}")
                 migrated = True
 
         _move(os.path.join(self.data_dir, 'users.json'), self._users_file)
@@ -117,7 +117,7 @@ class JSONFileStore(BaseStore):
         _move(os.path.join(self.data_dir, 'history'), self._history_dir)
 
         if migrated:
-            logger.info("旧文件迁移完成，后续数据将写入新路径")
+            logger.debug("旧文件迁移完成，后续数据将写入新路径")
 
     # ── JSON 读写工具 ─────────────────────────────────────────────
 

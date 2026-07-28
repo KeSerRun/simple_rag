@@ -288,7 +288,7 @@ class WorkflowRouter:
                 }
             except Exception as e:
                 logger.warning(f"工作流加载失败 {fpath.name}: {e}")
-        logger.info(f"WorkflowRouter 就绪: {len(self._workflows)} 个工作流")
+        logger.debug(f"WorkflowRouter 就绪: {len(self._workflows)} 个工作流")
 
     def get_workflow_content(self, name: str) -> Optional[str]:
         wf = self._workflows.get(name)

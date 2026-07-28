@@ -63,7 +63,7 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
     if sources is None:
         try:
             shutil.rmtree(upload_dir)
-            logger.info(f"已清空用户暂存目录: {upload_dir}")
+            logger.debug(f"已清空用户暂存目录: {upload_dir}")
         except Exception as e:
             logger.warning(f"清空 {upload_dir} 失败: {e}")
         return
@@ -75,7 +75,7 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
         if os.path.isfile(file_path):
             try:
                 os.remove(file_path)
-                logger.info(f"已删除原文件: {file_path}")
+                logger.debug(f"已删除原文件: {file_path}")
             except Exception as e:
                 logger.warning(f"删除 {file_path} 失败: {e}")
             
@@ -84,7 +84,7 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
         if os.path.isdir(mineru_sub):
             try:
                 shutil.rmtree(mineru_sub)
-                logger.info(f"已删除 chunk 产物: {mineru_sub}")
+                logger.debug(f"已删除 chunk 产物: {mineru_sub}")
             except Exception as e:
                 logger.warning(f"删除 {mineru_sub} 失败: {e}")
             
@@ -459,7 +459,7 @@ async def upload_embeddings(
 
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-            logger.info(f"准备删除同名文档旧向量: {filename}, partition={username}")
+            logger.debug(f"准备删除同名文档旧向量: {filename}, partition={username}")
 
             system.vector_store.delete_documents_by_sources([filename], partition=username)
 

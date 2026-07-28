@@ -553,13 +553,13 @@ async def delete_document(request: Request, source: str = Query(...), partition:
         file_path = os.path.join(upload_dir, source)
         if os.path.isfile(file_path):
             os.remove(file_path)
-            logger.info(f"已删除源文件: {file_path}")
+            logger.debug(f"已删除源文件: {file_path}")
 
 
         chunk_out = os.path.join(upload_dir, "chunk_out", Path(source).stem)
         if os.path.isdir(chunk_out):
             shutil.rmtree(chunk_out)
-            logger.info(f"已删除 chunk 目录: {chunk_out}")
+            logger.debug(f"已删除 chunk 目录: {chunk_out}")
 
         logger.info(f"管理员删除文档: source={source}, partition={partition}")
         return JSONResponse(content={"message": f"文档 '{source}' 已从 {partition} 删除"})
@@ -602,12 +602,12 @@ async def batch_delete_documents(request: Request):
                 file_path = os.path.join(upload_dir, source)
                 if os.path.isfile(file_path):
                     os.remove(file_path)
-                    logger.info(f"已删除源文件: {file_path}")
+                    logger.debug(f"已删除源文件: {file_path}")
 
                 chunk_out = os.path.join(upload_dir, "chunk_out", Path(source).stem)
                 if os.path.isdir(chunk_out):
                     shutil.rmtree(chunk_out)
-                    logger.info(f"已删除 chunk 目录: {chunk_out}")
+                    logger.debug(f"已删除 chunk 目录: {chunk_out}")
 
                 deleted.append(source)
             except Exception as e:

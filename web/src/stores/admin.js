@@ -30,6 +30,24 @@ export const useAdminStore = defineStore('admin', () => {
     return res.data
   }
 
+  // --- 健康检查 ---
+  const healthData = ref(null)
+  const healthLoading = ref(false)
+
+  async function fetchHealth() {
+    healthLoading.value = true
+    try {
+      const res = await axios.get('/api/health/check')
+      healthData.value = res.data
+      return res.data
+    } catch (e) {
+      error.value = e.response?.data?.detail || e.message
+      throw e
+    } finally {
+      healthLoading.value = false
+    }
+  }
+
   // --- 配置 ---
   const configData = ref(null)
 
@@ -312,6 +330,7 @@ export const useAdminStore = defineStore('admin', () => {
   return {
     loading, error,
     dashboardData, fetchDashboard,
+    healthData, healthLoading, fetchHealth,
     configData, configSchema, fetchConfig, fetchConfigSchema, updateConfig,
     usersData, fetchUsers, createUser, deleteUser, changeUserRole, resetUserPassword,
     logsData, logContent, fetchLogFiles, fetchLogContent, downloadLogFile,

@@ -61,9 +61,58 @@
         </n-grid-item>
       </n-grid>
 
+      <!-- 外部服务状态（前置） -->
+      <n-card title="外部服务状态" :bordered="true" size="small" style="margin-top: 16px">
+        <template #header-extra>
+          <n-button
+            size="tiny"
+            :loading="store.healthLoading"
+            :disabled="store.healthLoading"
+            @click="doHealthCheck"
+          >
+            <template #icon>
+              <n-icon :component="RefreshOutline" />
+            </template>
+            检查
+          </n-button>
+        </template>
+        <n-grid :cols="4" :x-gap="12" :y-gap="12">
+          <n-grid-item v-for="(check, name) in healthChecks" :key="name">
+            <n-card :bordered="false" size="tiny" class="health-card">
+              <n-thing>
+                <template #avatar>
+                  <n-icon :size="22" :color="healthColor(check.status)">
+                    <component :is="healthIcon(check.status)" />
+                  </n-icon>
+                </template>
+                <template #header>
+                  <n-text style="font-weight: 600; text-transform: capitalize">{{ name }}</n-text>
+                </template>
+                <template #description>
+                  <n-text :type="check.status === 'healthy' ? 'success' : 'error'" depth="3" style="font-size: 13px">
+                    {{ check.status === 'healthy' ? '正常' : '异常' }}
+                  </n-text>
+                </template>
+                <template v-if="check.latency_ms" #default>
+                  <n-text depth="3" style="font-size: 12px">{{ check.latency_ms }}ms</n-text>
+                </template>
+                <template v-if="check.note" #default>
+                  <n-text depth="3" style="font-size: 12px; display: block">{{ check.note }}</n-text>
+                </template>
+                <template v-if="check.error" #default>
+                  <n-ellipsis :line-clamp="2" :tooltip="{ width: 300 }">
+                    <n-text type="error" style="font-size: 12px">{{ check.error }}</n-text>
+                  </n-ellipsis>
+                </template>
+              </n-thing>
+            </n-card>
+          </n-grid-item>
+        </n-grid>
+      </n-card>
+
       <!-- 请求统计 + 系统运行信息 -->
-      <n-grid cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
-        <n-grid-item>
+      <n-grid :cols="3" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+        <n-grid-item :span="1">
           <n-card title="请求统计" :bordered="true" size="small">
             <template v-if="store.dashboardData.request_stats">
               <n-descriptions label-placement="left" :column="1" size="small">
@@ -87,26 +136,8 @@
             <n-empty v-else description="暂无请求统计" />
           </n-card>
         </n-grid-item>
-        <n-grid-item>
-          <n-card title="运行状态" :bordered="true" size="small">
-            <n-descriptions label-placement="left" :column="1" size="small">
-              <n-descriptions-item label="健康状态">
-                <n-tag :type="store.dashboardData.healthy ? 'success' : 'error'" size="small" :bordered="false">
-                  {{ store.dashboardData.healthy ? '正常' : '异常' }}
-                </n-tag>
-              </n-descriptions-item>
-              <n-descriptions-item label="运行时长">
-                {{ uptimeText }}
-              </n-descriptions-item>
-              <n-descriptions-item label="数据分区">
-                {{ partitionCount }} 个
-              </n-descriptions-item>
-            </n-descriptions>
-
-            <n-divider />
-            <n-text depth="3" style="font-size: 13px">
-              分区详情
-            </n-text>
+        <n-grid-item :span="2">
+          <n-card title="数据分区" :bordered="true" size="small">
             <n-data-table
               v-if="partitionRows.length > 0"
               :columns="partitionColumns"
@@ -114,7 +145,6 @@
               :bordered="false"
               :single-line="true"
               size="small"
-              style="margin-top: 8px"
             />
             <n-empty v-else description="暂无分区数据" style="padding: 12px 0" />
           </n-card>
@@ -149,11 +179,12 @@ import { computed, onMounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
 import {
   NCard, NStatistic, NIcon, NText, NGrid, NGridItem,
-  NDescriptions, NDescriptionsItem, NDivider, NTag, NSpace,
-   NDataTable, NEmpty, NSpin, NH2, NButton,
+  NDescriptions, NDescriptionsItem, NTag, NSpace,
+  NDataTable, NEmpty, NSpin, NH2, NButton, NEllipsis, NThing,
 } from 'naive-ui'
 import {
   PeopleOutline, ChatbubblesOutline, DocumentTextOutline, CubeOutline,
+  CheckmarkCircleOutline, CloseCircleOutline, RefreshOutline,
 } from '@vicons/ionicons5'
 
 const store = useAdminStore()
@@ -161,24 +192,6 @@ const store = useAdminStore()
 const isDesktop = window.__DESKTOP__ === true
 
 const errorCount = computed(() => store.dashboardData?.request_stats?.total_errors || 0)
-const uptimeText = computed(() => {
-  const sec = store.dashboardData?.request_stats?.uptime_seconds || 0
-  const d = Math.floor(sec / 86400)
-  const h = Math.floor((sec % 86400) / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const s = sec % 60
-  const parts = []
-  if (d > 0) parts.push(`${d}天`)
-  if (h > 0) parts.push(`${h}小时`)
-  if (m > 0) parts.push(`${m}分钟`)
-  parts.push(`${s}秒`)
-  return parts.join(' ')
-})
-
-const partitionCount = computed(() => {
-  const p = store.dashboardData?.partitions
-  return p ? Object.keys(p).length : 0
-})
 
 const partitionRows = computed(() => {
   const p = store.dashboardData?.partitions
@@ -208,6 +221,22 @@ const toolCallRows = computed(() => {
     .sort((a, b) => b[1] - a[1])  // 按调用次数降序
     .map(([name, count]) => ({ name, count }))
 })
+
+function healthColor(status) {
+  return status === 'healthy' ? '#18a058' : '#d03050'
+}
+
+function healthIcon(status) {
+  return status === 'healthy' ? CheckmarkCircleOutline : CloseCircleOutline
+}
+
+const healthChecks = computed(() => {
+  return store.healthData?.checks || store.dashboardData?.health?.checks || {}
+})
+
+async function doHealthCheck() {
+  await store.fetchHealth()
+}
 
 function loadData() {
   store.fetchDashboard()
@@ -248,5 +277,12 @@ onMounted(() => {
   float: right;
   font-weight: 600;
   color: var(--color-primary);
+}
+
+.health-card {
+  transition: box-shadow 0.2s;
+}
+.health-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 </style>

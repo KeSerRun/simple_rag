@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from base.config import conf
 from base.logger import logger, log_http
 
-from api import admin, auth, documents, history, query, sessions
+from api import admin, auth, documents, health_check, history, query, sessions
 from api.auth import create_superusers
 
 
@@ -115,6 +115,7 @@ app.include_router(sessions.router)
 app.include_router(history.router)
 app.include_router(query.router)
 app.include_router(documents.router)
+app.include_router(health_check.router)
 
 dist_path = conf.dist_dir
 assets_path = conf.assets_dir

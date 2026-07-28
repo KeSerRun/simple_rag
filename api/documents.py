@@ -5,6 +5,7 @@ import glob
 import json
 
 import jwt
+import re
 
 import mimetypes
 
@@ -87,6 +88,55 @@ def _purge_files(username: str, sources: Optional[List[str]] = None):
             except Exception as e:
                 logger.warning(f"删除 {mineru_sub} 失败: {e}")
             
+
+
+_ILLEGAL_CHARS = re.compile(r'[\x00-\x1f\\/:*?"<>|]')
+_WINDOWS_RESERVED = {
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+_MAX_FILENAME_BYTES = 200
+
+
+def _sanitize_filename(raw: str) -> str:
+    """清理上传文件名：去路径、去非法字符、去尾部空格/点、长度限制、拒绝保留名称。
+
+    Args:
+        raw: 用户传入的原始文件名。
+
+    Returns:
+        清理后的安全文件名。
+
+    Raises:
+        HTTPException 400: 清理后文件名为空或不合法。
+    """
+    # 1. 只取文件名最后一段
+    name = os.path.basename(raw)
+
+    # 2. 替换 ASCII 控制字符和 Windows 非法字符为下划线
+    name = _ILLEGAL_CHARS.sub("_", name)
+
+    # 3. Windows 自动修剪尾部空格和点
+    name = name.rstrip(" .")
+
+    # 4. 空名或只有扩展名
+    if not name or name.startswith("."):
+        raise HTTPException(status_code=400, detail=f"无效的文件名: {raw}")
+
+    # 5. Windows 保留设备名（不区分大小写）
+    stem = name.rsplit(".", 1)[0].lower()
+    if stem in _WINDOWS_RESERVED:
+        raise HTTPException(status_code=400, detail=f"文件名为系统保留名称: {name}")
+
+    # 6. UTF-8 字节长度限制
+    if len(name.encode("utf-8")) > _MAX_FILENAME_BYTES:
+        encoded = name.encode("utf-8")[:_MAX_FILENAME_BYTES]
+        name = encoded.decode("utf-8", errors="ignore").rstrip(" .")
+        if not name:
+            raise HTTPException(status_code=400, detail=f"文件名过长: {raw}")
+
+    return name
 
 
 @router.post("/add_documents")
@@ -293,7 +343,7 @@ async def upload_file(
         for file in files:
             content = await file.read()
 
-            basename = os.path.basename(file.filename)
+            basename = _sanitize_filename(file.filename)
 
             if not basename.lower().endswith('.pdf'):
                 raise HTTPException(status_code=400, detail=f"仅支持 PDF 文件，收到: {basename}")
@@ -374,7 +424,7 @@ async def upload_embeddings(
 
     for file in files:
         content = await file.read()
-        basename = os.path.basename(file.filename)
+        basename = _sanitize_filename(file.filename)
 
         if not basename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail=f"仅支持 PDF 文件，收到: {basename}")

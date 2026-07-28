@@ -65,11 +65,35 @@
         </template>
         管理后台
       </n-tooltip>
+
+      <!-- 健康状态指示 -->
+      <n-tooltip v-if="healthStatus" placement="bottom" :width="healthAlert ? 260 : 150">
+        <template #trigger>
+          <n-button quaternary circle size="small" :type="healthAlert ? 'warning' : 'default'">
+            <template #icon>
+              <n-icon :component="healthAlert ? WarningOutline : CheckmarkCircleOutline" :color="healthAlert ? undefined : '#18a058'" />
+            </template>
+          </n-button>
+        </template>
+        <div style="font-size: 13px">
+          <template v-if="healthAlert">
+            <div style="font-weight: 600; margin-bottom: 6px">部分服务异常</div>
+            <div v-for="(check, name) in healthAlert" :key="name" style="margin-bottom: 4px">
+              <span style="font-weight: 500; text-transform: capitalize">{{ name }}</span>:
+              <span style="color: #d03050">{{ check.error || check.note || '异常' }}</span>
+            </div>
+          </template>
+          <template v-else>
+            所有服务正常
+          </template>
+        </div>
+      </n-tooltip>
     </n-space>
   </header>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NButton,
@@ -86,6 +110,8 @@ import {
   SettingsOutline,
   SunnyOutline,
   MoonOutline,
+  CheckmarkCircleOutline,
+  WarningOutline,
 } from '@vicons/ionicons5'
 import { useUserStore } from '@/stores/user'
 import { useThemeStore } from '@/stores/theme'
@@ -98,6 +124,14 @@ const isDesktop = window.__DESKTOP__ === true
 const props = defineProps({
   title: { type: String, default: '新会话' },
   documentCount: { type: Number, default: 0 },
+  healthStatus: { type: Object, default: null },
+})
+
+const healthAlert = computed(() => {
+  if (!props.healthStatus || props.healthStatus.status === 'healthy') return null
+  const unhealthy = Object.entries(props.healthStatus.checks || {})
+    .filter(([, c]) => c.status !== 'healthy')
+  return Object.fromEntries(unhealthy)
 })
 
 defineEmits(['open-doc-manager', 'logout', 'toggle-sidebar'])

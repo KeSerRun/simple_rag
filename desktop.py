@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import json
 import threading
 import urllib.request
 import urllib.error
@@ -91,7 +92,42 @@ def wait_for_server(url: str = _HEALTH_URL, timeout: float = 30) -> bool:
     return False
 
 
-# ── 窗口管理 ────────────────────────────────────────────────────
+# ── 健康检查 ──────────────────────────────────────────────────────
+
+
+def check_dependencies():
+    """调用后端健康检查接口，记录各外部服务状态到日志。
+
+    不影响启动流程——无论依赖是否健康都继续打开窗口。
+    严重告警后续可通过 webview 弹窗提示。
+    """
+    from base.logger import logger as log
+
+    url = f"{BACKEND_URL}/api/health/check"
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        log.warning("健康检查接口不可用: %s", e)
+        return
+
+    overall = data.get("status", "unhealthy")
+    log.info("健康检查完成: status=%s", overall)
+
+    for name, check in data.get("checks", {}).items():
+        s = check.get("status", "?")
+        if s == "healthy":
+            ms = check.get("latency_ms", "")
+            info = f" ({ms}ms)" if ms else ""
+            note = check.get("note", "")
+            log.info("  ✅ %s%s%s", name, info, f" — {note}" if note else "")
+        else:
+            err = check.get("error", "未知错误")
+            log.warning("  ❌ %s: %s", name, err)
+
+    if overall == "unhealthy":
+        log.warning("部分服务不可用，某些功能可能受限。")
+
 
 
 def open_window():
@@ -157,7 +193,10 @@ def main():
         print("[desktop] 错误: 后端启动超时，请检查 config.ini 配置。")
         sys.exit(1)
 
-    print("[desktop] 后端就绪，正在打开桌面窗口...")
+    print("[desktop] 后端就绪，正在检查外部服务状态...")
+    check_dependencies()
+
+    print("[desktop] 正在打开桌面窗口...")
     open_window()
 
     print("[desktop] 窗口已关闭，程序退出。")

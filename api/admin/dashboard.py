@@ -1,12 +1,40 @@
 """管理后台 API - 仪表盘"""
 
+import asyncio
+import time
+
 from . import router, request_stats
 from ..deps import auth_required, admin_required, system
+from base.health import run_all
 from base.logger import logger
 from agent.tools import registry as tool_registry
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
-import time
+
+
+# ── 健康检查缓存（30 秒 TTL，避免每次打开仪表盘都调外部 API） ──────
+
+_health_cache: dict = {"data": None, "timestamp": 0.0}
+_HEALTH_TTL = 30
+
+
+def _get_cached_health() -> dict:
+    """返回缓存的健康检查结果，过期时重新执行。"""
+    global _health_cache
+    now = time.monotonic()
+    if _health_cache["data"] and (now - _health_cache["timestamp"]) < _HEALTH_TTL:
+        return _health_cache["data"]
+    try:
+        result = run_all(
+            chat_client=system.chat_client,
+            embed_client=system.embed_client,
+            vector_store=system.vector_store,
+        )
+    except Exception as e:
+        result = {"status": "unhealthy", "checks": {},
+                  "error": f"健康检查执行失败: {e}"}
+    _health_cache = {"data": result, "timestamp": now}
+    return result
 
 @router.get("/dashboard")
 
@@ -114,10 +142,15 @@ async def get_dashboard(request: Request):
                 "start_time": time.time(), "uptime_seconds": 0,
             }
 
+        # ── 依赖健康检查（缓存 30 秒） ──────────────────────
+        health = _get_cached_health()
+
         return JSONResponse(content={
 
 
-            "healthy": True,
+            "healthy": health["status"] == "healthy",
+
+            "health": health,
 
             "user_count": user_count,
 

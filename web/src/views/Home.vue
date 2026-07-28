@@ -15,6 +15,7 @@
       <ChatHeader
         :title="currentSessionTitle"
         :document-count="documentList.length"
+        :health-status="healthStatus"
         @open-doc-manager="openDocManager"
         @logout="handleLogout"
         @toggle-sidebar="drawerOpen = !drawerOpen"
@@ -397,6 +398,9 @@ const workflowOptions = computed(() => {
 const styleOptions = ref([])
 const styleLoading = ref(true)
 
+// 健康状态
+const healthStatus = ref(null)
+
 const statusLabels = {
   thinking: '深度思考中…',
   calling_tool: (info) => {
@@ -698,6 +702,16 @@ const handleLogout = () => {
 onMounted(() => {
   fetchUserSessions()
   fetchDocuments()
+  // 健康检查（静默执行，仅异常时记录）
+  axios.get('/api/health/check').then(r => {
+    healthStatus.value = r.data
+    if (r.data.status !== 'healthy') {
+      const names = Object.entries(r.data.checks)
+        .filter(([,c]) => c.status !== 'healthy')
+        .map(([n]) => n)
+      console.warn('服务异常:', names.join(', '))
+    }
+  }).catch(() => {})
   // 加载风格
   axios.get('/api/styles').then(r => {
     if (r.status === 200 && r.data.styles) {

@@ -239,7 +239,7 @@ elif html_content is not None:
 if __name__ == "__main__":
     create_superusers()
     from base.logger import logger
-    logger.info(f"主页地址: http://127.0.0.1:11000")
+    logger.info(f"主页地址: http://127.0.0.1:11000 (Press CTRL+RIGHT-CLICK to enter)")
     import uvicorn
     from base.logger import get_uvicorn_log_config
     uvicorn.run(app, host="0.0.0.0", port=11000, log_config=get_uvicorn_log_config())

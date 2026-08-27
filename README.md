@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # Simple RAG 
+=======
+# Simple RAG
+>>>>>>> 3ea944321148d40951bac26a6515d92bd75a6d76
 
 基于 FastAPI + LLM 的 RAG 知识问答系统，支持多工作流、工具调用、PDF 解析、向量检索、管理后台。
 

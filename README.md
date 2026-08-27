@@ -1,4 +1,4 @@
-# RAG Simple
+# Simple RAG
 
 基于 FastAPI + LLM 的 RAG 知识问答系统，支持多工作流、工具调用、PDF 解析、向量检索、管理后台。
 
